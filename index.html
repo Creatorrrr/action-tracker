@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Browser Motion Tracker</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <main class="app-shell" aria-labelledby="app-title">
+      <section class="workspace" aria-label="Motion analysis workspace">
+        <header class="workspace-header">
+          <div>
+            <p class="eyebrow">Motion Analysis</p>
+            <h1 id="app-title">Motion Tracker</h1>
+          </div>
+          <div class="status-strip" aria-label="Runtime status">
+            <p>
+              <span>Input</span>
+              <strong id="camera-status" aria-live="polite">Idle</strong>
+            </p>
+            <p>
+              <span>Model</span>
+              <strong id="model-status" aria-live="polite">Not loaded</strong>
+            </p>
+          </div>
+        </header>
+
+        <div class="content-grid">
+          <div class="visual-workspace" aria-label="Input and avatar preview">
+            <section class="stage-panel" aria-label="Input video preview">
+              <div class="camera-stage">
+                <video id="camera-video" autoplay muted playsinline></video>
+                <canvas id="overlay-canvas" aria-label="Tracking overlay"></canvas>
+                <div class="stage-placeholder" aria-hidden="true">
+                  <span>Input preview</span>
+                </div>
+              </div>
+              <p id="error-message" class="error-message" role="alert" aria-live="assertive"></p>
+            </section>
+
+            <section class="stage-panel" aria-label="3D avatar preview">
+              <div class="avatar-stage">
+                <canvas id="avatar-canvas" aria-label="3D avatar viewport"></canvas>
+                <button
+                  id="avatar-view-reset"
+                  class="avatar-view-reset"
+                  type="button"
+                  aria-label="Reset 3D avatar view"
+                  title="Reset 3D avatar view"
+                >
+                  Reset
+                </button>
+                <div class="stage-placeholder" aria-hidden="true">
+                  <span>3D avatar</span>
+                </div>
+              </div>
+              <dl class="avatar-status-list" aria-label="Avatar status">
+                <div>
+                  <dt>Avatar</dt>
+                  <dd id="avatar-status" aria-live="polite">Idle</dd>
+                </div>
+                <div>
+                  <dt>Bones</dt>
+                  <dd id="avatar-bone-count" aria-live="polite">0</dd>
+                </div>
+              </dl>
+            </section>
+          </div>
+
+          <aside class="control-rail" aria-label="Camera controls">
+            <section class="control-group" aria-labelledby="capture-controls-title">
+              <h2 id="capture-controls-title">Capture</h2>
+              <div class="button-row">
+                <button id="start-button" type="button">Start</button>
+                <button id="stop-button" type="button" class="secondary">Stop</button>
+              </div>
+              <label class="field file-field" for="video-file-input">
+                <span>Test video</span>
+                <input id="video-file-input" type="file" accept="video/mp4,video/webm,video/quicktime,video/*">
+              </label>
+            </section>
+
+            <section class="control-group" aria-labelledby="model-controls-title">
+              <h2 id="model-controls-title">Tracking</h2>
+              <label class="field" for="model-select">
+                <span>Model</span>
+                <select id="model-select">
+                  <option value="lite">Lite</option>
+                  <option value="full" selected>Full</option>
+                  <option value="heavy">Heavy</option>
+                </select>
+              </label>
+
+              <label class="toggle" for="mirror-toggle">
+                <input id="mirror-toggle" type="checkbox" checked>
+                <span>Mirror input</span>
+              </label>
+
+              <label class="toggle" for="avatar-skeleton-toggle">
+                <input id="avatar-skeleton-toggle" type="checkbox" checked>
+                <span>Avatar skeleton</span>
+              </label>
+            </section>
+
+            <section class="metrics-panel" aria-labelledby="metrics-title">
+              <h2 id="metrics-title">Metrics</h2>
+              <dl class="metric-list">
+                <div>
+                  <dt>FPS</dt>
+                  <dd id="fps-value">0</dd>
+                </div>
+                <div>
+                  <dt>Poses</dt>
+                  <dd id="pose-count">0</dd>
+                </div>
+                <div>
+                  <dt>Left hand</dt>
+                  <dd id="left-hand-count">0</dd>
+                </div>
+                <div>
+                  <dt>Right hand</dt>
+                  <dd id="right-hand-count">0</dd>
+                </div>
+              </dl>
+            </section>
+          </aside>
+        </div>
+      </section>
+    </main>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module" src="./src/app.js?v=20260514-avatar-orbit-2"></script>
+  </body>
+</html>
