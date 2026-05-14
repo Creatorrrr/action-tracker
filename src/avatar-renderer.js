@@ -1,18 +1,44 @@
 import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const DEFAULT_MODEL_URL = './assets/models/Xbot.glb';
 const BONE_PREFIX = 'mixamorig:';
 const MAX_DEVICE_PIXEL_RATIO = 2;
-const BODY_SMOOTH_MS = 12;
-const HAND_SMOOTH_MS = 55;
-const DEFAULT_LANDMARK_DEPTH_SCALE = 1;
+const DEFAULT_LANDMARK_DEPTH_SCALE = 0.45;
+const FIRST_UPDATE_DELTA_MS = 16.67;
 const DEPTH_REFERENCE_SCALE = 1;
 const DEPTH_MATCH_THRESHOLD_DEG = 35;
 const DEPTH_SALIENT_Z_RATIO = 0.18;
-const SCREEN_PROPORTION_SMOOTHING = 0.75;
-const MIN_BONE_LENGTH_SCALE = 0.45;
-const MAX_BONE_LENGTH_SCALE = 1.85;
+const PROPORTION_CALIBRATION_FRAMES = 30;
+const PROPORTION_CALIBRATION_MIN_SEGMENTS = 6;
+const MIN_BONE_LENGTH_SCALE = 0.72;
+const MAX_BONE_LENGTH_SCALE = 1.38;
+const MAX_HAND_LENGTH_SCALE = 1.65;
+const PERFORMANCE_SAMPLE_LIMIT = 240;
+const PERFORMANCE_BUDGETS_MS = {
+  updateMedian: 1.5,
+  updateP95: 3,
+  renderMedian: 8,
+  renderP95: 14,
+  validationMedian: 1,
+  validationP95: 2,
+};
+const RETARGET_SMOOTHING_MS = {
+  torso: 72,
+  neck: 58,
+  head: 58,
+  shoulder: 48,
+  upperArm: 34,
+  foreArm: 30,
+  upperLeg: 44,
+  lowerLeg: 40,
+  foot: 48,
+  hand: 36,
+  fingerBase: 44,
+  finger: 34,
+  relax: 76,
+};
 const ORBIT_ROTATE_SPEED = 0.006;
 const ORBIT_ZOOM_SPEED = 0.0012;
 const ORBIT_MIN_POLAR = THREE.MathUtils.degToRad(12);
@@ -82,24 +108,24 @@ const REQUIRED_BONES = [
 ];
 
 const BODY_RETARGETS = [
-  { bone: 'Hips', from: 'hipMid', to: 'shoulderMid', strength: 0.5, maxAngle: 0.75 },
-  { bone: 'Spine', from: 'hipMid', to: 'shoulderMid', strength: 0.75, maxAngle: 0.95 },
-  { bone: 'Spine1', from: 'hipMid', to: 'shoulderMid', strength: 0.82, maxAngle: 1 },
-  { bone: 'Spine2', from: 'hipMid', to: 'shoulderMid', strength: 0.9, maxAngle: 1.05 },
-  { bone: 'Neck', from: 'shoulderMid', to: 'nose', strength: 0.9, maxAngle: 1.25 },
-  { bone: 'Head', from: 'eyeMid', to: 'nose', strength: 0.75, maxAngle: 1.05 },
-  { bone: 'LeftShoulder', from: 'shoulderMid', to: 'leftShoulder', strength: 0.25, maxAngle: 0.55 },
-  { bone: 'RightShoulder', from: 'shoulderMid', to: 'rightShoulder', strength: 0.25, maxAngle: 0.55 },
-  { bone: 'LeftArm', from: 'leftShoulder', to: 'leftElbow', strength: 1, maxAngle: 2.85 },
-  { bone: 'LeftForeArm', from: 'leftElbow', to: 'leftWrist', strength: 1, maxAngle: 2.85 },
-  { bone: 'RightArm', from: 'rightShoulder', to: 'rightElbow', strength: 1, maxAngle: 2.85 },
-  { bone: 'RightForeArm', from: 'rightElbow', to: 'rightWrist', strength: 1, maxAngle: 2.85 },
-  { bone: 'LeftUpLeg', from: 'leftHip', to: 'leftKnee', strength: 1, maxAngle: 2.35 },
-  { bone: 'LeftLeg', from: 'leftKnee', to: 'leftAnkle', strength: 1, maxAngle: 2.35 },
-  { bone: 'LeftFoot', from: 'leftAnkle', to: 'leftFootIndex', strength: 0.7, maxAngle: 1.25 },
-  { bone: 'RightUpLeg', from: 'rightHip', to: 'rightKnee', strength: 1, maxAngle: 2.35 },
-  { bone: 'RightLeg', from: 'rightKnee', to: 'rightAnkle', strength: 1, maxAngle: 2.35 },
-  { bone: 'RightFoot', from: 'rightAnkle', to: 'rightFootIndex', strength: 0.7, maxAngle: 1.25 },
+  { bone: 'Hips', from: 'hipMid', to: 'shoulderMid', strength: 0.5, maxAngle: 0.75, maxTwist: 0.3, smoothing: 'torso' },
+  { bone: 'Spine', from: 'hipMid', to: 'shoulderMid', strength: 0.75, maxAngle: 0.9, maxTwist: 0.24, smoothing: 'torso' },
+  { bone: 'Spine1', from: 'hipMid', to: 'shoulderMid', strength: 0.82, maxAngle: 0.92, maxTwist: 0.24, smoothing: 'torso' },
+  { bone: 'Spine2', from: 'hipMid', to: 'shoulderMid', strength: 0.9, maxAngle: 0.95, maxTwist: 0.26, smoothing: 'torso' },
+  { bone: 'Neck', from: 'shoulderMid', to: 'nose', strength: 0.9, maxAngle: 1.05, maxTwist: 0.35, smoothing: 'neck' },
+  { bone: 'Head', from: 'eyeMid', to: 'nose', strength: 0.75, maxAngle: 0.95, maxTwist: 0.38, smoothing: 'head' },
+  { bone: 'LeftShoulder', from: 'shoulderMid', to: 'leftShoulder', strength: 0.25, maxAngle: 0.5, maxTwist: 0.25, smoothing: 'shoulder' },
+  { bone: 'RightShoulder', from: 'shoulderMid', to: 'rightShoulder', strength: 0.25, maxAngle: 0.5, maxTwist: 0.25, smoothing: 'shoulder' },
+  { bone: 'LeftArm', from: 'leftShoulder', to: 'leftElbow', strength: 1, maxAngle: 2.35, maxTwist: 0.65, smoothing: 'upperArm' },
+  { bone: 'LeftForeArm', from: 'leftElbow', to: 'leftWrist', strength: 1, maxAngle: 2.1, maxTwist: 0.45, smoothing: 'foreArm' },
+  { bone: 'RightArm', from: 'rightShoulder', to: 'rightElbow', strength: 1, maxAngle: 2.35, maxTwist: 0.65, smoothing: 'upperArm' },
+  { bone: 'RightForeArm', from: 'rightElbow', to: 'rightWrist', strength: 1, maxAngle: 2.1, maxTwist: 0.45, smoothing: 'foreArm' },
+  { bone: 'LeftUpLeg', from: 'leftHip', to: 'leftKnee', strength: 1, maxAngle: 2.05, maxTwist: 0.38, smoothing: 'upperLeg' },
+  { bone: 'LeftLeg', from: 'leftKnee', to: 'leftAnkle', strength: 1, maxAngle: 1.95, maxTwist: 0.32, smoothing: 'lowerLeg' },
+  { bone: 'LeftFoot', from: 'leftAnkle', to: 'leftFootIndex', strength: 0.7, maxAngle: 1.15, maxTwist: 0.28, smoothing: 'foot' },
+  { bone: 'RightUpLeg', from: 'rightHip', to: 'rightKnee', strength: 1, maxAngle: 2.05, maxTwist: 0.38, smoothing: 'upperLeg' },
+  { bone: 'RightLeg', from: 'rightKnee', to: 'rightAnkle', strength: 1, maxAngle: 1.95, maxTwist: 0.32, smoothing: 'lowerLeg' },
+  { bone: 'RightFoot', from: 'rightAnkle', to: 'rightFootIndex', strength: 0.7, maxAngle: 1.15, maxTwist: 0.28, smoothing: 'foot' },
 ];
 
 const BODY_VALIDATION_SEGMENTS = [
@@ -135,10 +161,10 @@ const SCREEN_LENGTH_CALIBRATION_SEGMENTS = [
   { bone: 'RightArm', sourceFrom: 'shoulderMid', sourceTo: 'rightShoulder', avatarFrom: 'shoulderMid', avatarTo: 'rightShoulder' },
   { bone: 'LeftUpLeg', sourceFrom: 'hipMid', sourceTo: 'leftHip', avatarFrom: 'hipMid', avatarTo: 'leftHip' },
   { bone: 'RightUpLeg', sourceFrom: 'hipMid', sourceTo: 'rightHip', avatarFrom: 'hipMid', avatarTo: 'rightHip' },
-  { bone: 'LeftForeArm', sourceFrom: 'leftShoulder', sourceTo: 'leftElbow', avatarFrom: 'leftShoulder', avatarTo: 'leftElbow', maxScale: 3.2 },
-  { bone: 'RightForeArm', sourceFrom: 'rightShoulder', sourceTo: 'rightElbow', avatarFrom: 'rightShoulder', avatarTo: 'rightElbow', maxScale: 3.2 },
-  { bone: 'LeftHand', sourceFrom: 'leftElbow', sourceTo: 'leftWrist', avatarFrom: 'leftElbow', avatarTo: 'leftWrist', maxScale: 3.2 },
-  { bone: 'RightHand', sourceFrom: 'rightElbow', sourceTo: 'rightWrist', avatarFrom: 'rightElbow', avatarTo: 'rightWrist', maxScale: 3.2 },
+  { bone: 'LeftForeArm', sourceFrom: 'leftShoulder', sourceTo: 'leftElbow', avatarFrom: 'leftShoulder', avatarTo: 'leftElbow' },
+  { bone: 'RightForeArm', sourceFrom: 'rightShoulder', sourceTo: 'rightElbow', avatarFrom: 'rightShoulder', avatarTo: 'rightElbow' },
+  { bone: 'LeftHand', sourceFrom: 'leftElbow', sourceTo: 'leftWrist', avatarFrom: 'leftElbow', avatarTo: 'leftWrist', maxScale: MAX_HAND_LENGTH_SCALE },
+  { bone: 'RightHand', sourceFrom: 'rightElbow', sourceTo: 'rightWrist', avatarFrom: 'rightElbow', avatarTo: 'rightWrist', maxScale: MAX_HAND_LENGTH_SCALE },
   { bone: 'LeftLeg', sourceFrom: 'leftHip', sourceTo: 'leftKnee', avatarFrom: 'leftHip', avatarTo: 'leftKnee' },
   { bone: 'RightLeg', sourceFrom: 'rightHip', sourceTo: 'rightKnee', avatarFrom: 'rightHip', avatarTo: 'rightKnee' },
   { bone: 'LeftFoot', sourceFrom: 'leftKnee', sourceTo: 'leftAnkle', avatarFrom: 'leftKnee', avatarTo: 'leftAnkle' },
@@ -155,10 +181,18 @@ const FINGER_SEGMENTS = [
 const tmpVectorA = new THREE.Vector3();
 const tmpVectorB = new THREE.Vector3();
 const tmpVectorC = new THREE.Vector3();
+const tmpVectorD = new THREE.Vector3();
+const tmpVectorE = new THREE.Vector3();
+const tmpVectorF = new THREE.Vector3();
 const tmpSize = new THREE.Vector2();
 const tmpQuaternionA = new THREE.Quaternion();
 const tmpQuaternionB = new THREE.Quaternion();
 const tmpQuaternionC = new THREE.Quaternion();
+const tmpQuaternionD = new THREE.Quaternion();
+const tmpQuaternionE = new THREE.Quaternion();
+const tmpQuaternionF = new THREE.Quaternion();
+const tmpMatrixA = new THREE.Matrix4();
+const tmpMatrixB = new THREE.Matrix4();
 const tmpSpherical = new THREE.Spherical();
 
 export function createAvatarRenderer(options = {}) {
@@ -172,6 +206,8 @@ export function createAvatarRenderer(options = {}) {
   let camera = null;
   let model = null;
   let skeletonHelper = null;
+  let environmentTexture = null;
+  let contactShadow = null;
   let animationFrameId = null;
   let initPromise = null;
   let disposed = false;
@@ -204,6 +240,19 @@ export function createAvatarRenderer(options = {}) {
   const fingerChains = {
     Left: new Map(),
     Right: new Map(),
+  };
+  const proportionCalibration = {
+    frames: 0,
+    frozen: false,
+    sums: new Map(),
+    counts: new Map(),
+    lastAppliedCount: 0,
+    lastMaxScaleDelta: 0,
+  };
+  const performanceStats = {
+    updateMs: [],
+    renderMs: [],
+    validationMs: [],
   };
 
   async function init() {
@@ -258,29 +307,42 @@ export function createAvatarRenderer(options = {}) {
       return;
     }
 
+    const startedAt = nowMs();
+
     try {
       const delta = updateDelta(timestamp);
-      const bodyAlpha = smoothingAlpha(delta, BODY_SMOOTH_MS);
-      const handAlpha = smoothingAlpha(delta, HAND_SMOOTH_MS);
+      const relaxAlpha = smoothingAlpha(delta, RETARGET_SMOOTHING_MS.relax);
       const poseLandmarks = extractPoseLandmarks(poseResults);
       const worldLandmarks = extractWorldPoseLandmarks(poseResults);
       const hands = extractHands(handResults, mirrored);
 
       if (poseLandmarks) {
-        applyPose(poseLandmarks, mirrored, bodyAlpha, worldLandmarks);
-        applyScreenSpaceProportionCalibration(poseLandmarks, mirrored, bodyAlpha);
+        applyPose(poseLandmarks, mirrored, delta, worldLandmarks);
+        applyScreenSpaceProportionCalibration(poseLandmarks, mirrored);
       } else {
-        relaxBody(bodyAlpha * 0.45);
+        relaxBody(relaxAlpha * 0.45);
       }
 
-      applyHands(hands, mirrored, handAlpha);
+      applyHands(hands, mirrored, delta);
     } catch (error) {
       // Bad detector payloads should not break the camera loop.
       console.warn('Avatar update skipped', error);
+    } finally {
+      recordPerformanceSample(performanceStats.updateMs, nowMs() - startedAt);
     }
   }
 
-  function getBodyValidationSnapshot({ poseResults = null, mirrored = false, timestamp = 0 } = {}) {
+  function getBodyValidationSnapshot(options = {}) {
+    const startedAt = nowMs();
+
+    try {
+      return getBodyValidationSnapshotInternal(options);
+    } finally {
+      recordPerformanceSample(performanceStats.validationMs, nowMs() - startedAt);
+    }
+  }
+
+  function getBodyValidationSnapshotInternal({ poseResults = null, mirrored = false, timestamp = 0 } = {}) {
     if (!ready || failed || disposed) {
       return {
         ready: false,
@@ -319,7 +381,17 @@ export function createAvatarRenderer(options = {}) {
     };
   }
 
-  function getProjectedBodyPoseSnapshot({ poseResults = null, mirrored = false, timestamp = 0 } = {}) {
+  function getProjectedBodyPoseSnapshot(options = {}) {
+    const startedAt = nowMs();
+
+    try {
+      return getProjectedBodyPoseSnapshotInternal(options);
+    } finally {
+      recordPerformanceSample(performanceStats.validationMs, nowMs() - startedAt);
+    }
+  }
+
+  function getProjectedBodyPoseSnapshotInternal({ poseResults = null, mirrored = false, timestamp = 0 } = {}) {
     if (!ready || failed || disposed || !camera) {
       return {
         ready: false,
@@ -376,7 +448,17 @@ export function createAvatarRenderer(options = {}) {
     };
   }
 
-  function getDepthValidationSnapshot({ poseResults = null, mirrored = false, timestamp = 0 } = {}) {
+  function getDepthValidationSnapshot(options = {}) {
+    const startedAt = nowMs();
+
+    try {
+      return getDepthValidationSnapshotInternal(options);
+    } finally {
+      recordPerformanceSample(performanceStats.validationMs, nowMs() - startedAt);
+    }
+  }
+
+  function getDepthValidationSnapshotInternal({ poseResults = null, mirrored = false, timestamp = 0 } = {}) {
     if (!ready || failed || disposed) {
       return {
         ready: false,
@@ -429,6 +511,7 @@ export function createAvatarRenderer(options = {}) {
   }
 
   function resetPose() {
+    resetProportionCalibration();
     restoreRestPose(1);
   }
 
@@ -453,6 +536,30 @@ export function createAvatarRenderer(options = {}) {
 
   function getDepthScale() {
     return landmarkDepthScale;
+  }
+
+  function getPerformanceSnapshot() {
+    return {
+      budgetsMs: { ...PERFORMANCE_BUDGETS_MS },
+      samples: {
+        update: summarizePerformanceSamples(performanceStats.updateMs),
+        render: summarizePerformanceSamples(performanceStats.renderMs),
+        validation: summarizePerformanceSamples(performanceStats.validationMs),
+      },
+      calibration: {
+        frames: proportionCalibration.frames,
+        frozen: proportionCalibration.frozen,
+        appliedSegments: proportionCalibration.lastAppliedCount,
+        maxScaleDelta: proportionCalibration.lastMaxScaleDelta,
+      },
+    };
+  }
+
+  function clearPerformanceSamples() {
+    performanceStats.updateMs.length = 0;
+    performanceStats.renderMs.length = 0;
+    performanceStats.validationMs.length = 0;
+    return getPerformanceSnapshot();
   }
 
   function setSkeletonVisible(value) {
@@ -487,18 +594,22 @@ export function createAvatarRenderer(options = {}) {
     initPromise = null;
 
     disposeSkeletonHelper();
+    disposeContactShadow();
     disposeModelResources(model);
+    disposeEnvironmentTexture();
     renderer?.dispose?.();
     renderer = null;
     scene = null;
     camera = null;
     model = null;
     skeletonHelper = null;
+    contactShadow = null;
     bones.clear();
     restPose.clear();
     bodyBoneNames.clear();
     fingerChains.Left.clear();
     fingerChains.Right.clear();
+    resetProportionCalibration();
   }
 
   function getValidationSegment(segment, points) {
@@ -634,18 +745,30 @@ export function createAvatarRenderer(options = {}) {
     if ('outputColorSpace' in renderer) {
       renderer.outputColorSpace = THREE.SRGBColorSpace;
     }
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.05;
+    renderer.setClearAlpha?.(0);
 
     scene = new THREE.Scene();
     camera = new THREE.PerspectiveCamera(32, 1, 0.01, 100);
     camera.position.set(0, 1.35, 3.1);
 
-    const hemisphereLight = new THREE.HemisphereLight(0xffffff, 0x40485a, 2.2);
-    const keyLight = new THREE.DirectionalLight(0xffffff, 2.4);
-    keyLight.position.set(1.2, 2.8, 2.2);
-    const fillLight = new THREE.DirectionalLight(0xbfd7ff, 0.8);
-    fillLight.position.set(-1.6, 1.5, -1.3);
+    const environment = new RoomEnvironment(renderer);
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    environmentTexture = pmrem.fromScene(environment, 0.04).texture;
+    scene.environment = environmentTexture;
+    environment.dispose();
+    pmrem.dispose();
 
-    scene.add(hemisphereLight, keyLight, fillLight);
+    const hemisphereLight = new THREE.HemisphereLight(0xffffff, 0x40485a, 1.05);
+    const keyLight = new THREE.DirectionalLight(0xffffff, 1.35);
+    keyLight.position.set(1.2, 2.8, 2.2);
+    const fillLight = new THREE.DirectionalLight(0xbfd7ff, 0.35);
+    fillLight.position.set(-1.6, 1.5, -1.3);
+    const rimLight = new THREE.DirectionalLight(0xdbeafe, 0.65);
+    rimLight.position.set(-1.8, 2.2, 2.4);
+
+    scene.add(hemisphereLight, keyLight, fillLight, rimLight);
     attachOrbitControls();
   }
 
@@ -721,6 +844,7 @@ export function createAvatarRenderer(options = {}) {
         quaternion: bone.quaternion.clone(),
         position: bone.position.clone(),
         axisLocal,
+        secondaryAxisLocal: inferSecondaryAxisLocal(axisLocal),
       });
     }
   }
@@ -772,6 +896,7 @@ export function createAvatarRenderer(options = {}) {
     camera.near = Math.max(0.01, maxDimension / 100);
     camera.far = Math.max(100, maxDimension * 10);
     camera.updateProjectionMatrix();
+    createContactShadow(maxDimension);
     configureOrbitCamera(
       target,
       defaultRadius,
@@ -780,6 +905,30 @@ export function createAvatarRenderer(options = {}) {
       0,
       defaultPhi,
     );
+  }
+
+  function createContactShadow(maxDimension) {
+    if (!scene) {
+      return;
+    }
+
+    disposeContactShadow();
+    const width = Math.max(maxDimension * 0.58, 0.4);
+    const depth = Math.max(maxDimension * 0.18, 0.16);
+    const geometry = new THREE.PlaneGeometry(width, depth);
+    const material = new THREE.MeshBasicMaterial({
+      color: 0x000000,
+      transparent: true,
+      opacity: 0.22,
+      depthWrite: false,
+    });
+
+    contactShadow = new THREE.Mesh(geometry, material);
+    contactShadow.name = 'AvatarContactShadow';
+    contactShadow.rotation.x = -Math.PI / 2;
+    contactShadow.position.set(0, 0.012, 0.08);
+    contactShadow.renderOrder = -1;
+    scene.add(contactShadow);
   }
 
   function configureOrbitCamera(target, radius, minRadius, maxRadius, theta, phi) {
@@ -924,11 +1073,12 @@ export function createAvatarRenderer(options = {}) {
     resetOrbitCamera();
   }
 
-  function applyPose(landmarks, mirrored, alpha, worldLandmarks = null) {
+  function applyPose(landmarks, mirrored, delta, worldLandmarks = null) {
     const points = buildPosePoints(landmarks, mirrored, {
       depthScale: landmarkDepthScale,
       worldLandmarks,
     });
+    const secondaryNormals = computeLimbPlaneNormals(points);
 
     for (const target of BODY_RETARGETS) {
       const from = points[target.from];
@@ -939,12 +1089,16 @@ export function createAvatarRenderer(options = {}) {
       }
 
       const direction = tmpVectorC.subVectors(to, from);
-      applyAimToBone(target.bone, direction, alpha * target.strength, target.maxAngle);
+      const alpha = smoothingAlpha(delta, RETARGET_SMOOTHING_MS[target.smoothing] ?? RETARGET_SMOOTHING_MS.foreArm);
+      applyAimToBone(target.bone, direction, alpha * target.strength, target.maxAngle, {
+        maxTwist: target.maxTwist,
+        secondaryWorld: secondaryNormals[target.bone] ?? null,
+      });
     }
   }
 
-  function applyScreenSpaceProportionCalibration(landmarks, mirrored, alpha) {
-    if (!model || !camera) {
+  function applyScreenSpaceProportionCalibration(landmarks, mirrored) {
+    if (!model || !camera || proportionCalibration.frozen) {
       return;
     }
 
@@ -952,7 +1106,7 @@ export function createAvatarRenderer(options = {}) {
 
     const sourceNormalized = normalizePose2D(buildPosePoints2D(landmarks, mirrored));
     const avatarNormalized = normalizePose2D(buildAvatarProjectedPoints());
-    const adjustmentAlpha = clamp01(alpha * SCREEN_PROPORTION_SMOOTHING);
+    let validSegments = 0;
 
     for (const segment of SCREEN_LENGTH_CALIBRATION_SEGMENTS) {
       const bone = getBone(segment.bone);
@@ -973,20 +1127,78 @@ export function createAvatarRenderer(options = {}) {
         continue;
       }
 
-      const currentScale = bone.position.length() / rest.position.length();
       const targetScale = clamp(
-        currentScale * (sourceLength / avatarLength),
+        sourceLength / avatarLength,
         MIN_BONE_LENGTH_SCALE,
         segment.maxScale ?? MAX_BONE_LENGTH_SCALE,
       );
-      const nextScale = currentScale + (targetScale - currentScale) * adjustmentAlpha;
-      bone.position.copy(rest.position).multiplyScalar(nextScale);
-      bone.updateMatrixWorld(true);
+      recordProportionCalibrationSample(bone.name, targetScale);
+      validSegments += 1;
+    }
+
+    if (validSegments >= PROPORTION_CALIBRATION_MIN_SEGMENTS) {
+      proportionCalibration.frames += 1;
+    }
+
+    if (proportionCalibration.frames >= PROPORTION_CALIBRATION_FRAMES) {
+      freezeProportionCalibration();
     }
   }
 
-  function applyHands(hands, mirrored, alpha) {
+  function recordProportionCalibrationSample(boneNameKey, scale) {
+    proportionCalibration.sums.set(
+      boneNameKey,
+      (proportionCalibration.sums.get(boneNameKey) ?? 0) + scale,
+    );
+    proportionCalibration.counts.set(
+      boneNameKey,
+      (proportionCalibration.counts.get(boneNameKey) ?? 0) + 1,
+    );
+  }
+
+  function freezeProportionCalibration() {
+    if (proportionCalibration.frozen) {
+      return;
+    }
+
+    let appliedCount = 0;
+    let maxScaleDelta = 0;
+
+    for (const [boneNameKey, sum] of proportionCalibration.sums) {
+      const count = proportionCalibration.counts.get(boneNameKey) ?? 0;
+      const bone = bones.get(boneNameKey);
+      const rest = bone ? restPose.get(bone.name) : null;
+
+      if (!bone || !rest || count < Math.max(4, PROPORTION_CALIBRATION_FRAMES / 4)) {
+        continue;
+      }
+
+      const averageScale = clamp(sum / count, MIN_BONE_LENGTH_SCALE, MAX_HAND_LENGTH_SCALE);
+      bone.position.copy(rest.position).multiplyScalar(averageScale);
+      bone.updateMatrixWorld(true);
+      appliedCount += 1;
+      maxScaleDelta = Math.max(maxScaleDelta, Math.abs(averageScale - 1));
+    }
+
+    proportionCalibration.lastAppliedCount = appliedCount;
+    proportionCalibration.lastMaxScaleDelta = maxScaleDelta;
+    proportionCalibration.frozen = true;
+    proportionCalibration.sums.clear();
+    proportionCalibration.counts.clear();
+  }
+
+  function resetProportionCalibration() {
+    proportionCalibration.frames = 0;
+    proportionCalibration.frozen = false;
+    proportionCalibration.lastAppliedCount = 0;
+    proportionCalibration.lastMaxScaleDelta = 0;
+    proportionCalibration.sums.clear();
+    proportionCalibration.counts.clear();
+  }
+
+  function applyHands(hands, mirrored, delta) {
     const usedSides = new Set();
+    const relaxAlpha = smoothingAlpha(delta, RETARGET_SMOOTHING_MS.relax);
 
     for (const hand of hands) {
       const side = resolveHandSide(hand, mirrored, usedSides);
@@ -996,24 +1208,32 @@ export function createAvatarRenderer(options = {}) {
       }
 
       usedSides.add(side);
-      applyHand(side, hand.landmarks, mirrored, alpha);
+      applyHand(side, hand.landmarks, mirrored, delta);
     }
 
     for (const side of ['Left', 'Right']) {
       if (!usedSides.has(side)) {
-        relaxHand(side, alpha * 0.4);
+        relaxHand(side, relaxAlpha * 0.4);
       }
     }
   }
 
-  function applyHand(side, landmarks, mirrored, alpha) {
+  function applyHand(side, landmarks, mirrored, delta) {
     const points = landmarks.map((landmark) => landmarkToVector(landmark, mirrored));
     const wrist = points[0];
+    const indexBase = points[5];
     const middleBase = points[9];
+    const pinkyBase = points[17];
+    const handAlpha = smoothingAlpha(delta, RETARGET_SMOOTHING_MS.hand);
+    const fingerAlpha = smoothingAlpha(delta, RETARGET_SMOOTHING_MS.finger);
+    const palmNormal = computePalmNormal(wrist, indexBase, pinkyBase);
 
     if (wrist && middleBase) {
       tmpVectorC.subVectors(middleBase, wrist);
-      applyAimToBone(`${side}Hand`, tmpVectorC, alpha * 0.6, 1.1);
+      applyAimToBone(`${side}Hand`, tmpVectorC, handAlpha * 0.65, 1.05, {
+        maxTwist: 0.62,
+        secondaryWorld: palmNormal,
+      });
     }
 
     for (const [fingerName, indices] of Object.entries(HAND_FINGERS)) {
@@ -1029,13 +1249,55 @@ export function createAvatarRenderer(options = {}) {
         }
 
         const spreadStrength = i === 0 ? 1 : 0.75;
+        const segmentAlpha = i === 0
+          ? smoothingAlpha(delta, RETARGET_SMOOTHING_MS.fingerBase)
+          : fingerAlpha;
         tmpVectorC.subVectors(to, from);
-        applyAimToBone(chain[i], tmpVectorC, alpha * spreadStrength, fingerName === 'Thumb' ? 1.25 : 1.45);
+        applyAimToBone(chain[i], tmpVectorC, segmentAlpha * spreadStrength, fingerName === 'Thumb' ? 1.1 : 1.25, {
+          maxTwist: fingerName === 'Thumb' ? 0.52 : 0.38,
+        });
       }
     }
   }
 
-  function applyAimToBone(boneOrName, directionWorld, alpha, maxAngle) {
+  function computeLimbPlaneNormals(points) {
+    return {
+      LeftArm: limbPlaneNormal(points.leftShoulder, points.leftElbow, points.leftWrist),
+      LeftForeArm: limbPlaneNormal(points.leftShoulder, points.leftElbow, points.leftWrist),
+      RightArm: limbPlaneNormal(points.rightShoulder, points.rightElbow, points.rightWrist),
+      RightForeArm: limbPlaneNormal(points.rightShoulder, points.rightElbow, points.rightWrist),
+      LeftUpLeg: limbPlaneNormal(points.leftHip, points.leftKnee, points.leftAnkle),
+      LeftLeg: limbPlaneNormal(points.leftHip, points.leftKnee, points.leftAnkle),
+      RightUpLeg: limbPlaneNormal(points.rightHip, points.rightKnee, points.rightAnkle),
+      RightLeg: limbPlaneNormal(points.rightHip, points.rightKnee, points.rightAnkle),
+    };
+  }
+
+  function limbPlaneNormal(root, mid, end) {
+    if (!root || !mid || !end) {
+      return null;
+    }
+
+    const first = tmpVectorA.subVectors(mid, root);
+    const second = tmpVectorB.subVectors(end, mid);
+    const normal = new THREE.Vector3().crossVectors(first, second);
+
+    return normal.lengthSq() > 0.000001 ? normal.normalize() : null;
+  }
+
+  function computePalmNormal(wrist, indexBase, pinkyBase) {
+    if (!wrist || !indexBase || !pinkyBase) {
+      return null;
+    }
+
+    const indexVector = tmpVectorA.subVectors(indexBase, wrist);
+    const pinkyVector = tmpVectorB.subVectors(pinkyBase, wrist);
+    const normal = new THREE.Vector3().crossVectors(indexVector, pinkyVector);
+
+    return normal.lengthSq() > 0.000001 ? normal.normalize() : null;
+  }
+
+  function applyAimToBone(boneOrName, directionWorld, alpha, maxAngle, options = {}) {
     const bone = typeof boneOrName === 'string' ? getBone(boneOrName) : boneOrName;
 
     if (!bone || directionWorld.lengthSq() < 0.000001) {
@@ -1055,12 +1317,55 @@ export function createAvatarRenderer(options = {}) {
     const inverseParentWorld = tmpQuaternionB.copy(parentWorldQuaternion).invert();
     const targetDirectionLocal = tmpVectorA.copy(directionWorld).normalize().applyQuaternion(inverseParentWorld).normalize();
     const restDirectionLocal = tmpVectorB.copy(rest.axisLocal).applyQuaternion(rest.quaternion).normalize();
-    const delta = tmpQuaternionC.setFromUnitVectors(restDirectionLocal, targetDirectionLocal);
-    const targetQuaternion = new THREE.Quaternion().multiplyQuaternions(delta, rest.quaternion);
-    const limitedTarget = limitFromRest(rest.quaternion, targetQuaternion, maxAngle);
+    const targetQuaternion = options.secondaryWorld
+      ? applyAimWithSecondary(rest, targetDirectionLocal, options.secondaryWorld, inverseParentWorld)
+      : tmpQuaternionD.multiplyQuaternions(
+        tmpQuaternionC.setFromUnitVectors(restDirectionLocal, targetDirectionLocal),
+        rest.quaternion,
+      );
+    const angleLimitedTarget = limitFromRest(rest.quaternion, targetQuaternion, maxAngle);
+    const limitedTarget = limitTwistFromRest(
+      rest.quaternion,
+      angleLimitedTarget,
+      rest.axisLocal,
+      options.maxTwist,
+    );
 
     bone.quaternion.slerp(limitedTarget, clamp01(alpha));
     bone.updateMatrixWorld(true);
+  }
+
+  function applyAimWithSecondary(rest, targetDirectionLocal, secondaryWorld, inverseParentWorld) {
+    const targetSecondaryLocal = tmpVectorC
+      .copy(secondaryWorld)
+      .normalize()
+      .applyQuaternion(inverseParentWorld)
+      .normalize();
+    const restDirectionLocal = tmpVectorD.copy(rest.axisLocal).applyQuaternion(rest.quaternion).normalize();
+    const restSecondaryLocal = tmpVectorE
+      .copy(rest.secondaryAxisLocal)
+      .applyQuaternion(rest.quaternion)
+      .normalize();
+
+    return tmpQuaternionD.multiplyQuaternions(
+      basisQuaternion(targetDirectionLocal, targetSecondaryLocal, tmpMatrixA, tmpQuaternionE),
+      basisQuaternion(restDirectionLocal, restSecondaryLocal, tmpMatrixB, tmpQuaternionF).invert(),
+    ).multiply(rest.quaternion);
+  }
+
+  function basisQuaternion(primary, secondary, matrix, target) {
+    const xAxis = tmpVectorD.copy(primary).normalize();
+    const yAxis = tmpVectorE.copy(secondary).addScaledVector(xAxis, -secondary.dot(xAxis));
+
+    if (yAxis.lengthSq() < 0.000001) {
+      choosePerpendicularAxis(xAxis, yAxis);
+    } else {
+      yAxis.normalize();
+    }
+
+    const zAxis = tmpVectorF.crossVectors(xAxis, yAxis).normalize();
+    matrix.makeBasis(xAxis, yAxis, zAxis);
+    return target.setFromRotationMatrix(matrix);
   }
 
   function limitFromRest(restQuaternion, targetQuaternion, maxAngle) {
@@ -1075,6 +1380,53 @@ export function createAvatarRenderer(options = {}) {
     }
 
     return tmpQuaternionB.copy(restQuaternion).slerp(targetQuaternion, maxAngle / angle);
+  }
+
+  function limitTwistFromRest(restQuaternion, targetQuaternion, axisLocal, maxTwist) {
+    if (!Number.isFinite(maxTwist)) {
+      return targetQuaternion;
+    }
+
+    const delta = tmpQuaternionC.copy(targetQuaternion).multiply(tmpQuaternionD.copy(restQuaternion).invert());
+    const twist = extractTwist(delta, axisLocal, tmpQuaternionE);
+    const twistAngle = signedQuaternionAngle(twist);
+
+    if (Math.abs(twistAngle) <= maxTwist) {
+      return targetQuaternion;
+    }
+
+    const clampedTwist = tmpQuaternionF.setFromAxisAngle(
+      tmpVectorA.copy(axisLocal).normalize(),
+      clamp(twistAngle, -maxTwist, maxTwist),
+    );
+    const swing = tmpQuaternionC.copy(delta).multiply(twist.invert());
+
+    return targetQuaternion.copy(swing.multiply(clampedTwist).multiply(restQuaternion));
+  }
+
+  function extractTwist(quaternion, axisLocal, target) {
+    const axis = tmpVectorA.copy(axisLocal).normalize();
+    target.set(
+      axis.x * (quaternion.x * axis.x + quaternion.y * axis.y + quaternion.z * axis.z),
+      axis.y * (quaternion.x * axis.x + quaternion.y * axis.y + quaternion.z * axis.z),
+      axis.z * (quaternion.x * axis.x + quaternion.y * axis.y + quaternion.z * axis.z),
+      quaternion.w,
+    );
+
+    if (target.lengthSq() < 0.000001) {
+      return target.identity();
+    }
+
+    return target.normalize();
+  }
+
+  function signedQuaternionAngle(quaternion) {
+    const angle = 2 * Math.atan2(
+      Math.hypot(quaternion.x, quaternion.y, quaternion.z),
+      quaternion.w,
+    );
+
+    return angle > Math.PI ? angle - Math.PI * 2 : angle;
   }
 
   function relaxBody(alpha) {
@@ -1127,7 +1479,9 @@ export function createAvatarRenderer(options = {}) {
     const render = () => {
       animationFrameId = requestAnimationFrame(render);
       resize();
+      const startedAt = nowMs();
       renderer.render(scene, camera);
+      recordPerformanceSample(performanceStats.renderMs, nowMs() - startedAt);
     };
 
     animationFrameId = requestAnimationFrame(render);
@@ -1149,15 +1503,19 @@ export function createAvatarRenderer(options = {}) {
     setStatus(`Failed: ${reason || 'avatar unavailable'}`);
     setBoneCount(0);
     disposeSkeletonHelper();
+    disposeContactShadow();
     disposeModelResources(model);
+    disposeEnvironmentTexture();
     renderer?.dispose?.();
     renderer = null;
     scene = null;
     camera = null;
     model = null;
     skeletonHelper = null;
+    contactShadow = null;
     bones.clear();
     restPose.clear();
+    resetProportionCalibration();
   }
 
   function disposeSkeletonHelper() {
@@ -1169,6 +1527,22 @@ export function createAvatarRenderer(options = {}) {
     skeletonHelper.geometry?.dispose?.();
     disposeMaterial(skeletonHelper.material);
     skeletonHelper = null;
+  }
+
+  function disposeContactShadow() {
+    if (!contactShadow) {
+      return;
+    }
+
+    scene?.remove?.(contactShadow);
+    contactShadow.geometry?.dispose?.();
+    disposeMaterial(contactShadow.material);
+    contactShadow = null;
+  }
+
+  function disposeEnvironmentTexture() {
+    environmentTexture?.dispose?.();
+    environmentTexture = null;
   }
 
   function getBone(name) {
@@ -1191,13 +1565,51 @@ export function createAvatarRenderer(options = {}) {
     const now = Number.isFinite(timestamp) && timestamp > 0
       ? timestamp
       : globalThis.performance?.now?.() ?? Date.now();
-    const delta = lastUpdateTime > 0 ? Math.max(1, Math.min(100, now - lastUpdateTime)) : 1000;
+    const delta = lastUpdateTime > 0
+      ? Math.max(1, Math.min(100, now - lastUpdateTime))
+      : FIRST_UPDATE_DELTA_MS;
     lastUpdateTime = now;
     return delta;
   }
 
   function smoothingAlpha(delta, smoothingMs) {
     return clamp01(1 - Math.exp(-delta / smoothingMs));
+  }
+
+  function recordPerformanceSample(samples, durationMs) {
+    if (!Number.isFinite(durationMs) || durationMs < 0) {
+      return;
+    }
+
+    samples.push(durationMs);
+
+    if (samples.length > PERFORMANCE_SAMPLE_LIMIT) {
+      samples.splice(0, samples.length - PERFORMANCE_SAMPLE_LIMIT);
+    }
+  }
+
+  function summarizePerformanceSamples(samples) {
+    if (samples.length === 0) {
+      return {
+        count: 0,
+        medianMs: 0,
+        p95Ms: 0,
+        maxMs: 0,
+      };
+    }
+
+    const sorted = samples.slice().sort((a, b) => a - b);
+
+    return {
+      count: samples.length,
+      medianMs: percentile(sorted, 0.5),
+      p95Ms: percentile(sorted, 0.95),
+      maxMs: sorted[sorted.length - 1],
+    };
+  }
+
+  function nowMs() {
+    return globalThis.performance?.now?.() ?? Date.now();
   }
 
   const api = {
@@ -1209,6 +1621,8 @@ export function createAvatarRenderer(options = {}) {
     setSkeletonVisible,
     setDepthScale,
     getDepthScale,
+    getPerformanceSnapshot,
+    clearPerformanceSamples,
     resetView,
     getViewState,
     resetPose,
@@ -1799,6 +2213,26 @@ function inferBoneAxisLocal(bone) {
   }
 
   return new THREE.Vector3(0, 1, 0);
+}
+
+function inferSecondaryAxisLocal(axisLocal) {
+  const secondary = new THREE.Vector3();
+  choosePerpendicularAxis(axisLocal, secondary);
+  return secondary;
+}
+
+function choosePerpendicularAxis(primary, target) {
+  const fallback = Math.abs(primary.y) < 0.82
+    ? new THREE.Vector3(0, 1, 0)
+    : new THREE.Vector3(0, 0, 1);
+
+  target.copy(fallback).addScaledVector(primary, -fallback.dot(primary));
+
+  if (target.lengthSq() < 0.000001) {
+    target.set(1, 0, 0).addScaledVector(primary, -primary.x);
+  }
+
+  return target.normalize();
 }
 
 function disposeModelResources(root) {

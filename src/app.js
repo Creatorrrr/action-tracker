@@ -1505,6 +1505,8 @@ function exposeDebugApi() {
       resetBodyValidation();
       return nextScale;
     },
+    getAvatarPerformanceReport: () => state.avatarRenderer?.getPerformanceSnapshot?.() ?? null,
+    clearAvatarPerformanceSamples: () => state.avatarRenderer?.clearPerformanceSamples?.() ?? null,
     getAvatarViewState: () => state.avatarRenderer?.getViewState?.() ?? null,
     resetAvatarView: () => state.avatarRenderer?.resetView?.() ?? null,
     clearBodyValidation: resetBodyValidation,

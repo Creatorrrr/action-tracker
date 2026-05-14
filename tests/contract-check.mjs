@@ -15,6 +15,10 @@ const files = {
   app: "src/app.js",
   avatarRenderer: "src/avatar-renderer.js",
   avatarModel: "assets/models/Xbot.glb",
+  claudeSettings: ".claude/settings.json",
+  claudeCodexCommand: ".claude/commands/codex-consult.md",
+  claudeCodexScript: "scripts/claude-codex-consult.sh",
+  avatarPerformanceScript: "scripts/avatar-performance-check.mjs",
 };
 
 const mediaPipeVersion = "0.10.35";
@@ -224,6 +228,10 @@ function checkPackageContract(packageJson) {
     packageJson?.scripts?.start === "python3 -m http.server 8000 --bind 127.0.0.1",
     "package.json: start script must remain the local static server",
   );
+  check(
+    packageJson?.scripts?.["perf:avatar"] === "node scripts/avatar-performance-check.mjs",
+    "package.json: perf:avatar script must run the avatar performance check",
+  );
 
   for (const field of [
     "dependencies",
@@ -284,6 +292,65 @@ function checkHtmlContract(html) {
     importMap?.imports?.["three/addons/"] ===
       `https://cdn.jsdelivr.net/npm/three@${threeVersion}/examples/jsm/`,
     "index.html: import map must pin three/addons/ to the expected CDN URL",
+  );
+}
+
+function checkClaudeCodexBridge(settingsJson, commandSource, scriptSource, readmeSource) {
+  const settings = parseJson(files.claudeSettings, settingsJson);
+
+  check(
+    settings?.permissions?.defaultMode === "auto",
+    `${files.claudeSettings}: expected permissions.defaultMode to be auto`,
+  );
+  checkPattern(
+    commandSource,
+    /description:\s*Ask Codex CLI for a second engineering opinion/,
+    `${files.claudeCodexCommand}: expected Claude command description`,
+  );
+  checkPattern(
+    commandSource,
+    /3600000/,
+    `${files.claudeCodexCommand}: expected long Bash timeout guidance`,
+  );
+  checkPattern(
+    commandSource,
+    /Do not add budget, token, or reasoning caps/,
+    `${files.claudeCodexCommand}: expected no-budget-cap instruction`,
+  );
+  checkPattern(
+    scriptSource,
+    /DEFAULT_CODEX_MODEL="gpt-5\.5"/,
+    `${files.claudeCodexScript}: expected default latest model`,
+  );
+  checkPattern(
+    scriptSource,
+    /DEFAULT_CODEX_REASONING_EFFORT="xhigh"/,
+    `${files.claudeCodexScript}: expected xhigh default reasoning effort`,
+  );
+  checkPattern(
+    scriptSource,
+    /DEFAULT_CODEX_APPROVAL_POLICY="on-request"/,
+    `${files.claudeCodexScript}: expected automatic approval judgment policy`,
+  );
+  checkPattern(
+    scriptSource,
+    /DEFAULT_CODEX_SANDBOX="workspace-write"/,
+    `${files.claudeCodexScript}: expected workspace-write sandbox default`,
+  );
+  checkPattern(
+    scriptSource,
+    /--full-auto/,
+    `${files.claudeCodexScript}: expected full-auto Codex invocation`,
+  );
+  checkPattern(
+    scriptSource,
+    /The wrapper intentionally does not set token, budget, or reasoning caps/,
+    `${files.claudeCodexScript}: expected no budget cap usage text`,
+  );
+  checkPattern(
+    readmeSource,
+    /Claude Code Codex Consultation/,
+    `${files.readme}: expected Claude Code Codex consultation docs`,
   );
 }
 
@@ -413,6 +480,7 @@ function checkAvatarAppContract(app) {
     ["builds depth validation report", /function\s+buildDepthValidationReport\s*\([^)]*\)[\s\S]*mediapipe_relative_depth/],
     ["marks depth validation self-reference", /selfReferential[\s\S]*retarget residual/],
     ["exposes avatar depth scale debug API", /getAvatarDepthScale[\s\S]*setAvatarDepthScale/],
+    ["exposes avatar performance debug API", /getAvatarPerformanceReport[\s\S]*clearAvatarPerformanceSamples/],
     ["exposes avatar view debug API", /getAvatarViewState[\s\S]*resetAvatarView/],
     ["checks strict segment agreement", /function\s+buildStrictSegmentRows\s*\([^)]*\)[\s\S]*angleErrorDeg[\s\S]*lengthErrorRatio/],
     ["checks strict side-order agreement", /function\s+buildStrictSideOrderRows\s*\([^)]*\)[\s\S]*sourceDelta[\s\S]*avatarDelta/],
@@ -438,7 +506,10 @@ function checkAvatarRendererContract(avatarRenderer) {
       /import\s*\{\s*GLTFLoader\s*\}\s*from\s*["']three\/addons\/loaders\/GLTFLoader\.js["']/,
     ],
     ["defines local default model URL", /const\s+DEFAULT_MODEL_URL\s*=\s*["']\.\/assets\/models\/Xbot\.glb["']/],
-    ["defines runtime depth scale default", /const\s+DEFAULT_LANDMARK_DEPTH_SCALE\s*=\s*1/],
+    ["defines conservative runtime depth scale default", /const\s+DEFAULT_LANDMARK_DEPTH_SCALE\s*=\s*0\.45/],
+    ["defines runtime performance budgets", /const\s+PERFORMANCE_BUDGETS_MS\s*=\s*\{[\s\S]*updateMedian\s*:\s*1\.5[\s\S]*validationP95\s*:\s*2/],
+    ["defines group-specific smoothing", /const\s+RETARGET_SMOOTHING_MS\s*=\s*\{[\s\S]*upperArm[\s\S]*foreArm[\s\S]*finger/],
+    ["bounds first update delta", /const\s+FIRST_UPDATE_DELTA_MS\s*=\s*16\.67[\s\S]*lastUpdateTime\s*>\s*0[\s\S]*FIRST_UPDATE_DELTA_MS/],
     ["exports createAvatarRenderer", /export\s+function\s+createAvatarRenderer\s*\(/],
     ["accepts injected model URL", /const\s+modelUrl\s*=\s*options\.modelUrl\s*\?\?\s*DEFAULT_MODEL_URL/],
     ["loads the configured model URL", /loader\.loadAsync\s*\(\s*modelUrl\s*\)/],
@@ -448,8 +519,12 @@ function checkAvatarRendererContract(avatarRenderer) {
     ],
     [
       "returns public renderer API",
-      /const\s+api\s*=\s*\{[\s\S]*?\binit\b[\s\S]*?\bupdate\b[\s\S]*?\bgetBodyValidationSnapshot\b[\s\S]*?\bsetSkeletonVisible\b[\s\S]*?\bresetPose\b[\s\S]*?\bresize\b[\s\S]*?\bdispose\b[\s\S]*?\};/,
+      /const\s+api\s*=\s*\{[\s\S]*?\binit\b[\s\S]*?\bupdate\b[\s\S]*?\bgetBodyValidationSnapshot\b[\s\S]*?\bsetSkeletonVisible\b[\s\S]*?\bgetPerformanceSnapshot\b[\s\S]*?\bresetPose\b[\s\S]*?\bresize\b[\s\S]*?\bdispose\b[\s\S]*?\};/,
     ],
+    ["imports RoomEnvironment", /import\s*\{\s*RoomEnvironment\s*\}\s*from\s*["']three\/addons\/environments\/RoomEnvironment\.js["']/],
+    ["uses ACES tone mapping", /renderer\.toneMapping\s*=\s*THREE\.ACESFilmicToneMapping/],
+    ["uses low-cost environment lighting", /new\s+RoomEnvironment\s*\(\s*renderer\s*\)[\s\S]*PMREMGenerator[\s\S]*scene\.environment/],
+    ["creates contact shadow", /function\s+createContactShadow\s*\([^)]*\)[\s\S]*AvatarContactShadow/],
     ["creates Three.js skeleton helper", /new\s+THREE\.SkeletonHelper\s*\(\s*model\s*\)/],
     ["defines skeleton visibility setter", /function\s+setSkeletonVisible\s*\(\s*value\s*\)/],
     ["defines visual skeleton joints", /const\s+BODY_VISUAL_JOINTS\s*=\s*\[[\s\S]*?leftShoulder[\s\S]*?rightAnkle/],
@@ -464,6 +539,11 @@ function checkAvatarRendererContract(avatarRenderer) {
     ["exposes body validation snapshot", /function\s+getBodyValidationSnapshot\s*\([^)]*\)/],
     ["defines body retarget hooks", /const\s+BODY_RETARGETS\s*=\s*\[[\s\S]*?bone\s*:\s*["']LeftArm["'][\s\S]*?bone\s*:\s*["']RightLeg["']/],
     ["applies body retargets", /for\s*\(\s*const\s+target\s+of\s+BODY_RETARGETS\s*\)[\s\S]*?applyAimToBone\s*\(\s*target\.bone/],
+    ["computes limb plane normals", /function\s+computeLimbPlaneNormals\s*\([^)]*\)[\s\S]*limbPlaneNormal/],
+    ["computes palm normal", /function\s+computePalmNormal\s*\([^)]*\)[\s\S]*crossVectors/],
+    ["limits parent-relative twist", /function\s+limitTwistFromRest\s*\([^)]*\)[\s\S]*extractTwist/],
+    ["freezes proportion calibration", /const\s+PROPORTION_CALIBRATION_FRAMES\s*=\s*30[\s\S]*function\s+freezeProportionCalibration\s*\(/],
+    ["exposes avatar performance snapshot", /function\s+getPerformanceSnapshot\s*\([^)]*\)[\s\S]*PERFORMANCE_BUDGETS_MS/],
     ["defines finger segment mappings", /const\s+FINGER_SEGMENTS\s*=\s*\[[\s\S]*?fallbackFrom/],
     [
       "builds side-specific finger chains",
@@ -549,7 +629,18 @@ function checkAvatarModelContract(modelJson) {
   }
 }
 
-const [readme, packageSource, html, css, app, avatarRenderer, avatarModelBytes] =
+const [
+  readme,
+  packageSource,
+  html,
+  css,
+  app,
+  avatarRenderer,
+  avatarModelBytes,
+  claudeSettings,
+  claudeCodexCommand,
+  claudeCodexScript,
+] =
   await Promise.all([
     readProjectFile(files.readme),
     readProjectFile(files.packageJson),
@@ -558,6 +649,9 @@ const [readme, packageSource, html, css, app, avatarRenderer, avatarModelBytes] 
     readProjectFile(files.app),
     readProjectFile(files.avatarRenderer),
     readProjectBytes(files.avatarModel),
+    readProjectFile(files.claudeSettings),
+    readProjectFile(files.claudeCodexCommand),
+    readProjectFile(files.claudeCodexScript),
   ]);
 
 const packageJson = parseJson(files.packageJson, packageSource);
@@ -566,6 +660,7 @@ const avatarModelJson = parseGlbJson(avatarModelBytes, files.avatarModel);
 checkPackageContract(packageJson);
 checkReadmeContract(readme);
 checkHtmlContract(html);
+checkClaudeCodexBridge(claudeSettings, claudeCodexCommand, claudeCodexScript, readme);
 checkTrackerAppContract(app);
 checkAvatarAppContract(app);
 checkAvatarRendererContract(avatarRenderer);
@@ -573,6 +668,7 @@ checkCssContract(css);
 checkAvatarModelContract(avatarModelJson);
 checkSyntax(files.app);
 checkSyntax(files.avatarRenderer);
+checkSyntax(files.avatarPerformanceScript);
 
 if (failures.length > 0) {
   console.error(`Contract check failed with ${failures.length} issue(s):`);
