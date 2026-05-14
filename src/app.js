@@ -3,12 +3,12 @@ import {
   HandLandmarker,
   PoseLandmarker,
 } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/vision_bundle.mjs";
-import { createAvatarRenderer } from "./avatar-renderer.js?v=20260514-avatar-orbit-2";
+import { createAvatarRenderer } from "./avatar-renderer.js?v=20260514-front-yaw-6";
 
 const WASM_ASSET_PATH =
   "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm";
 const AVATAR_MODEL_URL = "./assets/models/Xbot.glb";
-const DEFAULT_AVATAR_DEPTH_SCALE = 1;
+const DEFAULT_AVATAR_DEPTH_SCALE = 0.45;
 
 const POSE_MODEL_URLS = {
   pose_lite:
@@ -45,6 +45,11 @@ const BODY_STRICT_SCORE_WEIGHTS = {
   sideOrder: 0.1,
   temporal: 0.1,
 };
+const BODY_MOTION_AGREEMENT_SCORE_WEIGHTS = {
+  direction: 0.75,
+  frontBack: 0.15,
+  projection: 0.1,
+};
 
 const BODY_STRICT_SEGMENTS = [
   { name: "shoulderWidth", group: "torso", from: "leftShoulder", to: "rightShoulder" },
@@ -69,6 +74,9 @@ const BODY_STRICT_SIDE_ORDER_PAIRS = [
   { name: "knees", group: "legs", left: "leftKnee", right: "rightKnee" },
   { name: "ankles", group: "legs", left: "leftAnkle", right: "rightAnkle" },
 ];
+const BODY_FRONT_BACK_SIDE_ORDER_PAIRS = BODY_STRICT_SIDE_ORDER_PAIRS.filter(
+  (pair) => pair.name === "shoulders" || pair.name === "hips",
+);
 
 const ELEMENT_IDS = {
   video: "camera-video",
@@ -76,6 +84,8 @@ const ELEMENT_IDS = {
   startButton: "start-button",
   stopButton: "stop-button",
   videoFileInput: "video-file-input",
+  avatarFileInput: "avatar-file-input",
+  avatarDefaultButton: "avatar-default-button",
   mirrorToggle: "mirror-toggle",
   avatarSkeletonToggle: "avatar-skeleton-toggle",
   modelSelect: "model-select",
@@ -184,6 +194,8 @@ const state = {
   modelLoadPromise: null,
   stream: null,
   videoFileUrl: "",
+  avatarFileUrl: "",
+  avatarFileName: "",
   inputKind: "idle",
   videoFileName: "",
   animationFrameId: 0,
@@ -196,6 +208,7 @@ const state = {
   errorCode: null,
   avatarRenderer: null,
   avatarInitPromise: null,
+  avatarLoadToken: 0,
   bodyValidation: {
     samples: [],
     lastSample: null,
@@ -231,6 +244,16 @@ function boot() {
       void startVideoFile(file);
     }
   });
+  state.elements.avatarFileInput?.addEventListener("change", () => {
+    const file = state.elements.avatarFileInput.files?.[0];
+
+    if (file) {
+      useAvatarModelFile(file);
+    }
+  });
+  state.elements.avatarDefaultButton?.addEventListener("click", () => {
+    useDefaultAvatarModel();
+  });
   state.elements.mirrorToggle?.addEventListener("change", () => {
     applyMirrorPreference();
     if (state.active) {
@@ -253,10 +276,12 @@ function boot() {
   window.addEventListener("beforeunload", () => {
     stopCamera({ preserveError: true });
     disposeAvatarRenderer();
+    releaseAvatarFileUrl();
   });
   window.addEventListener("pagehide", () => {
     stopCamera({ preserveError: true });
     disposeAvatarRenderer();
+    releaseAvatarFileUrl();
   });
 
   exposeDebugApi();
@@ -304,24 +329,35 @@ function initAvatarRenderer() {
     return;
   }
 
+  const loadToken = ++state.avatarLoadToken;
+  const modelUrl = getSelectedAvatarModelUrl();
+  const modelLabel = state.avatarFileName || "Xbot.glb";
+
   try {
     state.avatarRenderer = createAvatarRenderer({
       canvas: state.elements.avatarCanvas,
       statusElement: state.elements.avatarStatus,
       boneCountElement: state.elements.avatarBoneCount,
-      modelUrl: AVATAR_MODEL_URL,
+      modelUrl,
+      modelLabel,
       depthScale: getInitialAvatarDepthScale(),
     });
     syncAvatarDebugOptions();
     state.avatarInitPromise = state.avatarRenderer
       .init()
       .catch((error) => {
+        if (loadToken !== state.avatarLoadToken) {
+          return;
+        }
+
         setAvatarStatus(`Failed: ${getErrorDetail(error)}`);
         setAvatarBoneCount(0);
         console.warn("Avatar initialization failed.", error);
       })
       .finally(() => {
-        state.avatarInitPromise = null;
+        if (loadToken === state.avatarLoadToken) {
+          state.avatarInitPromise = null;
+        }
       });
   } catch (error) {
     state.avatarRenderer = null;
@@ -578,6 +614,8 @@ function resetAvatarPose() {
 }
 
 function disposeAvatarRenderer() {
+  state.avatarLoadToken += 1;
+
   try {
     state.avatarRenderer?.dispose();
   } catch (error) {
@@ -586,6 +624,58 @@ function disposeAvatarRenderer() {
     state.avatarRenderer = null;
     state.avatarInitPromise = null;
   }
+}
+
+function reloadAvatarRenderer() {
+  disposeAvatarRenderer();
+  initAvatarRenderer();
+}
+
+function useAvatarModelFile(file) {
+  clearError();
+
+  if (!isLikelyAvatarModelFile(file)) {
+    if (state.elements.avatarFileInput) {
+      state.elements.avatarFileInput.value = "";
+    }
+
+    setAvatarStatus("Unsupported avatar file");
+    setAvatarBoneCount(0);
+    setError("Select a GLB, GLTF, or VRM avatar model file.", "UNSUPPORTED_AVATAR_FILE");
+    return;
+  }
+
+  const objectUrl = URL.createObjectURL(file);
+  releaseAvatarFileUrl();
+  state.avatarFileUrl = objectUrl;
+  state.avatarFileName = file.name ?? "Selected avatar";
+  reloadAvatarRenderer();
+  updateControls();
+}
+
+function useDefaultAvatarModel() {
+  clearError();
+
+  if (state.elements.avatarFileInput) {
+    state.elements.avatarFileInput.value = "";
+  }
+
+  if (!state.avatarFileUrl && !state.avatarFileName) {
+    return;
+  }
+
+  releaseAvatarFileUrl();
+  reloadAvatarRenderer();
+  updateControls();
+}
+
+function releaseAvatarFileUrl() {
+  if (state.avatarFileUrl) {
+    URL.revokeObjectURL(state.avatarFileUrl);
+    state.avatarFileUrl = "";
+  }
+
+  state.avatarFileName = "";
 }
 
 async function ensureModelsLoaded() {
@@ -1097,7 +1187,14 @@ function getBodyValidationReport() {
         error: joint.error,
       })),
   );
+  const directionOverall = summarizeErrors(segmentRows);
+  const visualOverall = summarizeVisualErrors(visualRows);
   const strictValidation = buildStrictValidationReport(samples);
+  const motionAgreement = buildMotionAgreementReport({
+    directionOverall,
+    visualOverall,
+    frontBackRows: buildFrontBackSideOrderRows(samples),
+  });
   const depthValidation = buildDepthValidationReport(samples);
 
   return {
@@ -1112,13 +1209,14 @@ function getBodyValidationReport() {
         ? segmentRows.length / framesWithPose.length
         : 0,
     matchThresholdDeg: BODY_MATCH_THRESHOLD_DEG,
-    overall: summarizeErrors(segmentRows),
+    overall: directionOverall,
     byGroup: summarizeRowsByKey(segmentRows, "group"),
     bySegment: summarizeRowsByKey(segmentRows, "name"),
     visualMatchThreshold: BODY_VISUAL_MATCH_THRESHOLD,
-    visualOverall: summarizeVisualErrors(visualRows),
+    visualOverall,
     visualByGroup: summarizeVisualRowsByKey(visualRows, "group"),
     visualByJoint: summarizeVisualRowsByKey(visualRows, "name"),
+    motionAgreement,
     strictValidation,
     depthValidation,
     visualWorstSamples: visualRows
@@ -1193,6 +1291,54 @@ function buildStrictValidationReport(samples) {
       .sort((a, b) => b.motionError - a.motionError)
       .slice(0, 12),
     sideOrderMismatches: sideOrderRows.filter((row) => !row.matched).slice(0, 12),
+  };
+}
+
+function buildMotionAgreementReport({ directionOverall, visualOverall, frontBackRows }) {
+  const frontBack = summarizeStrictRows(frontBackRows, "mismatch");
+  const components = {
+    direction: {
+      count: directionOverall.count,
+      matchRate: directionOverall.matchRate,
+      meanErrorDeg: directionOverall.meanErrorDeg,
+      p90ErrorDeg: directionOverall.p90ErrorDeg,
+    },
+    frontBack: {
+      count: frontBack.count,
+      matchRate: frontBack.matchRate,
+      mismatchRate: frontBack.mean,
+    },
+    projection: {
+      count: visualOverall.count,
+      matchRate: visualOverall.matchRate,
+      meanError: visualOverall.meanError,
+      p90Error: visualOverall.p90Error,
+    },
+  };
+  const overallScore = weightedMotionAgreementScore(components);
+
+  return {
+    validationScope: "cross_model_motion_agreement",
+    limitations: [
+      "Uses bone direction as the primary motion signal so different humanoid proportions are not punished as motion failures.",
+      "Projection is a visual sanity check, not a same-proportion skeleton requirement.",
+      "Front/back orientation is checked with torso left/right order only; crossing wrists or ankles are not treated as model-front failures.",
+    ],
+    scoreWeights: BODY_MOTION_AGREEMENT_SCORE_WEIGHTS,
+    thresholds: {
+      directionErrorDeg: BODY_MATCH_THRESHOLD_DEG,
+      projectionJointDistance: BODY_VISUAL_MATCH_THRESHOLD,
+      frontBackPairs: BODY_FRONT_BACK_SIDE_ORDER_PAIRS.map((pair) => pair.name),
+    },
+    overall: {
+      score: overallScore,
+      scorePercent: overallScore * 100,
+      passTarget: 0.95,
+      passed: overallScore >= 0.95,
+    },
+    components,
+    frontBackByName: summarizeStrictRowsByKey(frontBackRows, "name", "mismatch"),
+    frontBackMismatches: frontBackRows.filter((row) => !row.matched).slice(0, 12),
   };
 }
 
@@ -1355,11 +1501,11 @@ function buildStrictSegmentRows(samples) {
   });
 }
 
-function buildStrictSideOrderRows(samples) {
+function buildStrictSideOrderRows(samples, pairs = BODY_STRICT_SIDE_ORDER_PAIRS) {
   return samples.flatMap((sample) => {
     const joints = visualJointMap(sample);
 
-    return BODY_STRICT_SIDE_ORDER_PAIRS
+    return pairs
       .map((pair) => {
         const sourceLeft = joints.get(pair.left)?.source;
         const sourceRight = joints.get(pair.right)?.source;
@@ -1399,6 +1545,10 @@ function buildStrictSideOrderRows(samples) {
       })
       .filter(Boolean);
   });
+}
+
+function buildFrontBackSideOrderRows(samples) {
+  return buildStrictSideOrderRows(samples, BODY_FRONT_BACK_SIDE_ORDER_PAIRS);
 }
 
 function buildStrictTemporalRows(samples) {
@@ -1481,6 +1631,24 @@ function weightedStrictScore(components) {
   let weightedSum = 0;
 
   for (const [key, weight] of Object.entries(BODY_STRICT_SCORE_WEIGHTS)) {
+    const component = components[key];
+
+    if (!component || component.count === 0) {
+      continue;
+    }
+
+    totalWeight += weight;
+    weightedSum += component.matchRate * weight;
+  }
+
+  return totalWeight > 0 ? weightedSum / totalWeight : 0;
+}
+
+function weightedMotionAgreementScore(components) {
+  let totalWeight = 0;
+  let weightedSum = 0;
+
+  for (const [key, weight] of Object.entries(BODY_MOTION_AGREEMENT_SCORE_WEIGHTS)) {
     const component = components[key];
 
     if (!component || component.count === 0) {
@@ -1722,6 +1890,15 @@ function updateControls() {
     state.elements.videoFileInput.disabled = missingRequiredDom || state.starting;
   }
 
+  if (state.elements.avatarFileInput) {
+    state.elements.avatarFileInput.disabled = missingRequiredDom || state.starting;
+  }
+
+  if (state.elements.avatarDefaultButton) {
+    state.elements.avatarDefaultButton.disabled =
+      missingRequiredDom || state.starting || (!state.avatarFileUrl && !state.avatarFileName);
+  }
+
   if (state.elements.avatarSkeletonToggle) {
     state.elements.avatarSkeletonToggle.disabled = false;
   }
@@ -1828,6 +2005,24 @@ function isLikelyVideoFile(file) {
   }
 
   return /\.(m4v|mov|mp4|ogv|webm)$/i.test(file.name ?? "");
+}
+
+function isLikelyAvatarModelFile(file) {
+  if (!file) {
+    return false;
+  }
+
+  const type = (file.type ?? "").toLowerCase();
+
+  if (type === "model/gltf-binary" || type === "model/gltf+json") {
+    return true;
+  }
+
+  return /\.(glb|gltf|vrm)$/i.test(file.name ?? "");
+}
+
+function getSelectedAvatarModelUrl() {
+  return state.avatarFileUrl || AVATAR_MODEL_URL;
 }
 
 function releaseVideoFileUrl() {

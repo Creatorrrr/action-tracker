@@ -92,6 +92,11 @@ button {
   cursor: pointer;
 }
 
+.avatar-default-button {
+  width: 100%;
+  margin: 0.75rem 0 0.9rem;
+}
+
 button.secondary {
   color: var(--text);
   background: #1a2632;

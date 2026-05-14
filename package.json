@@ -6,6 +6,8 @@
   "scripts": {
     "check": "node tests/contract-check.mjs",
     "perf:avatar": "node scripts/avatar-performance-check.mjs",
+    "perf:avatar:soldier": "node scripts/avatar-glb-performance-check.mjs assets/models/ratio-candidates/soldier.glb",
+    "perf:avatar:vrm": "node scripts/avatar-vrm-performance-check.mjs",
     "start": "python3 -m http.server 8000 --bind 127.0.0.1"
   }
 }

@@ -30,6 +30,10 @@ npm run check
 
 The check is dependency-free and only reads local files. It does not load remote MediaPipe assets, request camera access, initialize WebGL, or contact remote services.
 
+## Module Hierarchy
+
+The current runtime and validation module boundaries are documented in `docs/MODULE_HIERARCHY.md`.
+
 ## Claude Code Codex Consultation
 
 This repo includes a Claude Code project command for asking Codex CLI for an independent engineering opinion:
@@ -48,7 +52,8 @@ The browser exposes `window.motionTrackerDebug.getBodyValidationReport()` while 
 
 - Direction match: body segment angle error between the MediaPipe pose direction and the corresponding avatar bone direction. This is useful for debugging retarget math, but it is not enough to prove that the rendered model visually matches the source person.
 - Visual skeleton match: normalized 2D joint distance between the MediaPipe skeleton in the input video and the 3D avatar skeleton projected back to the avatar viewport. This is the stricter metric to use when judging whether the model actually appears to follow the person.
-- Strict validation: `strictValidation` combines tighter joint-distance checks, 2D segment angle and length-ratio checks, left-right side-order checks, and temporal motion checks for moving joints. Use this as the pass/fail gate for recorded-video comparisons; the default target is a weighted score of `95%` or higher.
+- Motion agreement: `motionAgreement` is the cross-model pass/fail score for uploaded humanoid rigs. It targets `95%` and combines bone-direction match, torso front/back side-order, and projected-joint sanity so different character proportions are not treated as motion failures.
+- Strict validation: `strictValidation` combines tighter joint-distance checks, 2D segment angle and length-ratio checks, left-right side-order checks, and temporal motion checks for moving joints. Its `95%` target remains a diagnostic goal for near-identical rigs; uploaded-model smoke tests use `motionAgreement` plus the model-specific gates in `docs/avatar-model-validation.md`.
 - Depth validation: `depthValidation` separately measures 3D segment direction agreement against MediaPipe's relative `z` or `worldLandmarks` depth. This is not ground-truth physical depth; it is only a check that the avatar follows the depth signal available from the single-camera pose model. Depth retargeting defaults to `0.45`; use `?depth-scale=0` or `window.motionTrackerDebug.setAvatarDepthScale(0)` to compare against the flat 2D baseline. When `depthScale` equals the reference scale, the depth score is a retarget residual against the same MediaPipe depth signal, not independent proof that real-world front/back limb depth is correct.
 - Avatar performance: `window.motionTrackerDebug.getAvatarPerformanceReport()` exposes rolling update, render, and validation timing summaries. The current performance budgets are update median `1.5ms`, update p95 `3ms`, render median `8ms`, render p95 `14ms`, validation median `1ms`, and validation p95 `2ms`. Use `window.motionTrackerDebug.clearAvatarPerformanceSamples()` before a recorded run if you need fresh measurements.
 
@@ -62,6 +67,22 @@ npm run perf:avatar
 
 The check verifies the local GLB size/complexity, no-package-dependency constraint, twist-limiting guards, frozen proportion calibration, and performance budget declarations. It does not initialize WebGL or request camera access.
 
+Run the VRM candidate budget check with:
+
+```sh
+npm run perf:avatar:vrm
+```
+
+The VRM candidate gate allows up to `12 MB`, `60k` vertices, and `110` bones/nodes, and requires a VRM extension marker. Runtime budgets still use the in-browser avatar performance report; both the default Xbot and uploaded VRM should stay below update p95 `3ms`, render p95 `14ms`, and validation p95 `2ms` on the sample video.
+
+Run the ratio-matched Soldier GLB budget check with:
+
+```sh
+npm run perf:avatar:soldier
+```
+
+The Soldier gate keeps the uploaded test model below `3.5 MB`, `30k` vertices, and `80` Mixamo-compatible bones. Its recorded-video smoke gate is documented in `docs/avatar-model-validation.md`.
+
 Use the **Avatar skeleton** toggle to render the model's live bone skeleton over the 3D avatar. This makes leg crossing, side swaps, and badly aimed limb bones visible without relying only on the skinned mesh.
 
 The 3D avatar viewport supports orbit inspection: drag inside the avatar canvas to rotate, use the wheel or trackpad to zoom, and use **Reset** or double-click the viewport to return to the default front view. Reset the view before recording validation numbers if you want the visual projection score to match the source-video orientation.
@@ -71,10 +92,12 @@ Camera input is mirrored by default because that matches a normal webcam preview
 ## 3D Avatar
 
 - The right-hand viewport renders `assets/models/Xbot.glb`, a local rigged Xbot model.
+- With no avatar file selected, the app always falls back to `assets/models/Xbot.glb`. Use **Avatar model** to load a local `.glb`, `.gltf`, or `.vrm` file for the current browser session, and **Default avatar** to return to Xbot.
+- The ratio-matched Soldier test model is stored at `assets/models/ratio-candidates/soldier.glb` and can be loaded through **Avatar model** when validating full-body motion.
 - The model is sourced from the three.js examples repository: `https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/Xbot.glb`.
 - The upstream source is MIT licensed by three.js. The license reference is documented in `assets/models/README.md`, and the local license text is stored at `assets/models/threejs-LICENSE.txt`.
 - The avatar renderer uses the browser's WebGL support through Three.js and the local `Xbot.glb` file. If WebGL or the model load fails, the camera tracker should continue to report the avatar failure without breaking capture.
-- Avatar motion is an approximate retarget from MediaPipe pose and hand landmarks to Mixamo-style bones. It is intended as a local visual preview, not a production motion-capture solver.
+- Avatar motion is an approximate retarget from MediaPipe pose and hand landmarks to supported humanoid bones, including Mixamo-style `mixamorig:*` names and common unprefixed humanoid names used by VRM exports. Limb bones use primary-direction swing retargeting so Mixamo-compatible uploads like Soldier can move the whole arm/leg instead of only the hands/feet, while head/neck and hand controls keep conservative damping. VRM models use a conservative anime profile that reduces head/neck strength, adds deadband and hysteresis, and disables screen-space proportion stretching so short chibi rigs do not overreact. It is intended as a local visual preview, not a production motion-capture solver.
 
 ## Runtime Notes
 
