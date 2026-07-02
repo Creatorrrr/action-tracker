@@ -4,10 +4,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "node tests/contract-check.mjs",
+    "check": "node tests/contract-check.mjs && node tests/avatar-vrm-humanoid-check.mjs && node tests/avatar-vrm-expression-check.mjs && node tests/depth-calibration-check.mjs && node tests/motion-frame-check.mjs && node tests/motion-forwarding-check.mjs",
     "perf:avatar": "node scripts/avatar-performance-check.mjs",
     "perf:avatar:soldier": "node scripts/avatar-glb-performance-check.mjs assets/models/ratio-candidates/soldier.glb",
     "perf:avatar:vrm": "node scripts/avatar-vrm-performance-check.mjs",
+    "perf:pump": "node scripts/frame-pump-performance-check.mjs",
+    "motion:avatar": "node scripts/avatar-motion-agreement-check.mjs",
+    "motion:avatar:labeled": "node scripts/avatar-motion-agreement-check.mjs --labels tests/fixtures/repository-test-keyframes.json",
+    "keyframes:avatar": "node scripts/extract-video-keyframes.mjs",
     "start": "python3 -m http.server 8000 --bind 127.0.0.1"
   }
 }

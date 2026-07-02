@@ -1,14 +1,64 @@
 import {
+  FaceLandmarker,
   FilesetResolver,
   HandLandmarker,
   PoseLandmarker,
 } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/vision_bundle.mjs";
-import { createAvatarRenderer } from "./avatar-renderer.js?v=20260514-front-yaw-6";
+import { createAvatarRenderer } from "./avatar-renderer.js?v=20260702-secondary-aim-rest-basis-1";
+import {
+  MOTION_RECORDING_FRAME_LIMIT,
+  createMotionFrame,
+  createMotionRecording,
+  isMotionFrame,
+  motionFrameToHandResults,
+  motionFrameToPoseResults,
+  normalizeFace,
+  normalizeMotionRecording,
+  serializeMotionFrame,
+} from "./motion-frame.js?v=20260618-tracked-channels-1";
+import { createMotionForwarder } from "./motion-forwarding.js?v=20260529-face-expression-1";
+import {
+  DEPTH_CALIBRATION_CLAMP_WARNING_RATIO,
+  DEPTH_CALIBRATION_LENGTH_ERROR_THRESHOLD,
+  DEPTH_CALIBRATION_MIN_CV_SEGMENT_SAMPLES,
+  DEPTH_CALIBRATION_MIN_RELIABLE_CV_SEGMENTS,
+  DEPTH_CALIBRATION_MODE_DYNAMIC,
+  DEPTH_CALIBRATION_MODE_STATIC,
+  DEPTH_CALIBRATION_RUNTIME_P95_BUDGET_MS,
+  DEPTH_CALIBRATION_SMOOTHNESS_THRESHOLD,
+  DEPTH_CALIBRATION_TARGET_SCORE,
+  normalizeDepthCalibrationMode,
+  summarizeLengthConsistency,
+} from "./depth-calibration.js?v=20260529-face-expression-1";
 
 const WASM_ASSET_PATH =
   "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm";
 const AVATAR_MODEL_URL = "./assets/models/Xbot.glb";
 const DEFAULT_AVATAR_DEPTH_SCALE = 0.45;
+const DETECTION_PUMP_AUTO = "auto";
+const DETECTION_PUMP_RAF = "raf";
+const DETECTION_PUMP_RVFC = "rvfc";
+const DETECTION_PUMP_MODES = new Set([
+  DETECTION_PUMP_AUTO,
+  DETECTION_PUMP_RAF,
+  DETECTION_PUMP_RVFC,
+]);
+const AVATAR_SMOOTHING_MODE_OFF = "off";
+const AVATAR_SMOOTHING_MODE_RETARGET = "retarget";
+const AVATAR_SMOOTHING_MODE_STRONG = "strong";
+const AVATAR_SMOOTHING_MODE_ALIASES = {
+  off: AVATAR_SMOOTHING_MODE_OFF,
+  none: AVATAR_SMOOTHING_MODE_OFF,
+  "0": AVATAR_SMOOTHING_MODE_OFF,
+  false: AVATAR_SMOOTHING_MODE_OFF,
+  retarget: AVATAR_SMOOTHING_MODE_RETARGET,
+  on: AVATAR_SMOOTHING_MODE_RETARGET,
+  "1": AVATAR_SMOOTHING_MODE_RETARGET,
+  true: AVATAR_SMOOTHING_MODE_RETARGET,
+  strong: AVATAR_SMOOTHING_MODE_STRONG,
+};
+const APP_PERFORMANCE_SAMPLE_LIMIT = 900;
+const TRACKING_WORKER_TIMEOUT_MS = 10000;
 
 const POSE_MODEL_URLS = {
   pose_lite:
@@ -27,8 +77,11 @@ const POSE_MODEL_KEYS_BY_OPTION = {
 
 const HAND_MODEL_URL =
   "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task";
+const FACE_MODEL_URL =
+  "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task";
 const BODY_MATCH_THRESHOLD_DEG = 30;
 const BODY_VISUAL_MATCH_THRESHOLD = 0.35;
+const BODY_PROJECTED_SEGMENT_ANGLE_THRESHOLD_DEG = 35;
 const BODY_STRICT_JOINT_THRESHOLD = 0.16;
 const BODY_STRICT_MIN_SEGMENT_LENGTH = 0.035;
 const BODY_STRICT_SEGMENT_ANGLE_THRESHOLD_DEG = 18;
@@ -46,10 +99,11 @@ const BODY_STRICT_SCORE_WEIGHTS = {
   temporal: 0.1,
 };
 const BODY_MOTION_AGREEMENT_SCORE_WEIGHTS = {
-  direction: 0.75,
+  direction: 0.85,
   frontBack: 0.15,
-  projection: 0.1,
+  projection: 0,
 };
+const BODY_MOTION_AGREEMENT_EXCLUDED_SEGMENTS = new Set(["neck"]);
 
 const BODY_STRICT_SEGMENTS = [
   { name: "shoulderWidth", group: "torso", from: "leftShoulder", to: "rightShoulder" },
@@ -190,8 +244,18 @@ const state = {
   vision: null,
   poseLandmarker: null,
   handLandmarker: null,
+  faceLandmarker: null,
   poseModelKey: null,
   modelLoadPromise: null,
+  faceTracking: {
+    enabled: getInitialFaceTrackingEnabled(),
+    landmarksEnabled: getInitialFaceLandmarksEnabled(),
+    status: getInitialFaceTrackingEnabled() ? "enabled" : "disabled",
+    detectFrames: 0,
+    facesDetected: 0,
+    lastTimestamp: 0,
+    lastError: "",
+  },
   stream: null,
   videoFileUrl: "",
   avatarFileUrl: "",
@@ -199,6 +263,7 @@ const state = {
   inputKind: "idle",
   videoFileName: "",
   animationFrameId: 0,
+  videoFrameRequestId: 0,
   active: false,
   starting: false,
   startToken: 0,
@@ -206,6 +271,50 @@ const state = {
   lastFrameTimestamp: 0,
   smoothedFps: 0,
   errorCode: null,
+  debugOverlayEnabled: true,
+  avatarSmoothingMode: getInitialAvatarSmoothingMode(),
+  detectionPump: {
+    requestedMode: DETECTION_PUMP_AUTO,
+    activeMode: DETECTION_PUMP_RAF,
+    supportsVideoFrameCallback: false,
+    callbacks: 0,
+    processedFrames: 0,
+    duplicateFrames: 0,
+    emptyFrames: 0,
+    busySkips: 0,
+    errors: 0,
+    busy: false,
+  },
+  trackingWorker: {
+    requested: getInitialTrackingWorkerEnabled(),
+    supported: supportsTrackingWorker(),
+    active: false,
+    status: getInitialTrackingWorkerEnabled() ? "requested" : "disabled",
+    worker: null,
+    initPromise: null,
+    requestId: 0,
+    pendingRequests: new Map(),
+    poseModelKey: "",
+    faceTrackingEnabled: false,
+    faceLandmarksEnabled: false,
+    frames: 0,
+    errors: 0,
+    fallbacks: 0,
+    fallbackReason: "",
+  },
+  appPerformance: {
+    startedAt: 0,
+    lastCallbackTimestamp: 0,
+    lastProcessedTimestamp: 0,
+    callbackIntervalsMs: [],
+    detectIntervalsMs: [],
+    detectMs: [],
+    faceDetectMs: [],
+    faceProcessMs: [],
+    processMs: [],
+    drawMs: [],
+    frameTotalMs: [],
+  },
   avatarRenderer: null,
   avatarInitPromise: null,
   avatarLoadToken: 0,
@@ -213,6 +322,24 @@ const state = {
     samples: [],
     lastSample: null,
   },
+  motionRecording: {
+    active: false,
+    createdAt: "",
+    source: null,
+    frames: [],
+    droppedFrames: 0,
+    lastRecording: null,
+  },
+  motionReplay: {
+    active: false,
+    recording: null,
+    frameIndex: 0,
+    animationFrameId: 0,
+    startedAt: 0,
+    baseTimestamp: 0,
+  },
+  motionForwarder: createMotionForwarder(),
+  latestMotionFrame: null,
 };
 
 function boot() {
@@ -226,6 +353,7 @@ function boot() {
     state.elements.video.setAttribute("playsinline", "");
   }
 
+  configureDetectionRuntime();
   initAvatarRenderer();
 
   state.elements.startButton?.addEventListener("click", () => {
@@ -275,11 +403,13 @@ function boot() {
 
   window.addEventListener("beforeunload", () => {
     stopCamera({ preserveError: true });
+    disposeTrackingWorker();
     disposeAvatarRenderer();
     releaseAvatarFileUrl();
   });
   window.addEventListener("pagehide", () => {
     stopCamera({ preserveError: true });
+    disposeTrackingWorker();
     disposeAvatarRenderer();
     releaseAvatarFileUrl();
   });
@@ -341,6 +471,8 @@ function initAvatarRenderer() {
       modelUrl,
       modelLabel,
       depthScale: getInitialAvatarDepthScale(),
+      depthCalibrationMode: getInitialAvatarDepthCalibrationMode(),
+      smoothingMode: state.avatarSmoothingMode,
     });
     syncAvatarDebugOptions();
     state.avatarInitPromise = state.avatarRenderer
@@ -372,6 +504,7 @@ async function startCamera() {
     return;
   }
 
+  stopMotionReplay({ resetPose: true, silent: true });
   clearError();
 
   if (!hasUsableDom()) {
@@ -443,7 +576,10 @@ async function startCamera() {
     state.lastVideoTime = -1;
     state.lastFrameTimestamp = 0;
     state.smoothedFps = 0;
+    configureDetectionRuntime();
+    resetAppPerformance();
     resetBodyValidation();
+    state.avatarRenderer?.resetDepthCalibration?.();
     setText("cameraStatus", "Running");
     setText("modelStatus", "Ready");
     updateControls();
@@ -471,6 +607,8 @@ async function startVideoFile(file) {
   if (state.starting) {
     return;
   }
+
+  stopMotionReplay({ resetPose: true, silent: true });
 
   if (state.active || state.stream || state.videoFileUrl) {
     stopCamera({ preserveError: true, cameraStatus: "Switching input" });
@@ -531,7 +669,10 @@ async function startVideoFile(file) {
     state.lastVideoTime = -1;
     state.lastFrameTimestamp = 0;
     state.smoothedFps = 0;
+    configureDetectionRuntime();
+    resetAppPerformance();
     resetBodyValidation();
+    state.avatarRenderer?.resetDepthCalibration?.();
     setText("cameraStatus", `Video running: ${file.name}`);
     setText("modelStatus", "Ready");
     updateControls();
@@ -561,10 +702,16 @@ function stopCamera(options = {}) {
   state.inputKind = "idle";
   state.videoFileName = "";
 
+  if (!options.preserveReplay) {
+    stopMotionReplay({ resetPose: false, silent: true });
+  }
+
   if (state.animationFrameId) {
     cancelAnimationFrame(state.animationFrameId);
     state.animationFrameId = 0;
   }
+
+  cancelVideoFrameRequest();
 
   if (state.stream) {
     stopStream(state.stream);
@@ -684,7 +831,9 @@ async function ensureModelsLoaded() {
   if (
     state.poseLandmarker &&
     state.handLandmarker &&
-    state.poseModelKey === selectedPoseModelKey
+    state.poseModelKey === selectedPoseModelKey &&
+    (!state.faceTracking.enabled || state.faceLandmarker) &&
+    isTrackingWorkerReadyFor(selectedPoseModelKey)
   ) {
     setText("modelStatus", "Ready");
     return;
@@ -735,6 +884,33 @@ async function loadModels(selectedPoseModelKey) {
       state.poseModelKey = selectedPoseModelKey;
     }
 
+    if (state.faceTracking.enabled && !state.faceLandmarker) {
+      state.faceTracking.status = "loading";
+
+      try {
+        state.faceLandmarker = await FaceLandmarker.createFromOptions(state.vision, {
+          baseOptions: {
+            modelAssetPath: FACE_MODEL_URL,
+          },
+          runningMode: "VIDEO",
+          numFaces: 1,
+          outputFaceBlendshapes: true,
+          outputFacialTransformationMatrixes: true,
+        });
+        state.faceTracking.status = "ready";
+        state.faceTracking.lastError = "";
+      } catch (error) {
+        state.faceLandmarker = null;
+        state.faceTracking.status = "failed";
+        state.faceTracking.lastError = getErrorDetail(error);
+        console.warn("Face tracking model load failed.", error);
+      }
+    } else if (!state.faceTracking.enabled) {
+      state.faceTracking.status = "disabled";
+    }
+
+    await ensureTrackingWorkerReady(selectedPoseModelKey);
+
     setText("modelStatus", "Ready");
   } catch (error) {
     setText("modelStatus", "Failed");
@@ -744,30 +920,264 @@ async function loadModels(selectedPoseModelKey) {
   }
 }
 
+function isTrackingWorkerReadyFor(selectedPoseModelKey) {
+  if (!state.trackingWorker.requested) {
+    return true;
+  }
+
+  return (
+    state.trackingWorker.active &&
+    state.trackingWorker.poseModelKey === selectedPoseModelKey &&
+    state.trackingWorker.faceTrackingEnabled === state.faceTracking.enabled &&
+    state.trackingWorker.faceLandmarksEnabled === state.faceTracking.landmarksEnabled
+  );
+}
+
+async function ensureTrackingWorkerReady(selectedPoseModelKey) {
+  configureTrackingWorkerRuntime();
+
+  if (!state.trackingWorker.requested) {
+    return false;
+  }
+
+  if (!state.trackingWorker.supported) {
+    state.trackingWorker.status = "unsupported";
+    state.trackingWorker.fallbackReason = "Worker, createImageBitmap, or OffscreenCanvas is unavailable.";
+    return false;
+  }
+
+  if (isTrackingWorkerReadyFor(selectedPoseModelKey)) {
+    return true;
+  }
+
+  if (state.trackingWorker.initPromise) {
+    await state.trackingWorker.initPromise;
+    return state.trackingWorker.active;
+  }
+
+  state.trackingWorker.status = "loading";
+  state.trackingWorker.initPromise = initTrackingWorker(selectedPoseModelKey);
+
+  try {
+    await state.trackingWorker.initPromise;
+  } finally {
+    state.trackingWorker.initPromise = null;
+  }
+
+  return state.trackingWorker.active;
+}
+
+async function initTrackingWorker(selectedPoseModelKey) {
+  try {
+    const worker = getOrCreateTrackingWorker();
+    await postTrackingWorkerRequest("init", {
+      wasmAssetPath: WASM_ASSET_PATH,
+      poseModelUrl: POSE_MODEL_URLS[selectedPoseModelKey],
+      handModelUrl: HAND_MODEL_URL,
+      faceModelUrl: FACE_MODEL_URL,
+      faceTrackingEnabled: state.faceTracking.enabled,
+      faceLandmarksEnabled: state.faceTracking.landmarksEnabled,
+    });
+    state.trackingWorker.active = true;
+    state.trackingWorker.status = "ready";
+    state.trackingWorker.poseModelKey = selectedPoseModelKey;
+    state.trackingWorker.faceTrackingEnabled = state.faceTracking.enabled;
+    state.trackingWorker.faceLandmarksEnabled = state.faceTracking.landmarksEnabled;
+    state.trackingWorker.fallbackReason = "";
+    return worker;
+  } catch (error) {
+    markTrackingWorkerFallback(error);
+    return null;
+  }
+}
+
+function getOrCreateTrackingWorker() {
+  if (state.trackingWorker.worker) {
+    return state.trackingWorker.worker;
+  }
+
+  const worker = new Worker(
+    new URL("./motion-worker.js?v=20260618-tracked-channels-1", import.meta.url),
+    { type: "module" },
+  );
+  worker.addEventListener("message", handleTrackingWorkerMessage);
+  worker.addEventListener("error", (event) => {
+    markTrackingWorkerFallback(event.error ?? event.message ?? "Tracking worker failed.");
+  });
+  worker.addEventListener("messageerror", () => {
+    markTrackingWorkerFallback("Tracking worker message transfer failed.");
+  });
+  state.trackingWorker.worker = worker;
+  return worker;
+}
+
+function handleTrackingWorkerMessage(event) {
+  const message = event.data ?? {};
+  const request = state.trackingWorker.pendingRequests.get(message.requestId);
+
+  if (!request) {
+    return;
+  }
+
+  clearTimeout(request.timeoutId);
+  state.trackingWorker.pendingRequests.delete(message.requestId);
+
+  if (message.type === "error") {
+    request.reject(new Error(message.message || "Tracking worker request failed."));
+    return;
+  }
+
+  request.resolve(message);
+}
+
+function postTrackingWorkerRequest(type, payload = {}, transfer = []) {
+  const worker = getOrCreateTrackingWorker();
+  const requestId = ++state.trackingWorker.requestId;
+
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      state.trackingWorker.pendingRequests.delete(requestId);
+      reject(new Error(`Tracking worker ${type} request timed out.`));
+    }, TRACKING_WORKER_TIMEOUT_MS);
+
+    state.trackingWorker.pendingRequests.set(requestId, {
+      resolve,
+      reject,
+      timeoutId,
+    });
+
+    try {
+      worker.postMessage({ type, requestId, ...payload }, transfer);
+    } catch (error) {
+      clearTimeout(timeoutId);
+      state.trackingWorker.pendingRequests.delete(requestId);
+      reject(error);
+    }
+  });
+}
+
+function markTrackingWorkerFallback(error) {
+  const reason = getErrorDetail(error);
+  state.trackingWorker.active = false;
+  state.trackingWorker.status = "fallback";
+  state.trackingWorker.errors += 1;
+  state.trackingWorker.fallbacks += 1;
+  state.trackingWorker.fallbackReason = reason;
+  rejectTrackingWorkerPending(error);
+  disposeTrackingWorker({ keepStatus: true });
+  console.warn("Tracking worker disabled; using main-thread detection.", error);
+}
+
+function rejectTrackingWorkerPending(error) {
+  for (const [requestId, request] of state.trackingWorker.pendingRequests) {
+    clearTimeout(request.timeoutId);
+    request.reject(error instanceof Error ? error : new Error(String(error)));
+    state.trackingWorker.pendingRequests.delete(requestId);
+  }
+}
+
+function disposeTrackingWorker(options = {}) {
+  if (state.trackingWorker.worker) {
+    try {
+      state.trackingWorker.worker.postMessage({ type: "close", requestId: 0 });
+    } catch {
+      // The worker may already be shutting down.
+    }
+
+    state.trackingWorker.worker.terminate();
+    state.trackingWorker.worker = null;
+  }
+
+  rejectTrackingWorkerPending(new Error("Tracking worker disposed."));
+  state.trackingWorker.initPromise = null;
+  state.trackingWorker.active = false;
+  state.trackingWorker.poseModelKey = "";
+  state.trackingWorker.faceTrackingEnabled = false;
+  state.trackingWorker.faceLandmarksEnabled = false;
+
+  if (!options.keepStatus) {
+    state.trackingWorker.status = state.trackingWorker.requested ? "requested" : "disabled";
+    state.trackingWorker.fallbackReason = "";
+  }
+}
+
 function scheduleDetectionFrame() {
   if (!state.active) {
     return;
   }
 
-  state.animationFrameId = requestAnimationFrame(runDetectionFrame);
+  state.detectionPump.activeMode = resolveDetectionPumpMode();
+
+  if (state.detectionPump.activeMode === DETECTION_PUMP_RVFC) {
+    if (state.videoFrameRequestId) {
+      return;
+    }
+
+    scheduleVideoFrameDetection();
+    return;
+  }
+
+  if (state.animationFrameId) {
+    return;
+  }
+
+  state.animationFrameId = requestAnimationFrame((timestamp) => {
+    state.animationFrameId = 0;
+    runDetectionFrame(timestamp, { pumpMode: DETECTION_PUMP_RAF });
+  });
 }
 
-function runDetectionFrame(timestamp) {
+function scheduleVideoFrameDetection() {
+  const video = state.elements.video;
+
+  if (!video?.requestVideoFrameCallback) {
+    state.detectionPump.activeMode = DETECTION_PUMP_RAF;
+    state.animationFrameId = requestAnimationFrame((timestamp) => {
+      state.animationFrameId = 0;
+      runDetectionFrame(timestamp, { pumpMode: DETECTION_PUMP_RAF });
+    });
+    return;
+  }
+
+  state.videoFrameRequestId = video.requestVideoFrameCallback((timestamp, metadata) => {
+    state.videoFrameRequestId = 0;
+    runDetectionFrame(timestamp, {
+      pumpMode: DETECTION_PUMP_RVFC,
+      videoFrameMetadata: metadata,
+    });
+  });
+}
+
+async function runDetectionFrame(timestamp, options = {}) {
   if (!state.active) {
     return;
   }
+
+  const frameTimestamp = Number.isFinite(timestamp) ? timestamp : nowMs();
+  const pumpMode = options.pumpMode ?? state.detectionPump.activeMode;
+  recordDetectionCallback(frameTimestamp);
+
+  if (state.detectionPump.busy) {
+    state.detectionPump.busySkips += 1;
+    scheduleDetectionFrame();
+    return;
+  }
+
+  state.detectionPump.busy = true;
+  const frameStartedAt = nowMs();
+  let shouldScheduleNext = true;
 
   try {
     const { video } = state.elements;
 
     if (!video.videoWidth || !video.videoHeight || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+      state.detectionPump.emptyFrames += 1;
       clearCanvas();
       setError(
         "Input is active, but the video frame is empty.",
         "EMPTY_VIDEO_FRAME",
       );
       setText("cameraStatus", "No video frame");
-      scheduleDetectionFrame();
       return;
     }
 
@@ -781,43 +1191,218 @@ function runDetectionFrame(timestamp) {
       );
     }
 
-    resizeCanvasToVideoFrame();
-
     if (video.currentTime === state.lastVideoTime) {
-      scheduleDetectionFrame();
+      state.detectionPump.duplicateFrames += 1;
       return;
     }
 
     state.lastVideoTime = video.currentTime;
+    state.detectionPump.processedFrames += 1;
+    recordDetectionProcessedFrame(frameTimestamp);
 
-    const poseResults = state.poseLandmarker.detectForVideo(video, timestamp);
-    const handResults = state.handLandmarker.detectForVideo(video, timestamp);
+    resizeCanvasToVideoFrame();
 
-    updateAvatarRenderer(poseResults, handResults, timestamp);
-    recordBodyValidation(poseResults, timestamp);
-    drawResults(poseResults, handResults);
-    updateDetectionMetrics(poseResults, handResults, timestamp);
+    const detectStartedAt = nowMs();
+    const motionFrame = await detectMotionFrameForVideo(video, frameTimestamp);
+    recordAppPerformanceSample("detectMs", nowMs() - detectStartedAt);
+
+    const processStartedAt = nowMs();
+    processMotionFrame(motionFrame, {
+      record: true,
+      forward: true,
+      draw: state.debugOverlayEnabled,
+      metrics: true,
+      pumpMode,
+    });
+    recordAppPerformanceSample("processMs", nowMs() - processStartedAt);
+    recordAppPerformanceSample("frameTotalMs", nowMs() - frameStartedAt);
   } catch (error) {
+    state.detectionPump.errors += 1;
+    shouldScheduleNext = false;
     setError(`Tracking failed: ${getErrorDetail(error)}`, "TRACKING_FAILED");
     setText("cameraStatus", "Failed");
     stopCamera({ preserveError: true, cameraStatus: "Failed" });
     return;
+  } finally {
+    state.detectionPump.busy = false;
+
+    if (shouldScheduleNext) {
+      scheduleDetectionFrame();
+    }
+  }
+}
+
+async function detectMotionFrameForVideo(video, frameTimestamp) {
+  if (shouldUseTrackingWorker()) {
+    try {
+      return await detectMotionFrameInWorker(video, frameTimestamp);
+    } catch (error) {
+      markTrackingWorkerFallback(error);
+    }
   }
 
-  scheduleDetectionFrame();
+  return detectMotionFrameOnMainThread(video, frameTimestamp);
+}
+
+function shouldUseTrackingWorker() {
+  return Boolean(
+    state.trackingWorker.requested &&
+      state.trackingWorker.supported &&
+      state.trackingWorker.active &&
+      state.trackingWorker.worker,
+  );
+}
+
+async function detectMotionFrameInWorker(video, frameTimestamp) {
+  const imageBitmap = await createImageBitmap(video);
+
+  try {
+    const response = await postTrackingWorkerRequest(
+      "detect",
+      {
+        imageBitmap,
+        timestamp: frameTimestamp,
+        mirrored: Boolean(state.elements.mirrorToggle?.checked),
+        sourceMeta: getCurrentMotionSourceMeta("worker"),
+        faceTrackingEnabled: state.faceTracking.enabled,
+        faceLandmarksEnabled: state.faceTracking.landmarksEnabled,
+      },
+      [imageBitmap],
+    );
+    state.trackingWorker.frames += 1;
+
+    if (state.faceTracking.enabled) {
+      state.faceTracking.status = response.frame?.face ? "running" : "ready";
+      state.faceTracking.detectFrames += 1;
+      state.faceTracking.lastTimestamp = frameTimestamp;
+
+      if (response.frame?.face) {
+        state.faceTracking.facesDetected += 1;
+        state.faceTracking.lastError = "";
+      }
+    }
+
+    return response.frame;
+  } catch (error) {
+    try {
+      imageBitmap.close?.();
+    } catch {
+      // The frame may already have been transferred to the worker.
+    }
+
+    throw error;
+  }
+}
+
+function detectMotionFrameOnMainThread(video, frameTimestamp) {
+  const poseResults = state.poseLandmarker.detectForVideo(video, frameTimestamp);
+  const handResults = state.handLandmarker.detectForVideo(video, frameTimestamp);
+  const face = detectFaceForVideo(video, frameTimestamp);
+
+  return createMotionFrame({
+    timestamp: frameTimestamp,
+    mirrored: Boolean(state.elements.mirrorToggle?.checked),
+    poseResults,
+    handResults,
+    face,
+    sourceMeta: getCurrentMotionSourceMeta("main-thread"),
+  });
+}
+
+function detectFaceForVideo(video, frameTimestamp) {
+  if (!state.faceTracking.enabled || !state.faceLandmarker) {
+    return null;
+  }
+
+  const detectStartedAt = nowMs();
+  let faceResults = null;
+
+  try {
+    faceResults = state.faceLandmarker.detectForVideo(video, frameTimestamp);
+    recordAppPerformanceSample("faceDetectMs", nowMs() - detectStartedAt);
+  } catch (error) {
+    recordAppPerformanceSample("faceDetectMs", nowMs() - detectStartedAt);
+    state.faceTracking.status = "failed";
+    state.faceTracking.lastError = getErrorDetail(error);
+    console.warn("Face tracking skipped.", error);
+    return null;
+  }
+
+  const processStartedAt = nowMs();
+  const face = normalizeFace(faceResults, {
+    includeLandmarks: state.faceTracking.landmarksEnabled,
+  });
+  recordAppPerformanceSample("faceProcessMs", nowMs() - processStartedAt);
+  state.faceTracking.status = "running";
+  state.faceTracking.detectFrames += 1;
+  state.faceTracking.lastTimestamp = frameTimestamp;
+
+  if (face) {
+    state.faceTracking.facesDetected += 1;
+    state.faceTracking.lastError = "";
+  }
+
+  return face;
 }
 
 function updateAvatarRenderer(poseResults, handResults, timestamp) {
+  const motionFrame = createMotionFrame({
+    timestamp,
+    mirrored: Boolean(state.elements.mirrorToggle?.checked),
+    poseResults,
+    handResults,
+    sourceMeta: getCurrentMotionSourceMeta(),
+  });
+
+  updateAvatarRendererFromMotionFrame(motionFrame);
+}
+
+function processMotionFrame(motionFrame, options = {}) {
+  const {
+    record = false,
+    forward = false,
+    draw = false,
+    metrics = false,
+  } = options;
+  const normalizedFrame = isMotionFrame(motionFrame)
+    ? motionFrame
+    : createMotionFrame({ sourceMeta: getCurrentMotionSourceMeta() });
+  state.latestMotionFrame = normalizedFrame;
+  const poseResults = motionFrameToPoseResults(normalizedFrame);
+  const handResults = motionFrameToHandResults(normalizedFrame);
+
+  updateAvatarRendererFromMotionFrame(normalizedFrame);
+  recordBodyValidation(normalizedFrame);
+
+  if (record) {
+    appendMotionRecordingFrame(normalizedFrame);
+  }
+
+  if (forward) {
+    state.motionForwarder.sendFrame(normalizedFrame);
+  }
+
+  if (draw) {
+    const drawStartedAt = nowMs();
+    drawResults(poseResults, handResults);
+    recordAppPerformanceSample("drawMs", nowMs() - drawStartedAt);
+  }
+
+  if (metrics) {
+    updateDetectionMetrics(poseResults, handResults, normalizedFrame.timestamp);
+  }
+}
+
+function updateAvatarRendererFromMotionFrame(motionFrame) {
   if (!state.avatarRenderer) {
     return;
   }
 
   try {
     state.avatarRenderer.update({
-      poseResults,
-      handResults,
-      mirrored: Boolean(state.elements.mirrorToggle?.checked),
-      timestamp,
+      motionFrame,
+      mirrored: motionFrame.mirrored,
+      timestamp: motionFrame.timestamp,
     });
   } catch (error) {
     setAvatarStatus(`Failed: ${getErrorDetail(error)}`);
@@ -835,30 +1420,40 @@ function syncAvatarDebugOptions() {
   }
 }
 
-function recordBodyValidation(poseResults, timestamp) {
+function recordBodyValidation(input, fallbackTimestamp = 0) {
   if (!state.avatarRenderer?.getBodyValidationSnapshot) {
     return;
   }
 
   try {
+    const motionFrame = isMotionFrame(input)
+      ? input
+      : createMotionFrame({
+        timestamp: fallbackTimestamp,
+        mirrored: Boolean(state.elements.mirrorToggle?.checked),
+        poseResults: input,
+        sourceMeta: getCurrentMotionSourceMeta(),
+      });
     const snapshot = state.avatarRenderer.getBodyValidationSnapshot({
-      poseResults,
-      mirrored: Boolean(state.elements.mirrorToggle?.checked),
-      timestamp,
+      motionFrame,
+      mirrored: motionFrame.mirrored,
+      timestamp: motionFrame.timestamp,
     });
     const visualSnapshot = state.avatarRenderer.getProjectedBodyPoseSnapshot?.({
-      poseResults,
-      mirrored: Boolean(state.elements.mirrorToggle?.checked),
-      timestamp,
+      motionFrame,
+      mirrored: motionFrame.mirrored,
+      timestamp: motionFrame.timestamp,
     });
     const depthSnapshot = state.avatarRenderer.getDepthValidationSnapshot?.({
-      poseResults,
-      mirrored: Boolean(state.elements.mirrorToggle?.checked),
-      timestamp,
+      motionFrame,
+      mirrored: motionFrame.mirrored,
+      timestamp: motionFrame.timestamp,
     });
+    const depthCalibrationSnapshot = state.avatarRenderer.getDepthCalibrationSnapshot?.();
+    const motionStateSnapshot = state.avatarRenderer.getMotionStateSnapshot?.();
     const sample = {
-      timestamp,
-      videoTime: Number(state.elements.video?.currentTime ?? 0),
+      timestamp: motionFrame.timestamp,
+      videoTime: Number(motionFrame.sourceMeta?.videoTime ?? state.elements.video?.currentTime ?? 0),
       inputKind: state.inputKind,
       videoFileName: state.videoFileName,
       avatarDepthScale: state.avatarRenderer.getDepthScale?.() ?? null,
@@ -886,6 +1481,8 @@ function recordBodyValidation(poseResults, timestamp) {
         flatSourceErrorDeg: segment.flatSourceErrorDeg,
         sourceDepthRatio: segment.sourceDepthRatio,
         sourceDepthDelta: segment.sourceDepthDelta,
+        targetDirection: segment.targetDirection,
+        avatarDirection: segment.avatarDirection,
         depthSalient: segment.depthSalient,
         matched: segment.matched,
       })),
@@ -894,6 +1491,8 @@ function recordBodyValidation(poseResults, timestamp) {
       depthReferenceScale: depthSnapshot?.referenceDepthScale ?? null,
       depthSelfReferential: depthSnapshot?.selfReferential ?? null,
       depthMeasurementMode: depthSnapshot?.measurementMode ?? null,
+      depthCalibration: depthCalibrationSnapshot ?? depthSnapshot?.depthCalibration ?? null,
+      rootMotion: motionStateSnapshot?.rootMotion ?? null,
     };
 
     state.bodyValidation.lastSample = sample;
@@ -1156,9 +1755,557 @@ function resetMetrics() {
   setText("rightHandCount", "0");
 }
 
+function configureDetectionRuntime() {
+  state.detectionPump.requestedMode = getInitialDetectionPumpMode();
+  state.detectionPump.supportsVideoFrameCallback = supportsVideoFrameCallback();
+  state.detectionPump.activeMode = resolveDetectionPumpMode();
+  state.debugOverlayEnabled = getInitialDebugOverlayEnabled();
+  configureTrackingWorkerRuntime();
+}
+
+function supportsVideoFrameCallback() {
+  return typeof state.elements.video?.requestVideoFrameCallback === "function";
+}
+
+function configureTrackingWorkerRuntime() {
+  const requested = getInitialTrackingWorkerEnabled();
+  state.trackingWorker.requested = requested;
+  state.trackingWorker.supported = supportsTrackingWorker();
+
+  if (!requested) {
+    disposeTrackingWorker();
+    state.trackingWorker.status = "disabled";
+    return;
+  }
+
+  if (!state.trackingWorker.supported) {
+    state.trackingWorker.active = false;
+    state.trackingWorker.status = "unsupported";
+    state.trackingWorker.fallbackReason = "Worker, createImageBitmap, or OffscreenCanvas is unavailable.";
+    return;
+  }
+
+  if (!state.trackingWorker.active && state.trackingWorker.status === "disabled") {
+    state.trackingWorker.status = "requested";
+  }
+}
+
+function supportsTrackingWorker() {
+  return (
+    typeof Worker === "function" &&
+    typeof createImageBitmap === "function" &&
+    typeof OffscreenCanvas === "function"
+  );
+}
+
+function resolveDetectionPumpMode() {
+  const requestedMode = state.detectionPump.requestedMode;
+
+  if (requestedMode === DETECTION_PUMP_RAF) {
+    return DETECTION_PUMP_RAF;
+  }
+
+  if (requestedMode === DETECTION_PUMP_RVFC) {
+    return supportsVideoFrameCallback() ? DETECTION_PUMP_RVFC : DETECTION_PUMP_RAF;
+  }
+
+  return supportsVideoFrameCallback() ? DETECTION_PUMP_RVFC : DETECTION_PUMP_RAF;
+}
+
+function cancelVideoFrameRequest() {
+  const video = state.elements.video;
+
+  if (state.videoFrameRequestId && typeof video?.cancelVideoFrameCallback === "function") {
+    video.cancelVideoFrameCallback(state.videoFrameRequestId);
+  }
+
+  state.videoFrameRequestId = 0;
+}
+
+function resetAppPerformance() {
+  state.detectionPump.callbacks = 0;
+  state.detectionPump.processedFrames = 0;
+  state.detectionPump.duplicateFrames = 0;
+  state.detectionPump.emptyFrames = 0;
+  state.detectionPump.busySkips = 0;
+  state.detectionPump.errors = 0;
+  state.detectionPump.busy = false;
+  state.detectionPump.supportsVideoFrameCallback = supportsVideoFrameCallback();
+  state.detectionPump.activeMode = resolveDetectionPumpMode();
+  state.appPerformance.startedAt = nowMs();
+  state.appPerformance.lastCallbackTimestamp = 0;
+  state.appPerformance.lastProcessedTimestamp = 0;
+  state.appPerformance.callbackIntervalsMs.length = 0;
+  state.appPerformance.detectIntervalsMs.length = 0;
+  state.appPerformance.detectMs.length = 0;
+  state.appPerformance.faceDetectMs.length = 0;
+  state.appPerformance.faceProcessMs.length = 0;
+  state.appPerformance.processMs.length = 0;
+  state.appPerformance.drawMs.length = 0;
+  state.appPerformance.frameTotalMs.length = 0;
+  state.faceTracking.detectFrames = 0;
+  state.faceTracking.facesDetected = 0;
+  state.faceTracking.lastTimestamp = 0;
+
+  if (state.faceTracking.enabled && state.faceLandmarker && state.faceTracking.status !== "failed") {
+    state.faceTracking.status = "ready";
+  }
+}
+
+function recordDetectionCallback(timestamp) {
+  state.detectionPump.callbacks += 1;
+
+  if (state.appPerformance.lastCallbackTimestamp > 0) {
+    const elapsed = timestamp - state.appPerformance.lastCallbackTimestamp;
+
+    if (elapsed > 0 && elapsed < 5000) {
+      recordAppPerformanceSample("callbackIntervalsMs", elapsed);
+    }
+  }
+
+  state.appPerformance.lastCallbackTimestamp = timestamp;
+}
+
+function recordDetectionProcessedFrame(timestamp) {
+  if (state.appPerformance.lastProcessedTimestamp > 0) {
+    const elapsed = timestamp - state.appPerformance.lastProcessedTimestamp;
+
+    if (elapsed > 0 && elapsed < 5000) {
+      recordAppPerformanceSample("detectIntervalsMs", elapsed);
+    }
+  }
+
+  state.appPerformance.lastProcessedTimestamp = timestamp;
+}
+
+function recordAppPerformanceSample(key, value) {
+  const samples = state.appPerformance[key];
+
+  if (!Array.isArray(samples) || !Number.isFinite(value)) {
+    return;
+  }
+
+  samples.push(Math.max(0, value));
+
+  if (samples.length > APP_PERFORMANCE_SAMPLE_LIMIT) {
+    samples.splice(0, samples.length - APP_PERFORMANCE_SAMPLE_LIMIT);
+  }
+}
+
+function getAppPerformanceReport() {
+  const elapsedMs = Math.max(0, nowMs() - state.appPerformance.startedAt);
+  const elapsedSeconds = elapsedMs / 1000;
+
+  return {
+    pump: {
+      requestedMode: state.detectionPump.requestedMode,
+      activeMode: state.detectionPump.activeMode,
+      supportsVideoFrameCallback: state.detectionPump.supportsVideoFrameCallback,
+      callbacks: state.detectionPump.callbacks,
+      processedFrames: state.detectionPump.processedFrames,
+      duplicateFrames: state.detectionPump.duplicateFrames,
+      emptyFrames: state.detectionPump.emptyFrames,
+      busySkips: state.detectionPump.busySkips,
+      errors: state.detectionPump.errors,
+      debugOverlayEnabled: state.debugOverlayEnabled,
+    },
+    trackingWorker: getTrackingWorkerStatus(),
+    fps: {
+      callback: elapsedSeconds > 0 ? state.detectionPump.callbacks / elapsedSeconds : 0,
+      detection: elapsedSeconds > 0 ? state.detectionPump.processedFrames / elapsedSeconds : 0,
+    },
+    faceTracking: getFaceTrackingStatus(),
+    samples: {
+      callbackInterval: summarizeAppPerformanceSamples(state.appPerformance.callbackIntervalsMs),
+      detectionInterval: summarizeAppPerformanceSamples(state.appPerformance.detectIntervalsMs),
+      detect: summarizeAppPerformanceSamples(state.appPerformance.detectMs),
+      faceDetect: summarizeAppPerformanceSamples(state.appPerformance.faceDetectMs),
+      faceProcess: summarizeAppPerformanceSamples(state.appPerformance.faceProcessMs),
+      process: summarizeAppPerformanceSamples(state.appPerformance.processMs),
+      draw: summarizeAppPerformanceSamples(state.appPerformance.drawMs),
+      frameTotal: summarizeAppPerformanceSamples(state.appPerformance.frameTotalMs),
+    },
+  };
+}
+
+function getTrackingWorkerStatus() {
+  return {
+    requested: state.trackingWorker.requested,
+    supported: state.trackingWorker.supported,
+    active: state.trackingWorker.active,
+    status: state.trackingWorker.status,
+    poseModelKey: state.trackingWorker.poseModelKey,
+    faceTrackingEnabled: state.trackingWorker.faceTrackingEnabled,
+    faceLandmarksEnabled: state.trackingWorker.faceLandmarksEnabled,
+    frames: state.trackingWorker.frames,
+    errors: state.trackingWorker.errors,
+    fallbacks: state.trackingWorker.fallbacks,
+    pendingRequests: state.trackingWorker.pendingRequests.size,
+    fallbackReason: state.trackingWorker.fallbackReason,
+  };
+}
+
+function summarizeAppPerformanceSamples(samples) {
+  if (!samples.length) {
+    return {
+      count: 0,
+      avgMs: 0,
+      medianMs: 0,
+      p95Ms: 0,
+      maxMs: 0,
+    };
+  }
+
+  const sorted = samples.slice().sort((a, b) => a - b);
+  const sum = sorted.reduce((total, value) => total + value, 0);
+
+  return {
+    count: sorted.length,
+    avgMs: sum / sorted.length,
+    medianMs: percentileFromSorted(sorted, 0.5),
+    p95Ms: percentileFromSorted(sorted, 0.95),
+    maxMs: sorted[sorted.length - 1],
+  };
+}
+
+function percentileFromSorted(sortedValues, percentileValue) {
+  if (!sortedValues.length) {
+    return 0;
+  }
+
+  const index = Math.min(
+    sortedValues.length - 1,
+    Math.max(0, Math.ceil(sortedValues.length * percentileValue) - 1),
+  );
+
+  return sortedValues[index];
+}
+
 function resetBodyValidation() {
   state.bodyValidation.samples = [];
   state.bodyValidation.lastSample = null;
+}
+
+function getCurrentMotionSourceMeta(trackingRuntime = shouldUseTrackingWorker() ? "worker" : "main-thread") {
+  return {
+    inputKind: state.inputKind,
+    videoFileName: state.videoFileName,
+    videoTime: Number(state.elements.video?.currentTime ?? 0),
+    poseModelKey: state.poseModelKey ?? "",
+    avatarModelLabel: state.avatarFileName || "Xbot.glb",
+    faceTrackingEnabled: state.faceTracking.enabled,
+    faceLandmarksEnabled: state.faceTracking.landmarksEnabled,
+    trackingRuntime,
+  };
+}
+
+async function setFaceTrackingEnabled(enabled) {
+  state.faceTracking.enabled = Boolean(enabled);
+  state.faceTracking.lastError = "";
+
+  if (!state.faceTracking.enabled) {
+    state.faceTracking.landmarksEnabled = false;
+    state.faceTracking.status = "disabled";
+    return getFaceTrackingStatus();
+  }
+
+  state.faceTracking.status = state.faceLandmarker ? "ready" : "enabled";
+
+  if (state.active || state.starting || state.poseLandmarker || state.handLandmarker || state.vision) {
+    await ensureModelsLoaded();
+  }
+
+  return getFaceTrackingStatus();
+}
+
+async function setFaceLandmarksEnabled(enabled) {
+  state.faceTracking.landmarksEnabled = Boolean(enabled);
+
+  if (state.faceTracking.landmarksEnabled && !state.faceTracking.enabled) {
+    await setFaceTrackingEnabled(true);
+  }
+
+  if (state.active && state.trackingWorker.active) {
+    state.trackingWorker.faceLandmarksEnabled = state.faceTracking.landmarksEnabled;
+  }
+
+  return getFaceTrackingStatus();
+}
+
+function getFaceTrackingEnabled() {
+  return state.faceTracking.enabled;
+}
+
+function getFaceTrackingStatus() {
+  return {
+    enabled: state.faceTracking.enabled,
+    landmarksEnabled: state.faceTracking.landmarksEnabled,
+    status: state.faceTracking.enabled ? state.faceTracking.status : "disabled",
+    modelLoaded: Boolean(state.faceLandmarker),
+    detectFrames: state.faceTracking.detectFrames,
+    facesDetected: state.faceTracking.facesDetected,
+    lastTimestamp: state.faceTracking.lastTimestamp,
+    lastError: state.faceTracking.lastError,
+  };
+}
+
+function getTrackedChannelReport() {
+  const frame = state.latestMotionFrame;
+  const rigReport = state.avatarRenderer?.getModelDiagnostics?.() ?? null;
+  const face = frame?.face ?? null;
+
+  return {
+    timestamp: Number(frame?.timestamp ?? 0),
+    mirrored: Boolean(frame?.mirrored),
+    sourceMeta: frame?.sourceMeta ?? {},
+    body: {
+      poseLandmarkCount: landmarkCount(frame?.poseLandmarks),
+      poseWorldLandmarkCount: landmarkCount(frame?.poseWorldLandmarks),
+      maxPoseLandmarks: 33,
+      tracked: landmarkCount(frame?.poseLandmarks) === 33,
+      worldTracked: landmarkCount(frame?.poseWorldLandmarks) === 33,
+    },
+    hands: {
+      maxHands: 2,
+      maxLandmarksPerHand: 21,
+      Left: buildTrackedHandReport("Left", frame, rigReport),
+      Right: buildTrackedHandReport("Right", frame, rigReport),
+    },
+    face: {
+      enabled: state.faceTracking.enabled,
+      landmarksEnabled: state.faceTracking.landmarksEnabled,
+      blendShapeCount: Array.isArray(face?.blendShapes) ? face.blendShapes.length : 0,
+      faceLandmarkCount: landmarkCount(face?.landmarks),
+      maxFaceLandmarks: 478,
+      transformMatrixTracked: Array.isArray(face?.transformMatrix) && face.transformMatrix.length === 16,
+      sourceMeta: face?.sourceMeta ?? {},
+    },
+    avatar: {
+      expressionPresetCount: rigReport?.expressions?.expressionPresetCount ?? 0,
+      resolvedExpressionMorphTargets: rigReport?.expressions?.resolvedMorphTargetCount ?? 0,
+      missingExpressionPresets: rigReport?.expressions?.missingPresets ?? [],
+      eyeBones: rigReport?.eyeBones ?? null,
+      fingerChains: rigReport?.fingerChains ?? null,
+    },
+    notes: [
+      "Face landmarks are opt-in with ?face-landmarks=on or setFaceLandmarksEnabled(true) because 478 points increase recording and forwarding payload size.",
+      "MediaPipe Tasks Vision does not output final avatar bone quaternions; body, wrist, palm, and finger rotations are inferred during retargeting.",
+    ],
+  };
+}
+
+function buildTrackedHandReport(side, frame, rigReport) {
+  const prefix = side === "Left" ? "left" : "right";
+  const landmarks = frame?.[`${prefix}HandLandmarks`];
+  const worldLandmarks = frame?.[`${prefix}HandWorldLandmarks`];
+  const fingerChains = rigReport?.fingerChains?.[side] ?? {};
+
+  return {
+    landmarkCount: landmarkCount(landmarks),
+    worldLandmarkCount: landmarkCount(worldLandmarks),
+    tracked: landmarkCount(landmarks) === 21,
+    worldTracked: landmarkCount(worldLandmarks) === 21,
+    palmSource: landmarkCount(worldLandmarks) === 21
+      ? "worldLandmarks"
+      : landmarkCount(landmarks) === 21
+      ? "imageLandmarks"
+      : "none",
+    fingerChains,
+  };
+}
+
+function landmarkCount(landmarks) {
+  return Array.isArray(landmarks) ? landmarks.length : 0;
+}
+
+function startMotionRecording() {
+  state.motionRecording.active = true;
+  state.motionRecording.createdAt = new Date().toISOString();
+  state.motionRecording.source = {
+    ...getCurrentMotionSourceMeta(),
+    recordingFrameLimit: MOTION_RECORDING_FRAME_LIMIT,
+  };
+  state.motionRecording.frames = [];
+  state.motionRecording.droppedFrames = 0;
+  state.motionRecording.lastRecording = null;
+  return getMotionRecordingStatus();
+}
+
+function stopMotionRecording() {
+  state.motionRecording.active = false;
+  state.motionRecording.lastRecording = buildCurrentMotionRecording();
+  return state.motionRecording.lastRecording;
+}
+
+function getMotionRecording() {
+  if (state.motionRecording.active || state.motionRecording.frames.length > 0) {
+    return buildCurrentMotionRecording();
+  }
+
+  return state.motionRecording.lastRecording;
+}
+
+function clearMotionRecording() {
+  state.motionRecording.active = false;
+  state.motionRecording.createdAt = "";
+  state.motionRecording.source = null;
+  state.motionRecording.frames = [];
+  state.motionRecording.droppedFrames = 0;
+  state.motionRecording.lastRecording = null;
+  return getMotionRecordingStatus();
+}
+
+function getMotionRecordingStatus() {
+  return {
+    active: state.motionRecording.active,
+    frameCount: state.motionRecording.frames.length,
+    droppedFrames: state.motionRecording.droppedFrames,
+    createdAt: state.motionRecording.createdAt,
+    source: state.motionRecording.source,
+    frameLimit: MOTION_RECORDING_FRAME_LIMIT,
+  };
+}
+
+function buildCurrentMotionRecording() {
+  return createMotionRecording({
+    createdAt: state.motionRecording.createdAt || new Date().toISOString(),
+    source: state.motionRecording.source ?? getCurrentMotionSourceMeta(),
+    frames: state.motionRecording.frames,
+    droppedFrames: state.motionRecording.droppedFrames,
+  });
+}
+
+function appendMotionRecordingFrame(motionFrame) {
+  if (!state.motionRecording.active) {
+    return;
+  }
+
+  state.motionRecording.frames.push(serializeMotionFrame(motionFrame));
+
+  if (state.motionRecording.frames.length > MOTION_RECORDING_FRAME_LIMIT) {
+    state.motionRecording.frames.splice(
+      0,
+      state.motionRecording.frames.length - MOTION_RECORDING_FRAME_LIMIT,
+    );
+    state.motionRecording.droppedFrames += 1;
+  }
+}
+
+function loadMotionRecording(recording) {
+  const normalizedRecording = normalizeMotionRecording(recording);
+
+  if (state.motionRecording.active) {
+    stopMotionRecording();
+  }
+
+  stopCamera({
+    preserveError: true,
+    preserveReplay: true,
+    cameraStatus: "Preparing replay",
+  });
+  stopMotionReplay({ resetPose: true, silent: true });
+  resetBodyValidation();
+  clearCanvas();
+  state.avatarRenderer?.resetDepthCalibration?.();
+  state.inputKind = "replay";
+  state.videoFileName = normalizedRecording.source?.videoFileName ?? "";
+  state.motionReplay.active = true;
+  state.motionReplay.recording = normalizedRecording;
+  state.motionReplay.frameIndex = 0;
+  state.motionReplay.startedAt = 0;
+  state.motionReplay.baseTimestamp = normalizedRecording.frames[0]?.timestamp ?? 0;
+  setText("cameraStatus", `Replay running: ${normalizedRecording.frames.length} frames`);
+  updateControls();
+  scheduleMotionReplayFrame();
+  return getMotionReplayStatus();
+}
+
+function getMotionReplayStatus() {
+  return {
+    active: state.motionReplay.active,
+    frameIndex: state.motionReplay.frameIndex,
+    frameCount: state.motionReplay.recording?.frames?.length ?? 0,
+    source: state.motionReplay.recording?.source ?? null,
+  };
+}
+
+function scheduleMotionReplayFrame() {
+  if (!state.motionReplay.active) {
+    return;
+  }
+
+  state.motionReplay.animationFrameId = requestAnimationFrame(runMotionReplayFrame);
+}
+
+function runMotionReplayFrame(timestamp) {
+  if (!state.motionReplay.active || !state.motionReplay.recording) {
+    return;
+  }
+
+  const frames = state.motionReplay.recording.frames;
+
+  if (frames.length === 0 || state.motionReplay.frameIndex >= frames.length) {
+    stopMotionReplay({ resetPose: false, silent: true });
+    setText("cameraStatus", "Replay complete");
+    updateControls();
+    return;
+  }
+
+  if (state.motionReplay.startedAt <= 0) {
+    state.motionReplay.startedAt = timestamp;
+    state.motionReplay.baseTimestamp = frames[0].timestamp;
+  }
+
+  const elapsed = timestamp - state.motionReplay.startedAt;
+  let processed = 0;
+
+  while (state.motionReplay.frameIndex < frames.length && processed < 3) {
+    const frame = frames[state.motionReplay.frameIndex];
+    const frameElapsed = frame.timestamp - state.motionReplay.baseTimestamp;
+
+    if (processed > 0 && frameElapsed > elapsed) {
+      break;
+    }
+
+    processMotionFrame(frame, {
+      record: false,
+      forward: true,
+      draw: true,
+      metrics: true,
+    });
+    state.motionReplay.frameIndex += 1;
+    processed += 1;
+  }
+
+  scheduleMotionReplayFrame();
+}
+
+function stopMotionReplay(options = {}) {
+  if (state.motionReplay.animationFrameId) {
+    cancelAnimationFrame(state.motionReplay.animationFrameId);
+  }
+
+  const wasActive = state.motionReplay.active;
+  state.motionReplay.active = false;
+  state.motionReplay.recording = null;
+  state.motionReplay.frameIndex = 0;
+  state.motionReplay.animationFrameId = 0;
+  state.motionReplay.startedAt = 0;
+  state.motionReplay.baseTimestamp = 0;
+
+  if (options.resetPose) {
+    resetAvatarPose();
+  }
+
+  if (state.inputKind === "replay") {
+    state.inputKind = "idle";
+    state.videoFileName = "";
+  }
+
+  if (wasActive && !options.silent) {
+    setText("cameraStatus", "Replay stopped");
+    updateControls();
+  }
 }
 
 function getBodyValidationReport() {
@@ -1187,15 +2334,25 @@ function getBodyValidationReport() {
         error: joint.error,
       })),
   );
+  const projectedSegmentRows = buildProjectedSegmentRows(samples);
+  const motionDirectionRows = segmentRows.filter(
+    (segment) => !BODY_MOTION_AGREEMENT_EXCLUDED_SEGMENTS.has(segment.name),
+  );
   const directionOverall = summarizeErrors(segmentRows);
+  const motionDirectionOverall = summarizeErrors(motionDirectionRows);
   const visualOverall = summarizeVisualErrors(visualRows);
+  const projectedSegmentOverall = summarizeProjectedSegmentErrors(projectedSegmentRows);
   const strictValidation = buildStrictValidationReport(samples);
   const motionAgreement = buildMotionAgreementReport({
-    directionOverall,
+    directionOverall: motionDirectionOverall,
+    directionRows: motionDirectionRows,
     visualOverall,
+    projectedSegmentOverall,
+    projectedSegmentRows,
     frontBackRows: buildFrontBackSideOrderRows(samples),
   });
   const depthValidation = buildDepthValidationReport(samples);
+  const depthCalibration = buildDepthCalibrationReport(samples);
 
   return {
     inputKind: state.inputKind,
@@ -1216,9 +2373,14 @@ function getBodyValidationReport() {
     visualOverall,
     visualByGroup: summarizeVisualRowsByKey(visualRows, "group"),
     visualByJoint: summarizeVisualRowsByKey(visualRows, "name"),
+    projectedSegmentMatchThresholdDeg: BODY_PROJECTED_SEGMENT_ANGLE_THRESHOLD_DEG,
+    projectedSegmentOverall,
+    projectedSegmentByGroup: summarizeProjectedSegmentRowsByKey(projectedSegmentRows, "group"),
+    projectedSegmentByName: summarizeProjectedSegmentRowsByKey(projectedSegmentRows, "name"),
     motionAgreement,
     strictValidation,
     depthValidation,
+    depthCalibration,
     visualWorstSamples: visualRows
       .slice()
       .sort((a, b) => b.error - a.error)
@@ -1294,7 +2456,14 @@ function buildStrictValidationReport(samples) {
   };
 }
 
-function buildMotionAgreementReport({ directionOverall, visualOverall, frontBackRows }) {
+function buildMotionAgreementReport({
+  directionOverall,
+  directionRows,
+  visualOverall,
+  projectedSegmentOverall,
+  projectedSegmentRows,
+  frontBackRows,
+}) {
   const frontBack = summarizeStrictRows(frontBackRows, "mismatch");
   const components = {
     direction: {
@@ -1309,36 +2478,72 @@ function buildMotionAgreementReport({ directionOverall, visualOverall, frontBack
       mismatchRate: frontBack.mean,
     },
     projection: {
-      count: visualOverall.count,
-      matchRate: visualOverall.matchRate,
-      meanError: visualOverall.meanError,
-      p90Error: visualOverall.p90Error,
+      count: projectedSegmentOverall.count,
+      matchRate: projectedSegmentOverall.matchRate,
+      meanErrorDeg: projectedSegmentOverall.meanErrorDeg,
+      p90ErrorDeg: projectedSegmentOverall.p90ErrorDeg,
     },
   };
   const overallScore = weightedMotionAgreementScore(components);
+  const componentGate = buildMotionAgreementComponentGate(components);
 
   return {
     validationScope: "cross_model_motion_agreement",
     limitations: [
       "Uses bone direction as the primary motion signal so different humanoid proportions are not punished as motion failures.",
-      "Projection is a visual sanity check, not a same-proportion skeleton requirement.",
+      "Projection uses 2D projected segment direction agreement, not same-proportion joint distance.",
+      "The separate visualOverall report remains a stricter same-proportion joint-distance diagnostic.",
       "Front/back orientation is checked with torso left/right order only; crossing wrists or ankles are not treated as model-front failures.",
     ],
     scoreWeights: BODY_MOTION_AGREEMENT_SCORE_WEIGHTS,
     thresholds: {
       directionErrorDeg: BODY_MATCH_THRESHOLD_DEG,
-      projectionJointDistance: BODY_VISUAL_MATCH_THRESHOLD,
+      projectionSegmentAngleDeg: BODY_PROJECTED_SEGMENT_ANGLE_THRESHOLD_DEG,
+      excludedDirectionSegments: [...BODY_MOTION_AGREEMENT_EXCLUDED_SEGMENTS],
       frontBackPairs: BODY_FRONT_BACK_SIDE_ORDER_PAIRS.map((pair) => pair.name),
     },
     overall: {
       score: overallScore,
       scorePercent: overallScore * 100,
       passTarget: 0.95,
-      passed: overallScore >= 0.95,
+      componentPassTarget: 0.9,
+      passed: overallScore >= 0.95 && componentGate.passed,
     },
     components,
+    componentGate,
+    directionByGroup: summarizeRowsByKey(directionRows, "group"),
+    projectionByGroup: summarizeProjectedSegmentRowsByKey(projectedSegmentRows, "group"),
+    projectionByName: summarizeProjectedSegmentRowsByKey(projectedSegmentRows, "name"),
+    visualJointSanity: {
+      count: visualOverall.count,
+      matchRate: visualOverall.matchRate,
+      meanError: visualOverall.meanError,
+      p90Error: visualOverall.p90Error,
+      matchThreshold: visualOverall.matchThreshold,
+    },
     frontBackByName: summarizeStrictRowsByKey(frontBackRows, "name", "mismatch"),
     frontBackMismatches: frontBackRows.filter((row) => !row.matched).slice(0, 12),
+  };
+}
+
+function buildMotionAgreementComponentGate(components) {
+  const minMatchRate = 0.9;
+  const results = Object.fromEntries(
+    Object.entries(components)
+      .filter(([name]) => (BODY_MOTION_AGREEMENT_SCORE_WEIGHTS[name] ?? 0) > 0)
+      .map(([name, component]) => [
+        name,
+        {
+          matchRate: component.matchRate,
+          passed: component.count > 0 && component.matchRate >= minMatchRate,
+        },
+      ]),
+  );
+
+  return {
+    minMatchRate,
+    passed: Object.values(results).every((result) => result.passed),
+    components: results,
   };
 }
 
@@ -1359,9 +2564,12 @@ function buildDepthValidationReport(samples) {
         sourceDepthDelta: segment.sourceDepthDelta,
         depthSalient: Boolean(segment.depthSalient),
         matched: Boolean(segment.matched),
+        targetDirection: segment.targetDirection,
+        avatarDirection: segment.avatarDirection,
       })),
   );
   const depthSalientRows = depthRows.filter((row) => row.depthSalient);
+  const frontBackRows = buildDepthFrontBackRows(depthRows);
   const depthScales = [
     ...new Set(
       samples
@@ -1380,6 +2588,7 @@ function buildDepthValidationReport(samples) {
     ...new Set(samples.map((sample) => sample.depthMeasurementMode).filter(Boolean)),
   ];
   const selfReferential = samples.some((sample) => sample.depthSelfReferential === true);
+  const lengthConsistencyRows = collectDepthCalibrationRows(samples);
 
   return {
     validationScope: "mediapipe_relative_depth",
@@ -1403,6 +2612,11 @@ function buildDepthValidationReport(samples) {
     depthSources: [...new Set(depthRows.map((row) => row.depthSource).filter(Boolean))],
     overall: summarizeDepthErrors(depthRows),
     depthSalient: summarizeDepthErrors(depthSalientRows),
+    lengthConsistency: summarizeLengthConsistency(lengthConsistencyRows),
+    frontBackOverall: summarizeStrictRows(frontBackRows, "mismatch"),
+    frontBackByGroup: summarizeStrictRowsByKey(frontBackRows, "group", "mismatch"),
+    frontBackBySegment: summarizeStrictRowsByKey(frontBackRows, "name", "mismatch"),
+    frontBackMismatches: frontBackRows.filter((row) => !row.matched).slice(0, 12),
     byGroup: summarizeDepthRowsByKey(depthRows, "group"),
     bySegment: summarizeDepthRowsByKey(depthRows, "name"),
     salientByGroup: summarizeDepthRowsByKey(depthSalientRows, "group"),
@@ -1415,6 +2629,122 @@ function buildDepthValidationReport(samples) {
       .sort((a, b) => b.errorDeg - a.errorDeg)
       .slice(0, 12),
   };
+}
+
+function buildDepthCalibrationReport(samples) {
+  const snapshots = samples
+    .map((sample) => sample.depthCalibration)
+    .filter(Boolean);
+  const rows = collectDepthCalibrationRows(samples);
+  const latest = snapshots[snapshots.length - 1] ?? null;
+  const summary = summarizeLengthConsistency(rows);
+  const ready = snapshots.some((snapshot) => snapshot.ready);
+  const passed = ready &&
+    summary.score >= DEPTH_CALIBRATION_TARGET_SCORE &&
+    summary.cvReliableSegmentCount >= DEPTH_CALIBRATION_MIN_RELIABLE_CV_SEGMENTS &&
+    summary.meanSegmentCv <= 0.05 &&
+    summary.p95SegmentCv <= 0.08;
+
+  return {
+    validationScope: "dynamic_depth_segment_length_consistency",
+    mode: latest?.mode ?? DEPTH_CALIBRATION_MODE_DYNAMIC,
+    ready,
+    frozen: Boolean(latest?.frozen),
+    targetScore: DEPTH_CALIBRATION_TARGET_SCORE,
+    thresholds: {
+      relativeLengthError: DEPTH_CALIBRATION_LENGTH_ERROR_THRESHOLD,
+      smoothness: DEPTH_CALIBRATION_SMOOTHNESS_THRESHOLD,
+      meanSegmentCv: 0.05,
+      p95SegmentCv: 0.08,
+      minCvSegmentSamples: DEPTH_CALIBRATION_MIN_CV_SEGMENT_SAMPLES,
+      minReliableCvSegments: DEPTH_CALIBRATION_MIN_RELIABLE_CV_SEGMENTS,
+      clampWarningRatio: DEPTH_CALIBRATION_CLAMP_WARNING_RATIO,
+      runtimeP95Ms: DEPTH_CALIBRATION_RUNTIME_P95_BUDGET_MS,
+    },
+    passed,
+    referenceSegmentCount: latest?.referenceSegmentCount ?? 0,
+    score: summary.score,
+    summary,
+    byGroup: summarizeDepthCalibrationRowsByKey(rows, "group"),
+    bySegment: summarizeDepthCalibrationRowsByKey(rows, "name"),
+    warnings: buildDepthCalibrationWarnings(summary, ready),
+  };
+}
+
+function collectDepthCalibrationRows(samples) {
+  return samples.flatMap((sample) =>
+    (sample.depthCalibration?.segments ?? [])
+      .filter((segment) => Number.isFinite(segment.relativeLengthError))
+      .map((segment) => ({
+        mode: sample.depthCalibration.mode,
+        ready: Boolean(sample.depthCalibration.ready),
+        frozen: Boolean(sample.depthCalibration.frozen),
+        name: segment.name,
+        group: segment.group,
+        gated: Boolean(segment.gated),
+        actualLength: segment.actualLength,
+        targetLength: segment.targetLength,
+        referenceRatio: segment.referenceRatio,
+        relativeLengthError: segment.relativeLengthError,
+        smoothnessDelta: segment.smoothnessDelta,
+        smoothnessOk: Boolean(segment.smoothnessOk),
+        clamped: Boolean(segment.clamped),
+        matched: Boolean(segment.matched),
+      })),
+  );
+}
+
+function buildDepthCalibrationWarnings(summary, ready) {
+  const warnings = [];
+
+  if (!ready) {
+    warnings.push("dynamic depth calibration did not collect enough worldLandmarks reference samples");
+  }
+
+  if ((summary.clampedRatio ?? 0) > DEPTH_CALIBRATION_CLAMP_WARNING_RATIO) {
+    warnings.push(`length solver clamped ${(summary.clampedRatio * 100).toFixed(1)}% of gated samples`);
+  }
+
+  if ((summary.cvSparseSegmentCount ?? 0) > 0) {
+    warnings.push(`${summary.cvSparseSegmentCount} segment CV diagnostics had fewer than ${DEPTH_CALIBRATION_MIN_CV_SEGMENT_SAMPLES} unclamped samples`);
+  }
+
+  if ((summary.cvReliableSegmentCount ?? 0) < DEPTH_CALIBRATION_MIN_RELIABLE_CV_SEGMENTS) {
+    warnings.push(`only ${summary.cvReliableSegmentCount ?? 0} reliable CV segments collected; target is ${DEPTH_CALIBRATION_MIN_RELIABLE_CV_SEGMENTS}`);
+  }
+
+  return warnings;
+}
+
+function buildDepthFrontBackRows(depthRows) {
+  return depthRows
+    .filter((row) => row.depthSalient)
+    .map((row) => {
+      const sourceZ = row.targetDirection?.[2];
+      const avatarZ = row.avatarDirection?.[2];
+
+      if (!Number.isFinite(sourceZ) || !Number.isFinite(avatarZ)) {
+        return null;
+      }
+
+      if (Math.abs(sourceZ) < 0.05 || Math.abs(avatarZ) < 0.05) {
+        return null;
+      }
+
+      const matched = Math.sign(sourceZ) === Math.sign(avatarZ);
+
+      return {
+        videoTime: row.videoTime,
+        name: row.name,
+        group: row.group,
+        bone: row.bone,
+        sourceZ,
+        avatarZ,
+        mismatch: matched ? 0 : 1,
+        matched,
+      };
+    })
+    .filter(Boolean);
 }
 
 function buildStrictJointRows(samples) {
@@ -1495,6 +2825,52 @@ function buildStrictSegmentRows(samples) {
           matched:
             angleErrorDeg <= BODY_STRICT_SEGMENT_ANGLE_THRESHOLD_DEG &&
             lengthErrorRatio <= BODY_STRICT_SEGMENT_LENGTH_ERROR_THRESHOLD,
+        };
+      })
+      .filter(Boolean);
+  });
+}
+
+function buildProjectedSegmentRows(samples) {
+  return samples.flatMap((sample) => {
+    const joints = visualJointMap(sample);
+
+    return BODY_STRICT_SEGMENTS
+      .map((segment) => {
+        const sourceFrom = joints.get(segment.from)?.source;
+        const sourceTo = joints.get(segment.to)?.source;
+        const avatarFrom = joints.get(segment.from)?.avatar;
+        const avatarTo = joints.get(segment.to)?.avatar;
+
+        if (
+          !hasPointArray(sourceFrom) ||
+          !hasPointArray(sourceTo) ||
+          !hasPointArray(avatarFrom) ||
+          !hasPointArray(avatarTo)
+        ) {
+          return null;
+        }
+
+        const sourceVector = vector2D(sourceFrom, sourceTo);
+        const avatarVector = vector2D(avatarFrom, avatarTo);
+
+        if (
+          vectorLength(sourceVector) < BODY_STRICT_MIN_SEGMENT_LENGTH ||
+          vectorLength(avatarVector) < BODY_STRICT_MIN_SEGMENT_LENGTH
+        ) {
+          return null;
+        }
+
+        const errorDeg = angleBetweenVectorsDeg(sourceVector, avatarVector);
+
+        return {
+          videoTime: sample.videoTime,
+          name: segment.name,
+          group: segment.group,
+          from: segment.from,
+          to: segment.to,
+          errorDeg,
+          matched: errorDeg <= BODY_PROJECTED_SEGMENT_ANGLE_THRESHOLD_DEG,
         };
       })
       .filter(Boolean);
@@ -1673,11 +3049,51 @@ function exposeDebugApi() {
       resetBodyValidation();
       return nextScale;
     },
+    getDepthCalibrationReport: () => state.avatarRenderer?.getDepthCalibrationSnapshot?.() ?? null,
+    getDepthCalibrationMode: () => state.avatarRenderer?.getDepthCalibrationMode?.() ?? null,
+    setDepthCalibrationMode: (value) => {
+      const nextMode = state.avatarRenderer?.setDepthCalibrationMode?.(value) ?? null;
+      resetBodyValidation();
+      return nextMode;
+    },
+    resetDepthCalibration: () => state.avatarRenderer?.resetDepthCalibration?.() ?? null,
     getAvatarPerformanceReport: () => state.avatarRenderer?.getPerformanceSnapshot?.() ?? null,
+    getAppPerformanceReport,
+    clearAppPerformanceSamples: resetAppPerformance,
+    getDetectionPumpStatus: () => getAppPerformanceReport().pump,
+    getTrackingWorkerStatus,
+    setDebugOverlayEnabled: (value) => {
+      state.debugOverlayEnabled = Boolean(value);
+
+      if (!state.debugOverlayEnabled) {
+        clearCanvas();
+      }
+
+      return state.debugOverlayEnabled;
+    },
+    getDebugOverlayEnabled: () => state.debugOverlayEnabled,
+    getAvatarMotionState: () => state.avatarRenderer?.getMotionStateSnapshot?.() ?? null,
     clearAvatarPerformanceSamples: () => state.avatarRenderer?.clearPerformanceSamples?.() ?? null,
+    getAvatarRigReport: () => state.avatarRenderer?.getModelDiagnostics?.() ?? null,
+    getTrackedChannelReport,
     getAvatarViewState: () => state.avatarRenderer?.getViewState?.() ?? null,
     resetAvatarView: () => state.avatarRenderer?.resetView?.() ?? null,
     clearBodyValidation: resetBodyValidation,
+    startMotionRecording,
+    stopMotionRecording,
+    getMotionRecording,
+    clearMotionRecording,
+    getMotionRecordingStatus,
+    loadMotionRecording,
+    getMotionReplayStatus,
+    stopMotionReplay,
+    setFaceTrackingEnabled,
+    setFaceLandmarksEnabled,
+    getFaceTrackingStatus,
+    getFaceTrackingEnabled,
+    connectMotionForwarding: (url) => state.motionForwarder.connect(url),
+    disconnectMotionForwarding: () => state.motionForwarder.disconnect(),
+    getMotionForwardingStatus: () => state.motionForwarder.getStatus(),
   };
 }
 
@@ -1707,6 +3123,19 @@ function summarizeVisualRowsByKey(rows, key) {
   }, {});
 }
 
+function summarizeProjectedSegmentRowsByKey(rows, key) {
+  return rows.reduce((result, row) => {
+    const value = row[key] ?? "unknown";
+    const groupRows = rows.filter((candidate) => candidate[key] === value);
+
+    if (!result[value]) {
+      result[value] = summarizeProjectedSegmentErrors(groupRows);
+    }
+
+    return result;
+  }, {});
+}
+
 function summarizeStrictRowsByKey(rows, key, valueKey) {
   return rows.reduce((result, row) => {
     const value = row[key] ?? "unknown";
@@ -1727,6 +3156,19 @@ function summarizeDepthRowsByKey(rows, key) {
 
     if (!result[value]) {
       result[value] = summarizeDepthErrors(groupRows);
+    }
+
+    return result;
+  }, {});
+}
+
+function summarizeDepthCalibrationRowsByKey(rows, key) {
+  return rows.reduce((result, row) => {
+    const value = row[key] ?? "unknown";
+    const groupRows = rows.filter((candidate) => (candidate[key] ?? "unknown") === value);
+
+    if (!result[value]) {
+      result[value] = summarizeLengthConsistency(groupRows);
     }
 
     return result;
@@ -1820,6 +3262,25 @@ function summarizeVisualErrors(rows) {
   };
 }
 
+function summarizeProjectedSegmentErrors(rows) {
+  const values = rows
+    .map((row) => row.errorDeg)
+    .filter((value) => Number.isFinite(value))
+    .sort((a, b) => a - b);
+  const matchedCount = rows.filter((row) => row.matched).length;
+
+  return {
+    count: values.length,
+    matchedCount,
+    matchRate: rows.length > 0 ? matchedCount / rows.length : 0,
+    matchThresholdDeg: BODY_PROJECTED_SEGMENT_ANGLE_THRESHOLD_DEG,
+    meanErrorDeg: average(values),
+    medianErrorDeg: percentile(values, 0.5),
+    p90ErrorDeg: percentile(values, 0.9),
+    maxErrorDeg: values.length > 0 ? values[values.length - 1] : 0,
+  };
+}
+
 function average(values) {
   if (values.length === 0) {
     return 0;
@@ -1874,20 +3335,21 @@ function angleBetweenVectorsDeg(a, b) {
 
 function updateControls() {
   const missingRequiredDom = state.missingIds.length > 0 || !state.context;
+  const replayActive = state.motionReplay.active;
 
   if (state.elements.startButton) {
     state.elements.startButton.disabled =
-      missingRequiredDom || state.starting || state.active;
+      missingRequiredDom || state.starting || state.active || replayActive;
   }
 
   if (state.elements.stopButton) {
     state.elements.stopButton.disabled =
       missingRequiredDom ||
-      (!state.starting && !state.active && !state.stream && !state.videoFileUrl);
+      (!state.starting && !state.active && !state.stream && !state.videoFileUrl && !replayActive);
   }
 
   if (state.elements.videoFileInput) {
-    state.elements.videoFileInput.disabled = missingRequiredDom || state.starting;
+    state.elements.videoFileInput.disabled = missingRequiredDom || state.starting || replayActive;
   }
 
   if (state.elements.avatarFileInput) {
@@ -1904,7 +3366,7 @@ function updateControls() {
   }
 
   if (state.elements.modelSelect) {
-    state.elements.modelSelect.disabled = state.starting || state.active;
+    state.elements.modelSelect.disabled = state.starting || state.active || replayActive;
   }
 }
 
@@ -1995,6 +3457,63 @@ function getInitialAvatarDepthScale() {
   return Math.min(1.5, Math.max(0, number));
 }
 
+function getInitialAvatarDepthCalibrationMode() {
+  const value = new URLSearchParams(globalThis.location?.search ?? "").get("depth-calibration");
+
+  if (value === DEPTH_CALIBRATION_MODE_STATIC) {
+    return DEPTH_CALIBRATION_MODE_STATIC;
+  }
+
+  if (value === DEPTH_CALIBRATION_MODE_DYNAMIC) {
+    return DEPTH_CALIBRATION_MODE_DYNAMIC;
+  }
+
+  return normalizeDepthCalibrationMode(value);
+}
+
+function getInitialDetectionPumpMode() {
+  const value = new URLSearchParams(globalThis.location?.search ?? "").get("pump");
+
+  if (DETECTION_PUMP_MODES.has(value)) {
+    return value;
+  }
+
+  return DETECTION_PUMP_AUTO;
+}
+
+function getInitialTrackingWorkerEnabled() {
+  return isTruthyQueryFlag("tracking-worker");
+}
+
+function getInitialAvatarSmoothingMode() {
+  const value = new URLSearchParams(globalThis.location?.search ?? "").get("smoothing");
+  const normalized = String(value ?? AVATAR_SMOOTHING_MODE_OFF).toLowerCase();
+  return AVATAR_SMOOTHING_MODE_ALIASES[normalized] ?? AVATAR_SMOOTHING_MODE_OFF;
+}
+
+function getInitialDebugOverlayEnabled() {
+  const value = new URLSearchParams(globalThis.location?.search ?? "").get("debug-overlay");
+
+  if (["0", "false", "off", "none"].includes(String(value).toLowerCase())) {
+    return false;
+  }
+
+  return true;
+}
+
+function getInitialFaceTrackingEnabled() {
+  return isTruthyQueryFlag("face-tracking") || getInitialFaceLandmarksEnabled();
+}
+
+function getInitialFaceLandmarksEnabled() {
+  return isTruthyQueryFlag("face-landmarks") || isTruthyQueryFlag("face-mesh");
+}
+
+function isTruthyQueryFlag(name) {
+  const value = new URLSearchParams(globalThis.location?.search ?? "").get(name);
+  return ["1", "true", "on", "yes"].includes(String(value).toLowerCase());
+}
+
 function isLikelyVideoFile(file) {
   if (!file) {
     return false;
@@ -2076,6 +3595,10 @@ function setText(key, value) {
   if (element) {
     element.textContent = value;
   }
+}
+
+function nowMs() {
+  return globalThis.performance?.now?.() ?? Date.now();
 }
 
 function setAvatarStatus(value) {

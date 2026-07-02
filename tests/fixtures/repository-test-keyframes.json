@@ -1,0 +1,255 @@
+{
+  "schemaVersion": 1,
+  "labelSource": {
+    "kind": "human_visual_contact_sheet",
+    "contactSheetDir": "output/keyframes/repository-test-videos",
+    "auditContactSheetDirs": [
+      "output/keyframes/label-audit-exact",
+      "output/keyframes/label-audit-dense",
+      "output/keyframes/label-audit-dense-vc-start"
+    ],
+    "notes": "Labels were assigned from extracted keyframe contact sheets for repository test videos. Arm labels avoid anatomical left/right unless it is visually unambiguous."
+  },
+  "videos": [
+    {
+      "videoPath": "output/test-videos/dance-16x9-padded.mp4",
+      "keyframes": [
+        {
+          "id": "dance-01-front-hands-head",
+          "time": 1,
+          "toleranceSec": 0.85,
+          "facing": "front",
+          "arms": "hands_near_head",
+          "fingers": "unknown",
+          "visibility": "full_body",
+          "expected": { "rootFacing": "front", "rootYawDeg": 0, "maxYawErrorDeg": 65 }
+        },
+        {
+          "id": "dance-02-front-hands-low",
+          "time": 3.73,
+          "facing": "front",
+          "arms": "hands_low_center",
+          "fingers": "unknown",
+          "visibility": "full_body",
+          "expected": { "rootFacing": "front", "rootYawDeg": 0, "maxYawErrorDeg": 65 }
+        },
+        {
+          "id": "dance-03-front-arms-overhead",
+          "time": 6.47,
+          "facing": "front",
+          "arms": "arms_overhead",
+          "fingers": "unknown",
+          "visibility": "full_body",
+          "expected": { "rootFacing": "front", "rootYawDeg": 0, "maxYawErrorDeg": 65 }
+        },
+        {
+          "id": "dance-04-front-one-arm-up",
+          "time": 9.2,
+          "facing": "front",
+          "arms": "one_arm_up_near_head",
+          "fingers": "unknown",
+          "visibility": "full_body",
+          "expected": { "rootFacing": "front", "rootYawDeg": 0, "maxYawErrorDeg": 65 }
+        },
+        {
+          "id": "dance-05-front-arms-open",
+          "time": 11.94,
+          "facing": "front",
+          "arms": "arms_open",
+          "fingers": "unknown",
+          "visibility": "full_body",
+          "expected": { "rootFacing": "front", "rootYawDeg": 0, "maxYawErrorDeg": 65 }
+        },
+        {
+          "id": "dance-06-front-arms-low-open",
+          "time": 14.67,
+          "facing": "front",
+          "arms": "arms_low_open",
+          "fingers": "unknown",
+          "visibility": "full_body",
+          "expected": { "rootFacing": "front", "rootYawDeg": 0, "maxYawErrorDeg": 65 }
+        }
+      ]
+    },
+    {
+      "videoPath": "output/test-videos/shorts-keGbIts0CA0-16x9-padded.mp4",
+      "keyframes": [
+        {
+          "id": "ke-01-front-arms-down",
+          "time": 1,
+          "toleranceSec": 0.85,
+          "facing": "front",
+          "arms": "one_hand_raised_other_arm_low",
+          "fingers": "unknown",
+          "visibility": "full_body",
+          "expected": { "rootFacing": "front", "rootYawDeg": 0, "maxYawErrorDeg": 65 }
+        },
+        {
+          "id": "ke-02-front-arms-side",
+          "time": 4.85,
+          "facing": "front",
+          "arms": "arms_side",
+          "fingers": "unknown",
+          "visibility": "full_body",
+          "expected": { "rootFacing": "front", "rootYawDeg": 0, "maxYawErrorDeg": 65 }
+        },
+        {
+          "id": "ke-03-front-right-step",
+          "time": 8.71,
+          "facing": "front",
+          "arms": "asymmetric",
+          "fingers": "unknown",
+          "visibility": "full_body",
+          "expected": { "rootFacing": "front", "rootYawDeg": 0, "maxYawErrorDeg": 65 }
+        },
+        {
+          "id": "ke-04-back-turned-away",
+          "time": 12.56,
+          "facing": "back",
+          "arms": "arms_down",
+          "fingers": "unknown",
+          "visibility": "full_body",
+          "expected": { "rootFacing": "back", "rootYawDeg": 180, "maxYawErrorDeg": 65 }
+        },
+        {
+          "id": "ke-05-front-arms-open",
+          "time": 16.41,
+          "facing": "front",
+          "arms": "arms_open",
+          "fingers": "unknown",
+          "visibility": "full_body",
+          "expected": { "rootFacing": "front", "rootYawDeg": 0, "maxYawErrorDeg": 65 }
+        },
+        {
+          "id": "ke-06-front-arms-up",
+          "time": 20.27,
+          "facing": "front",
+          "arms": "arms_up",
+          "fingers": "unknown",
+          "visibility": "full_body",
+          "expected": { "rootFacing": "front", "rootYawDeg": 0, "maxYawErrorDeg": 65 }
+        }
+      ]
+    },
+    {
+      "videoPath": "output/test-videos/shorts-new-dance-E9_h_ZW5z0U-16x9-padded.mp4",
+      "keyframes": [
+        {
+          "id": "new-dance-01-front-arms-down",
+          "time": 1,
+          "toleranceSec": 0.85,
+          "facing": "front",
+          "arms": "one_hand_near_face",
+          "fingers": "unknown",
+          "visibility": "full_body",
+          "expected": { "rootFacing": "front", "rootYawDeg": 0, "maxYawErrorDeg": 65 }
+        },
+        {
+          "id": "new-dance-02-front-wide-stance",
+          "time": 3.66,
+          "facing": "front",
+          "arms": "low",
+          "fingers": "unknown",
+          "visibility": "full_body",
+          "expected": { "rootFacing": "front", "rootYawDeg": 0, "maxYawErrorDeg": 65 }
+        },
+        {
+          "id": "new-dance-03-front-arms-low",
+          "time": 6.32,
+          "facing": "front",
+          "arms": "low",
+          "fingers": "unknown",
+          "visibility": "full_body",
+          "expected": { "rootFacing": "front", "rootYawDeg": 0, "maxYawErrorDeg": 65 }
+        },
+        {
+          "id": "new-dance-04-side-left-profile",
+          "time": 8.98,
+          "facing": "side",
+          "arms": "hands_raised_near_face",
+          "fingers": "unknown",
+          "visibility": "full_body",
+          "expected": { "rootFacing": "side", "rootYawDeg": 90, "maxYawErrorDeg": 65 }
+        },
+        {
+          "id": "new-dance-05-front-right-arm-down",
+          "time": 11.64,
+          "facing": "front",
+          "arms": "one_arm_low_other_partly_hidden",
+          "fingers": "unknown",
+          "visibility": "full_body",
+          "expected": { "rootFacing": "front", "rootYawDeg": 0, "maxYawErrorDeg": 65 }
+        },
+        {
+          "id": "new-dance-06-side-right-profile-knee",
+          "time": 14.3,
+          "facing": "side",
+          "arms": "knee_up_hand_behind_head",
+          "fingers": "unknown",
+          "visibility": "full_body",
+          "expected": { "rootFacing": "side", "rootYawDeg": 90, "maxYawErrorDeg": 65 }
+        }
+      ]
+    },
+    {
+      "videoPath": "output/test-videos/shorts-vc0GDveRIp0-16x9-padded.mp4",
+      "keyframes": [
+        {
+          "id": "vc-01-front-hand-cross-chest",
+          "time": 1,
+          "toleranceSec": 0.85,
+          "facing": "front",
+          "arms": "hand_cross_chest",
+          "fingers": "unknown",
+          "visibility": "upper_body",
+          "expected": { "rootFacing": "front", "rootYawDeg": 0, "maxYawErrorDeg": 65 }
+        },
+        {
+          "id": "vc-02-front-arms-low",
+          "time": 3.74,
+          "facing": "front",
+          "arms": "arms_low",
+          "fingers": "unknown",
+          "visibility": "upper_body",
+          "expected": { "rootFacing": "front", "rootYawDeg": 0, "maxYawErrorDeg": 65 }
+        },
+        {
+          "id": "vc-03-front-right-arm-low",
+          "time": 6.48,
+          "facing": "front",
+          "arms": "one_arm_low",
+          "fingers": "unknown",
+          "visibility": "upper_body",
+          "expected": { "rootFacing": "front", "rootYawDeg": 0, "maxYawErrorDeg": 65 }
+        },
+        {
+          "id": "vc-04-front-hands-low",
+          "time": 9.22,
+          "facing": "front",
+          "arms": "hands_low",
+          "fingers": "unknown",
+          "visibility": "upper_body",
+          "expected": { "rootFacing": "front", "rootYawDeg": 0, "maxYawErrorDeg": 65 }
+        },
+        {
+          "id": "vc-05-front-right-arm-side",
+          "time": 11.95,
+          "facing": "front",
+          "arms": "one_arm_side",
+          "fingers": "unknown",
+          "visibility": "upper_body",
+          "expected": { "rootFacing": "front", "rootYawDeg": 0, "maxYawErrorDeg": 65 }
+        },
+        {
+          "id": "vc-06-side-right-profile",
+          "time": 14.69,
+          "facing": "side",
+          "arms": "arms_low",
+          "fingers": "unknown",
+          "visibility": "upper_body",
+          "expected": { "rootFacing": "side", "rootYawDeg": 90, "maxYawErrorDeg": 65 }
+        }
+      ]
+    }
+  ]
+}

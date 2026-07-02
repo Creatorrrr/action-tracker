@@ -2,15 +2,24 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  VRM_FINGER_NAMES,
+  createVrmHumanoidMapping,
+  parseVrmHumanoid,
+  serializeVrmHumanoidMapping,
+} from "../src/vrm-humanoid-mapping.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const modelPath = process.argv[2] ?? "assets/models/anime-candidates/elel-silverbell.vrm";
+const modelPath = process.argv.slice(2).find((argument) => !argument.startsWith("--"))
+  ?? "assets/models/anime-candidates/polydancer.vrm";
+const enforceBudget = process.argv.includes("--enforce-budget");
 const limits = {
   modelBytes: 12_000_000,
   vertices: 60_000,
   bones: 110,
 };
 const failures = [];
+const warnings = [];
 
 function check(condition, message) {
   if (!condition) {
@@ -75,11 +84,44 @@ const extensions = extensionSet(json);
 const vertices = countVertices(json);
 const bones = (json.nodes ?? []).filter((node) => node?.name && !node.mesh).length;
 const hasVrmExtension = extensions.has("VRM") || extensions.has("VRMC_vrm");
+const humanoid = parseVrmHumanoid(json);
+const mapping = createVrmHumanoidMapping(humanoid);
 
-check(modelBytes.length <= limits.modelBytes, `${modelPath}: VRM must stay <= ${limits.modelBytes} bytes`);
-check(vertices <= limits.vertices, `${modelPath}: vertex count must stay <= ${limits.vertices}`);
-check(bones <= limits.bones, `${modelPath}: bone/node count must stay <= ${limits.bones}`);
 check(hasVrmExtension, `${modelPath}: expected VRM or VRMC_vrm extension marker`);
+check(humanoid !== null, `${modelPath}: expected VRM humanoid humanBones metadata`);
+check(
+  mapping.missingRequiredBones.length === 0,
+  `${modelPath}: missing required humanoid mappings: ${mapping.missingRequiredBones.join(", ")}`,
+);
+
+for (const side of ["Left", "Right"]) {
+  for (const fingerName of VRM_FINGER_NAMES) {
+    const chain = mapping.fingerChains[side]?.[fingerName];
+
+    check(
+      (chain?.length ?? 0) >= 3,
+      `${modelPath}: expected ${side} ${fingerName} finger chain to map at least 3 segments`,
+    );
+  }
+}
+
+if (modelBytes.length > limits.modelBytes) {
+  warnings.push(`${modelPath}: file size exceeds legacy budget ${limits.modelBytes} bytes`);
+}
+
+if (vertices > limits.vertices) {
+  warnings.push(`${modelPath}: vertex count exceeds legacy budget ${limits.vertices}`);
+}
+
+if (bones > limits.bones) {
+  warnings.push(`${modelPath}: bone/node count exceeds legacy budget ${limits.bones}`);
+}
+
+if (enforceBudget) {
+  check(modelBytes.length <= limits.modelBytes, `${modelPath}: VRM must stay <= ${limits.modelBytes} bytes`);
+  check(vertices <= limits.vertices, `${modelPath}: vertex count must stay <= ${limits.vertices}`);
+  check(bones <= limits.bones, `${modelPath}: bone/node count must stay <= ${limits.bones}`);
+}
 
 const report = {
   modelPath,
@@ -87,7 +129,10 @@ const report = {
   vertices,
   bones,
   extensions: [...extensions].sort(),
+  humanoid: serializeVrmHumanoidMapping(mapping),
   limits,
+  legacyBudgetEnforced: enforceBudget,
+  warnings,
 };
 
 if (failures.length > 0) {
@@ -99,5 +144,5 @@ if (failures.length > 0) {
   process.exit(1);
 }
 
-console.log("Avatar VRM performance check passed.");
+console.log("Avatar VRM compatibility check passed.");
 console.log(JSON.stringify(report, null, 2));

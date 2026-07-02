@@ -14,11 +14,25 @@ const files = {
   css: "styles.css",
   app: "src/app.js",
   avatarRenderer: "src/avatar-renderer.js",
+  depthCalibration: "src/depth-calibration.js",
+  motionFrame: "src/motion-frame.js",
+  motionWorker: "src/motion-worker.js",
+  motionForwarding: "src/motion-forwarding.js",
+  vrmHumanoidMapping: "src/vrm-humanoid-mapping.js",
+  vrmExpressionMapping: "src/vrm-expression-mapping.js",
   avatarModel: "assets/models/Xbot.glb",
   claudeSettings: ".claude/settings.json",
   claudeCodexCommand: ".claude/commands/codex-consult.md",
   claudeCodexScript: "scripts/claude-codex-consult.sh",
   avatarPerformanceScript: "scripts/avatar-performance-check.mjs",
+  avatarMotionAgreementScript: "scripts/avatar-motion-agreement-check.mjs",
+  framePumpPerformanceScript: "scripts/frame-pump-performance-check.mjs",
+  avatarVrmPerformanceScript: "scripts/avatar-vrm-performance-check.mjs",
+  avatarVrmHumanoidCheck: "tests/avatar-vrm-humanoid-check.mjs",
+  avatarVrmExpressionCheck: "tests/avatar-vrm-expression-check.mjs",
+  depthCalibrationCheck: "tests/depth-calibration-check.mjs",
+  motionFrameCheck: "tests/motion-frame-check.mjs",
+  motionForwardingCheck: "tests/motion-forwarding-check.mjs",
 };
 
 const mediaPipeVersion = "0.10.35";
@@ -223,8 +237,8 @@ function checkSyntax(relativePath) {
 
 function checkPackageContract(packageJson) {
   check(
-    packageJson?.scripts?.check === "node tests/contract-check.mjs",
-    "package.json: check script must remain node tests/contract-check.mjs",
+    packageJson?.scripts?.check === "node tests/contract-check.mjs && node tests/avatar-vrm-humanoid-check.mjs && node tests/avatar-vrm-expression-check.mjs && node tests/depth-calibration-check.mjs && node tests/motion-frame-check.mjs && node tests/motion-forwarding-check.mjs",
+    "package.json: check script must run the contract, VRM humanoid, VRM expression, depth calibration, motion frame, and forwarding checks",
   );
   check(
     packageJson?.scripts?.start === "python3 -m http.server 8000 --bind 127.0.0.1",
@@ -233,6 +247,14 @@ function checkPackageContract(packageJson) {
   check(
     packageJson?.scripts?.["perf:avatar"] === "node scripts/avatar-performance-check.mjs",
     "package.json: perf:avatar script must run the avatar performance check",
+  );
+  check(
+    packageJson?.scripts?.["perf:pump"] === "node scripts/frame-pump-performance-check.mjs",
+    "package.json: perf:pump script must run the frame pump performance check",
+  );
+  check(
+    packageJson?.scripts?.["motion:avatar"] === "node scripts/avatar-motion-agreement-check.mjs",
+    "package.json: motion:avatar script must run the browser motion agreement check",
   );
 
   for (const field of [
@@ -364,6 +386,7 @@ function checkTrackerAppContract(app) {
     "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task",
     "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_heavy/float16/latest/pose_landmarker_heavy.task",
     "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task",
+    "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task",
   ];
 
   for (const url of requiredAssetUrls) {
@@ -372,8 +395,8 @@ function checkTrackerAppContract(app) {
 
   const videoModeCount = app.match(/runningMode\s*:\s*["']VIDEO["']/g)?.length ?? 0;
   check(
-    videoModeCount >= 2,
-    "src/app.js: expected VIDEO runningMode for both pose and hand landmarkers",
+    videoModeCount >= 3,
+    "src/app.js: expected VIDEO runningMode for pose, hand, and optional face landmarkers",
   );
 
   const lifecycleChecks = [
@@ -414,8 +437,16 @@ function checkTrackerAppContract(app) {
     ["loops video files for repeatable checks", /video\.loop\s*=\s*true/],
     ["revokes video file URL", /URL\.revokeObjectURL\s*\(\s*state\.videoFileUrl\s*\)/],
     ["starts video playback", /video\.play\s*\(\s*\)/],
-    ["schedules detection frames", /requestAnimationFrame\s*\(\s*runDetectionFrame\s*\)/],
+    ["supports requestVideoFrameCallback detection pump", /requestVideoFrameCallback\s*\(\s*\([^)]*timestamp[\s\S]*runDetectionFrame/],
+    ["keeps requestAnimationFrame detection fallback", /requestAnimationFrame\s*\(\s*\([^)]*timestamp[\s\S]*runDetectionFrame/],
+    ["parses detection pump flag", /function\s+getInitialDetectionPumpMode\s*\([^)]*\)[\s\S]*URLSearchParams[\s\S]*["']pump["']/],
+    ["parses tracking worker opt-in flag", /function\s+getInitialTrackingWorkerEnabled\s*\([^)]*\)[\s\S]*isTruthyQueryFlag\(["']tracking-worker["']\)/],
+    ["parses avatar smoothing opt-in flag", /function\s+getInitialAvatarSmoothingMode\s*\([^)]*\)[\s\S]*URLSearchParams[\s\S]*["']smoothing["']/],
+    ["parses face landmark opt-in flag", /function\s+getInitialFaceLandmarksEnabled\s*\([^)]*\)[\s\S]*["']face-landmarks["']/],
+    ["creates module tracking worker from local file", /new\s+Worker\s*\(\s*new\s+URL\s*\(\s*["']\.\/motion-worker\.js(?:\?[^"']+)?["']\s*,\s*import\.meta\.url\s*\)\s*,\s*\{\s*type\s*:\s*["']module["']\s*\}/],
+    ["falls back to main-thread detection after worker failure", /trackingWorker[\s\S]*fallbackReason[\s\S]*detectMotionFrameOnMainThread/],
     ["cancels detection frames", /cancelAnimationFrame\s*\(\s*state\.animationFrameId\s*\)/],
+    ["cancels video frame requests", /cancelVideoFrameCallback\s*\(\s*state\.videoFrameRequestId\s*\)/],
     ["stops media tracks", /track\.stop\s*\(\s*\)/],
     ["pauses video on stop", /video\.pause\s*\(\s*\)/],
     ["clears video stream on stop", /video\.srcObject\s*=\s*null/],
@@ -463,6 +494,7 @@ function checkAvatarAppContract(app) {
       "passes canvas status bone count and selected model URL",
       /const\s+modelUrl\s*=\s*getSelectedAvatarModelUrl\s*\(\s*\)[\s\S]*?createAvatarRenderer\s*\(\s*\{[\s\S]*?canvas\s*:\s*state\.elements\.avatarCanvas[\s\S]*?statusElement\s*:\s*state\.elements\.avatarStatus[\s\S]*?boneCountElement\s*:\s*state\.elements\.avatarBoneCount[\s\S]*?modelUrl\s*,[\s\S]*?\}\s*\)/,
     ],
+    ["passes avatar smoothing mode", /createAvatarRenderer\s*\(\s*\{[\s\S]*smoothingMode\s*:\s*state\.avatarSmoothingMode/],
     ["tracks uploaded avatar object URL", /avatarFileUrl\s*:\s*["']["'][\s\S]*avatarFileName\s*:\s*["']["']/],
     ["wires avatar file input", /avatarFileInput\?\.\s*addEventListener\(\s*["']change["'][\s\S]*?useAvatarModelFile\s*\(/],
     ["wires default avatar button", /avatarDefaultButton\?\.\s*addEventListener\(\s*["']click["'][\s\S]*?useDefaultAvatarModel\s*\(/],
@@ -472,28 +504,39 @@ function checkAvatarAppContract(app) {
     ["catches avatar init failure", /state\.avatarRenderer\s*\.\s*init\s*\(\s*\)[\s\S]*?\.catch\s*\(/],
     [
       "updates avatar from detection frame",
-      /runDetectionFrame\s*\(\s*timestamp\s*\)[\s\S]*?updateAvatarRenderer\s*\(\s*poseResults\s*,\s*handResults\s*,\s*timestamp\s*\)/,
+      /runDetectionFrame\s*\(\s*timestamp[\s\S]*?\)[\s\S]*?const\s+motionFrame\s*=\s*createMotionFrame\s*\([\s\S]*?processMotionFrame\s*\(\s*motionFrame/,
     ],
     [
-      "passes pose hand mirror and timestamp to avatar update",
-      /state\.avatarRenderer\.update\s*\(\s*\{[\s\S]*?poseResults[\s\S]*?handResults[\s\S]*?mirrored\s*:\s*Boolean\s*\(\s*state\.elements\.mirrorToggle\?\.\s*checked\s*\)[\s\S]*?timestamp[\s\S]*?\}\s*\)/,
+      "passes normalized motion frame to avatar update",
+      /state\.avatarRenderer\.update\s*\(\s*\{[\s\S]*?motionFrame[\s\S]*?mirrored\s*:\s*motionFrame\.mirrored[\s\S]*?timestamp\s*:\s*motionFrame\.timestamp[\s\S]*?\}\s*\)/,
     ],
     ["syncs avatar skeleton debug option", /function\s+syncAvatarDebugOptions\s*\(\s*\)[\s\S]*?setSkeletonVisible/],
-    ["records body validation after avatar update", /updateAvatarRenderer\s*\(\s*poseResults\s*,\s*handResults\s*,\s*timestamp\s*\)[\s\S]*?recordBodyValidation\s*\(\s*poseResults\s*,\s*timestamp\s*\)/],
+    ["records body validation after avatar update", /function\s+processMotionFrame\s*\([^)]*\)[\s\S]*?updateAvatarRendererFromMotionFrame\s*\(\s*normalizedFrame\s*\)[\s\S]*?recordBodyValidation\s*\(\s*normalizedFrame\s*\)/],
     ["wires avatar view reset button", /avatarViewReset[\s\S]*?addEventListener\(\s*["']click["'][\s\S]*?resetView/],
     ["reports body match rate against fixed threshold", /const\s+BODY_MATCH_THRESHOLD_DEG\s*=\s*30[\s\S]*matchRate/],
     ["records projected visual body validation", /getProjectedBodyPoseSnapshot[\s\S]*visualJoints/],
+    ["records projected segment agreement", /projectedSegmentOverall[\s\S]*projectionByGroup/],
     ["defines strict validation thresholds", /const\s+BODY_STRICT_JOINT_THRESHOLD\s*=[\s\S]*BODY_STRICT_MIN_SEGMENT_LENGTH[\s\S]*BODY_STRICT_SEGMENT_ANGLE_THRESHOLD_DEG[\s\S]*BODY_STRICT_TEMPORAL_ERROR_THRESHOLD/],
     ["builds strict validation report", /function\s+buildStrictValidationReport\s*\([^)]*\)[\s\S]*strictValidation|strictValidation\s*=\s*buildStrictValidationReport\s*\(/],
     ["builds depth validation report", /function\s+buildDepthValidationReport\s*\([^)]*\)[\s\S]*mediapipe_relative_depth/],
+    ["includes depth length consistency in depth validation", /function\s+buildDepthValidationReport\s*\([^)]*\)[\s\S]*lengthConsistency\s*:\s*summarizeLengthConsistency/],
+    ["builds depth calibration report", /function\s+buildDepthCalibrationReport\s*\([^)]*\)[\s\S]*dynamic_depth_segment_length_consistency/],
     ["marks depth validation self-reference", /selfReferential[\s\S]*retarget residual/],
     ["exposes avatar depth scale debug API", /getAvatarDepthScale[\s\S]*setAvatarDepthScale/],
+    ["exposes dynamic depth calibration debug API", /getDepthCalibrationReport[\s\S]*setDepthCalibrationMode/],
     ["exposes avatar performance debug API", /getAvatarPerformanceReport[\s\S]*clearAvatarPerformanceSamples/],
+    ["exposes app performance debug API", /getAppPerformanceReport[\s\S]*clearAppPerformanceSamples[\s\S]*getDetectionPumpStatus/],
+    ["exposes tracking worker debug API", /getTrackingWorkerStatus/],
+    ["exposes debug overlay toggle", /setDebugOverlayEnabled[\s\S]*getDebugOverlayEnabled/],
+    ["exposes tracked channel report debug API", /getTrackedChannelReport[\s\S]*faceLandmarkCount[\s\S]*worldLandmarkCount/],
     ["exposes avatar view debug API", /getAvatarViewState[\s\S]*resetAvatarView/],
     ["checks strict segment agreement", /function\s+buildStrictSegmentRows\s*\([^)]*\)[\s\S]*angleErrorDeg[\s\S]*lengthErrorRatio/],
     ["checks strict side-order agreement", /function\s+buildStrictSideOrderRows\s*\([^)]*\)[\s\S]*sourceDelta[\s\S]*avatarDelta/],
     ["checks strict temporal agreement", /function\s+buildStrictTemporalRows\s*\([^)]*\)[\s\S]*sourceMotion[\s\S]*motionRatio/],
     ["exposes motion tracker debug API", /globalThis\.motionTrackerDebug\s*=\s*\{[\s\S]*?getBodyValidationReport[\s\S]*?clearBodyValidation/],
+    ["exposes motion recording debug API", /startMotionRecording[\s\S]*stopMotionRecording[\s\S]*getMotionRecording[\s\S]*loadMotionRecording/],
+    ["exposes motion forwarding debug API", /connectMotionForwarding[\s\S]*disconnectMotionForwarding[\s\S]*getMotionForwardingStatus/],
+    ["exposes face tracking debug API", /setFaceTrackingEnabled[\s\S]*getFaceTrackingStatus[\s\S]*getFaceTrackingEnabled/],
     ["resets avatar pose on camera stop", /function\s+stopCamera\s*\([^)]*\)[\s\S]*?resetAvatarPose\s*\(\s*\)/],
     ["calls avatar resetPose API", /state\.avatarRenderer\?\.\s*resetPose\s*\(\s*\)/],
     ["disposes avatar on beforeunload", /window\.addEventListener\(\s*["']beforeunload["'][\s\S]*?disposeAvatarRenderer\s*\(/],
@@ -514,9 +557,15 @@ function checkAvatarRendererContract(avatarRenderer) {
       /import\s*\{\s*GLTFLoader\s*\}\s*from\s*["']three\/addons\/loaders\/GLTFLoader\.js["']/,
     ],
     ["defines local default model URL", /const\s+DEFAULT_MODEL_URL\s*=\s*["']\.\/assets\/models\/Xbot\.glb["']/],
+    ["keeps default Xbot model camera-facing without extra yaw", /const\s+DEFAULT_XBOT_MODEL_YAW_RAD\s*=\s*0[\s\S]*function\s+getNonVrmInitialModelYawRad/],
     ["defines conservative runtime depth scale default", /const\s+DEFAULT_LANDMARK_DEPTH_SCALE\s*=\s*0\.45/],
+    ["imports dynamic depth calibration helpers", /from\s+["']\.\/depth-calibration\.js["']/],
+    ["imports VRM expression helpers", /from\s+["']\.\/vrm-expression-mapping\.js["']/],
     ["defines runtime performance budgets", /const\s+PERFORMANCE_BUDGETS_MS\s*=\s*\{[\s\S]*updateMedian\s*:\s*1\.5[\s\S]*validationP95\s*:\s*2/],
+    ["defines face apply performance budget", /faceApplyP95\s*:\s*0\.5/],
     ["defines group-specific smoothing", /const\s+RETARGET_SMOOTHING_MS\s*=\s*\{[\s\S]*upperArm[\s\S]*foreArm[\s\S]*finger/],
+    ["normalizes opt-in smoothing mode", /function\s+normalizeAvatarSmoothingMode\s*\([^)]*\)[\s\S]*retarget[\s\S]*strong/],
+    ["reports retarget smoothing mode", /retargetSmoothing\s*:\s*\{[\s\S]*mode\s*:\s*activeSmoothingMode/],
     ["bounds first update delta", /const\s+FIRST_UPDATE_DELTA_MS\s*=\s*16\.67[\s\S]*lastUpdateTime\s*>\s*0[\s\S]*FIRST_UPDATE_DELTA_MS/],
     ["exports createAvatarRenderer", /export\s+function\s+createAvatarRenderer\s*\(/],
     ["accepts injected model URL", /const\s+modelUrl\s*=\s*options\.modelUrl\s*\?\?\s*DEFAULT_MODEL_URL/],
@@ -541,17 +590,33 @@ function checkAvatarRendererContract(avatarRenderer) {
     ["defines orbit camera application", /function\s+applyOrbitCamera\s*\(\s*\)[\s\S]*setFromSpherical[\s\S]*lookAt/],
     ["defines orbit pointer controls", /function\s+attachOrbitControls\s*\(\s*\)[\s\S]*pointerdown[\s\S]*wheel[\s\S]*dblclick/],
     ["exposes avatar view reset", /function\s+resetView\s*\(\s*\)[\s\S]*resetOrbitCamera[\s\S]*getViewState/],
+    ["reports rest pose diagnostics", /restPose\s*:\s*buildRestPoseDiagnostics\s*\(\s*\)/],
+    ["reports bone orientation diagnostics", /boneOrientation\s*:\s*buildBoneOrientationDiagnostics\s*\(\s*\)/],
+    ["reports optional eye bone diagnostics", /eyeBones\s*:\s*\{[\s\S]*LeftEye[\s\S]*RightEye/],
     ["reads MediaPipe world landmarks", /function\s+extractWorldPoseLandmarks\s*\([^)]*\)[\s\S]*worldLandmarks/],
     ["exposes depth scale setter", /function\s+setDepthScale\s*\([^)]*\)[\s\S]*normalizeDepthScale/],
+    ["exposes depth calibration controls", /function\s+setDepthCalibrationMode\s*\([^)]*\)[\s\S]*resetDepthCalibration/],
+    ["applies dynamic depth calibration before retargeting", /function\s+applyPose\s*\([^)]*\)[\s\S]*getPoseFramePoints[\s\S]*applyAimToBone/],
+    ["uses adaptive upper-body depth calibration coverage", /depthCalibrationCoverage[\s\S]*resolveDepthCalibrationMinSegments[\s\S]*minimumReferenceSegments/],
+    ["falls back to shoulder-width world depth context", /screenShoulderWidth[\s\S]*worldShoulderWidth[\s\S]*worldToScreenScale/],
     ["defines body validation segments", /const\s+BODY_VALIDATION_SEGMENTS\s*=\s*\[[\s\S]*?leftUpperArm[\s\S]*?rightLowerLeg/],
     ["exposes body validation snapshot", /function\s+getBodyValidationSnapshot\s*\([^)]*\)/],
     ["defines body retarget hooks", /const\s+BODY_RETARGETS\s*=\s*\[[\s\S]*?bone\s*:\s*["']LeftArm["'][\s\S]*?bone\s*:\s*["']RightLeg["']/],
+    ["aims pose-fallback head at virtual crown", /bone\s*:\s*["']Head["'][\s\S]*to\s*:\s*["']headCrown["'][\s\S]*function\s+estimateHeadCrown/],
     ["applies body retargets", /for\s*\(\s*const\s+target\s+of\s+BODY_RETARGETS\s*\)[\s\S]*?applyAimToBone\s*\(\s*target\.bone/],
+    ["gates retargeting by landmark visibility", /function\s+retargetConfidence\s*\([^)]*\)[\s\S]*RETARGET_FULL_CONFIDENCE_VISIBILITY/],
     ["computes limb plane normals", /function\s+computeLimbPlaneNormals\s*\([^)]*\)[\s\S]*limbPlaneNormal/],
+    ["uses limb plane normals as body secondary axes", /computeLimbPlaneNormals\s*\(\s*points\s*\)[\s\S]*limbPlaneNormals\[target\.bone\]/],
+    ["keeps secondary aim rest basis in dedicated temp vectors", /const\s+tmpVectorG\s*=\s*new\s+THREE\.Vector3\(\)[\s\S]*const\s+tmpVectorH\s*=\s*new\s+THREE\.Vector3\(\)[\s\S]*function\s+applyAimWithSecondary[\s\S]*const\s+restDirectionLocal\s*=\s*tmpVectorG[\s\S]*const\s+restSecondaryLocal\s*=\s*tmpVectorH/],
     ["computes palm normal", /function\s+computePalmNormal\s*\([^)]*\)[\s\S]*crossVectors/],
+    ["uses hand world landmarks for palm normal when present", /worldLandmarks[\s\S]*worldPoints[\s\S]*computePalmNormal\(worldPoints\[0\]/],
     ["limits parent-relative twist", /function\s+limitTwistFromRest\s*\([^)]*\)[\s\S]*extractTwist/],
+    ["stabilizes root facing before yaw changes", /ROOT_ORIENTATION_SWITCH_FRAMES[\s\S]*candidateFacingFrames[\s\S]*function\s+updateStableRootFacing/],
     ["freezes proportion calibration", /const\s+PROPORTION_CALIBRATION_FRAMES\s*=\s*30[\s\S]*function\s+freezeProportionCalibration\s*\(/],
     ["exposes avatar performance snapshot", /function\s+getPerformanceSnapshot\s*\([^)]*\)[\s\S]*PERFORMANCE_BUDGETS_MS/],
+    ["applies face transform matrix to head pose", /function\s+applyFaceHeadPose\s*\([^)]*\)[\s\S]*faceTransformQuaternion[\s\S]*applyLocalPoseDeltaToBone\(["']Head["']/],
+    ["applies face expressions after hand retargeting", /applyHands\s*\([\s\S]*?\)[\s\S]*?applyFaceExpressions\s*\(/],
+    ["reports expression diagnostics", /expressionPresetCount[\s\S]*resolvedMorphTargetCount[\s\S]*missingPresets/],
     ["defines finger segment mappings", /const\s+FINGER_SEGMENTS\s*=\s*\[[\s\S]*?fallbackFrom/],
     [
       "builds side-specific finger chains",
@@ -644,6 +709,13 @@ const [
   css,
   app,
   avatarRenderer,
+  depthCalibration,
+  motionFrame,
+  motionWorker,
+  motionForwarding,
+  avatarMotionAgreementScript,
+  vrmHumanoidMapping,
+  vrmExpressionMapping,
   avatarModelBytes,
   claudeSettings,
   claudeCodexCommand,
@@ -656,6 +728,13 @@ const [
     readProjectFile(files.css),
     readProjectFile(files.app),
     readProjectFile(files.avatarRenderer),
+    readProjectFile(files.depthCalibration),
+    readProjectFile(files.motionFrame),
+    readProjectFile(files.motionWorker),
+    readProjectFile(files.motionForwarding),
+    readProjectFile(files.avatarMotionAgreementScript),
+    readProjectFile(files.vrmHumanoidMapping),
+    readProjectFile(files.vrmExpressionMapping),
     readProjectBytes(files.avatarModel),
     readProjectFile(files.claudeSettings),
     readProjectFile(files.claudeCodexCommand),
@@ -674,9 +753,53 @@ checkAvatarAppContract(app);
 checkAvatarRendererContract(avatarRenderer);
 checkCssContract(css);
 checkAvatarModelContract(avatarModelJson);
+check(vrmHumanoidMapping.includes("parseVrmHumanoid"), `${files.vrmHumanoidMapping}: expected VRM humanoid parser`);
+check(vrmHumanoidMapping.includes("createVrmHumanoidMapping"), `${files.vrmHumanoidMapping}: expected VRM humanoid mapper`);
+check(vrmExpressionMapping.includes("parseVrmExpressionMetadata"), `${files.vrmExpressionMapping}: expected VRM expression parser`);
+check(vrmExpressionMapping.includes("mapMediaPipeBlendShapesToVrmPresets"), `${files.vrmExpressionMapping}: expected MediaPipe blendshape mapper`);
+check(depthCalibration.includes("solveDistalDepth"), `${files.depthCalibration}: expected depth solver`);
+check(depthCalibration.includes("DEPTH_CALIBRATION_TARGET_SCORE"), `${files.depthCalibration}: expected depth calibration target`);
+check(motionFrame.includes("createMotionFrame"), `${files.motionFrame}: expected motion frame factory`);
+check(motionFrame.includes("createMotionRecording"), `${files.motionFrame}: expected motion recording factory`);
+check(motionFrame.includes("normalizeExternalMotionRecording"), `${files.motionFrame}: expected external HMR recording normalizer`);
+check(motionFrame.includes("isExternalMotionRecording"), `${files.motionFrame}: expected external HMR recording detector`);
+check(motionFrame.includes("leftHandWorldLandmarks"), `${files.motionFrame}: expected hand world landmarks in motion frames`);
+check(motionFrame.includes("extractFaceLandmarks"), `${files.motionFrame}: expected optional face landmark extraction`);
+check(motionWorker.includes("self.addEventListener"), `${files.motionWorker}: expected worker message listener`);
+check(motionWorker.includes("PoseLandmarker"), `${files.motionWorker}: expected pose landmarker in worker`);
+check(motionWorker.includes("HandLandmarker"), `${files.motionWorker}: expected hand landmarker in worker`);
+check(motionWorker.includes("createMotionFrame"), `${files.motionWorker}: expected worker to emit motion frames`);
+check(/FilesetResolver\.forVisionTasks\s*\(\s*wasmAssetPath\s*,\s*true\s*\)/.test(motionWorker), `${files.motionWorker}: expected module-worker wasm fileset mode`);
+check(motionWorker.includes("installMediaPipeModuleFactoryImportBridge"), `${files.motionWorker}: expected module-worker ModuleFactory import bridge`);
+check(motionWorker.includes("OffscreenCanvas"), `${files.motionWorker}: expected ImageBitmap frames to be drawn to OffscreenCanvas before detection`);
+check(motionWorker.includes("getImageData"), `${files.motionWorker}: expected worker detection to use ImageData from transferred frames`);
+check(motionForwarding.includes("createMotionForwarder"), `${files.motionForwarding}: expected motion forwarding client`);
+check(motionForwarding.includes("action-tracker-motion-frame"), `${files.motionForwarding}: expected stable forwarding payload type`);
+check(avatarMotionAgreementScript.includes("--tracking-worker"), `${files.avatarMotionAgreementScript}: expected tracking worker query flag support`);
+check(avatarMotionAgreementScript.includes('"tracking-worker"'), `${files.avatarMotionAgreementScript}: expected tracking-worker URL parameter`);
+check(avatarMotionAgreementScript.includes("trackingWorkerRequested"), `${files.avatarMotionAgreementScript}: expected tracking worker requested summary field`);
+check(avatarMotionAgreementScript.includes("trackingWorkerFallbackReason"), `${files.avatarMotionAgreementScript}: expected tracking worker fallback reason summary field`);
+check(avatarMotionAgreementScript.includes("--smoothing"), `${files.avatarMotionAgreementScript}: expected smoothing query flag support`);
+check(avatarMotionAgreementScript.includes('"smoothing"'), `${files.avatarMotionAgreementScript}: expected smoothing URL parameter`);
+check(avatarMotionAgreementScript.includes("avatarSmoothingMode"), `${files.avatarMotionAgreementScript}: expected smoothing summary field`);
+check(/if\s*\(\s*keyframeLabels\.length\s*===\s*0\s*\)\s*\{[\s\S]*?await\s+waitForExpression/.test(avatarMotionAgreementScript), `${files.avatarMotionAgreementScript}: expected measurement-only runs to wait for minimum pose frames`);
 checkSyntax(files.app);
 checkSyntax(files.avatarRenderer);
+checkSyntax(files.depthCalibration);
+checkSyntax(files.motionFrame);
+checkSyntax(files.motionWorker);
+checkSyntax(files.motionForwarding);
+checkSyntax(files.avatarMotionAgreementScript);
+checkSyntax(files.framePumpPerformanceScript);
+checkSyntax(files.vrmHumanoidMapping);
+checkSyntax(files.vrmExpressionMapping);
 checkSyntax(files.avatarPerformanceScript);
+checkSyntax(files.avatarVrmPerformanceScript);
+checkSyntax(files.avatarVrmHumanoidCheck);
+checkSyntax(files.avatarVrmExpressionCheck);
+checkSyntax(files.depthCalibrationCheck);
+checkSyntax(files.motionFrameCheck);
+checkSyntax(files.motionForwardingCheck);
 
 if (failures.length > 0) {
   console.error(`Contract check failed with ${failures.length} issue(s):`);

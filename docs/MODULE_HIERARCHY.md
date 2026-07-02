@@ -9,6 +9,10 @@ The project is a dependency-free static browser application. Runtime code is loa
 directly from `index.html` through ES modules and import maps. The central boundary is:
 
 - `src/app.js` owns browser app orchestration, MediaPipe tracking, UI state, overlay drawing, and debug reports.
+- `src/motion-worker.js` owns the optional module-worker MediaPipe detector used only when `?tracking-worker=on` is requested.
+- `src/motion-frame.js` owns the normalized motion-frame and recording JSON contracts shared by live tracking, replay, and forwarding.
+- `src/motion-forwarding.js` owns the optional browser WebSocket forwarding client.
+- `src/vrm-expression-mapping.js` owns VRM0/VRM1 expression metadata parsing and MediaPipe blendshape-to-VRM preset mapping.
 - `src/avatar-renderer.js` owns Three.js rendering, model loading, avatar retargeting, validation snapshots, view controls, and performance samples.
 - Everything under `scripts/` and `tests/` is validation/tooling, not runtime application code.
 
@@ -18,8 +22,12 @@ flowchart TD
   Html["index.html"]
   Styles["styles.css"]
   App["src/app.js\nApp Orchestrator"]
+  MotionWorker["src/motion-worker.js\nOptional Tracking Worker"]
+  MotionFrame["src/motion-frame.js\nMotion Frame Contract"]
+  Forwarding["src/motion-forwarding.js\nWebSocket Forwarding Client"]
+  Expressions["src/vrm-expression-mapping.js\nVRM Expression Mapping"]
   Avatar["src/avatar-renderer.js\nAvatar Renderer"]
-  MediaPipe["MediaPipe Tasks Vision CDN\nJS/WASM + pose/hand models"]
+  MediaPipe["MediaPipe Tasks Vision CDN\nJS/WASM + pose/hand/face models"]
   Three["Three.js CDN\nthree + addons"]
   Models["assets/models/*\nDefault and candidate avatars"]
   Debug["window.motionTrackerDebug\nDebug/validation API"]
@@ -30,12 +38,20 @@ flowchart TD
   Html --> Styles
   Html --> App
   App --> MediaPipe
+  App --> MotionWorker
+  App --> MotionFrame
+  App --> Forwarding
   App --> Avatar
   App --> Debug
+  MotionWorker --> MediaPipe
+  MotionWorker --> MotionFrame
+  Avatar --> Expressions
   Avatar --> Three
   Avatar --> Models
   Tests -. validates .-> Html
   Tests -. validates .-> App
+  Tests -. validates .-> MotionFrame
+  Tests -. validates .-> Forwarding
   Tests -. validates .-> Avatar
   Tests -. validates .-> Models
   Docs -. describes .-> App
@@ -52,18 +68,38 @@ Browser Motion Tracker
 ├─ App Orchestrator
 │  └─ src/app.js
 │     ├─ MediaPipe model lifecycle
+│     ├─ optional module-worker detection lifecycle
+│     ├─ optional FaceLandmarker lifecycle
 │     ├─ camera/video input lifecycle
-│     ├─ frame detection loop
+│     ├─ rVFC/rAF frame detection pump
+│     ├─ motion-frame recording and replay lifecycle
+│     ├─ optional motion forwarding lifecycle
 │     ├─ 2D landmark overlay
-│     ├─ metrics/status/error state
+│     ├─ app and avatar performance metrics
+│     ├─ status/error state
 │     ├─ strict/depth validation aggregation
 │     └─ debug API exposure
+├─ Motion Pipeline Contracts
+│  ├─ src/motion-worker.js
+│  │  ├─ opt-in worker model lifecycle
+│  │  ├─ ImageBitmap frame detection
+│  │  └─ serialized motionFrame result messages
+│  ├─ src/motion-frame.js
+│  │  ├─ normalized motionFrame schema
+│  │  ├─ JSON recording schema
+│  │  ├─ face payload normalization
+│  │  └─ MediaPipe compatibility conversion helpers
+│  └─ src/motion-forwarding.js
+│     ├─ browser WebSocket client
+│     ├─ stable forwarding payload shape
+│     └─ connection status reporting
 ├─ Avatar Renderer
 │  └─ src/avatar-renderer.js
 │     ├─ Three.js scene lifecycle
 │     ├─ GLB/VRM model loading
 │     ├─ bone discovery and rest-pose cache
 │     ├─ body/hand retargeting
+│     ├─ VRM expression application
 │     ├─ validation snapshots
 │     ├─ orbit view controls
 │     └─ performance sampling
@@ -123,13 +159,34 @@ Public surface:
 - `window.motionTrackerDebug.setAvatarDepthScale(value)`
 - `window.motionTrackerDebug.getAvatarPerformanceReport()`
 - `window.motionTrackerDebug.clearAvatarPerformanceSamples()`
+- `window.motionTrackerDebug.getAppPerformanceReport()`
+- `window.motionTrackerDebug.clearAppPerformanceSamples()`
+- `window.motionTrackerDebug.getDetectionPumpStatus()`
+- `window.motionTrackerDebug.getTrackingWorkerStatus()`
+- `window.motionTrackerDebug.setDebugOverlayEnabled(value)`
+- `window.motionTrackerDebug.getDebugOverlayEnabled()`
 - `window.motionTrackerDebug.getAvatarViewState()`
 - `window.motionTrackerDebug.resetAvatarView()`
 - `window.motionTrackerDebug.clearBodyValidation()`
+- `window.motionTrackerDebug.startMotionRecording()`
+- `window.motionTrackerDebug.stopMotionRecording()`
+- `window.motionTrackerDebug.getMotionRecording()`
+- `window.motionTrackerDebug.clearMotionRecording()`
+- `window.motionTrackerDebug.loadMotionRecording(recording)`
+- `window.motionTrackerDebug.getMotionReplayStatus()`
+- `window.motionTrackerDebug.stopMotionReplay()`
+- `window.motionTrackerDebug.setFaceTrackingEnabled(enabled)`
+- `window.motionTrackerDebug.getFaceTrackingStatus()`
+- `window.motionTrackerDebug.getFaceTrackingEnabled()`
+- `window.motionTrackerDebug.connectMotionForwarding(url)`
+- `window.motionTrackerDebug.disconnectMotionForwarding()`
+- `window.motionTrackerDebug.getMotionForwardingStatus()`
 
 Consumes:
 
 - MediaPipe Tasks Vision through the CDN import in `src/app.js`.
+- Motion-frame helpers from `src/motion-frame.js`.
+- Motion forwarding client from `src/motion-forwarding.js`.
 - Public avatar renderer factory `createAvatarRenderer(options)`.
 - Avatar renderer instance methods returned by `createAvatarRenderer`.
 - Runtime shell DOM elements by documented ID.
@@ -139,8 +196,14 @@ Internal scope:
 - Boot sequence and event binding.
 - Camera and uploaded-video lifecycle.
 - MediaPipe model selection and loading.
+- Optional FaceLandmarker loading and inference.
+- Optional module-worker detection initialization, request tracking, and fallback.
 - Detection frame scheduling.
+- `requestVideoFrameCallback` / `requestAnimationFrame` pump selection.
+- Motion recording/replay state.
+- Optional WebSocket forwarding state.
 - Overlay drawing helpers.
+- App-level performance sampling for callback, detection, optional face detection/process, process, draw, and frame-total timings.
 - Strict/depth validation report builders.
 - UI status and error text helpers.
 
@@ -149,6 +212,88 @@ Rules:
 - `src/app.js` must not reach into `src/avatar-renderer.js` internals. It may only use the factory and returned API object.
 - Debug API additions should be reflected in `README.md` and `tests/contract-check.mjs`.
 - MediaPipe model URL/version changes must keep `tests/contract-check.mjs` aligned.
+- Tracking worker mode must stay opt-in via `?tracking-worker=on`; failures must fall back to the main-thread detector and expose `fallbackReason`.
+- Recording and forwarding must stay optional and must not start a local server.
+
+### Motion Pipeline Contracts
+
+Owned scope:
+
+- `src/motion-worker.js`
+- `src/motion-frame.js`
+- `src/motion-forwarding.js`
+
+Public surface:
+
+- `createMotionFrame(options)`
+- `serializeMotionFrame(frame)`
+- `createMotionRecording(options)`
+- `normalizeMotionRecording(recording)`
+- `normalizeExternalMotionRecording(recording)`
+- `isExternalMotionRecording(recording)`
+- `motionFrameToPoseResults(frame)`
+- `motionFrameToHandResults(frame)`
+- `normalizeFace(face)`
+- Worker message types: `init`, `detect`, `close`
+- `createMotionForwarder(options)`
+- Forwarding payload type: `action-tracker-motion-frame`
+
+Consumes:
+
+- Browser `WebSocket` only when forwarding is explicitly connected.
+- Plain MediaPipe result objects passed by `src/app.js`.
+- `ImageBitmap` frames passed by `src/app.js` only when worker mode is requested.
+- Worker-local `OffscreenCanvas` and `ImageData` conversion for MediaPipe detection.
+
+Internal scope:
+
+- Handedness normalization for motion-frame left/right fields.
+- JSON-safe landmark cloning.
+- Worker-local MediaPipe module-wasm landmarker lifecycle, ModuleFactory import bridge, and serialized result messages.
+- Forwarding connection status and best-effort send failures.
+
+Rules:
+
+- Recording JSON must contain landmarks and metadata only; do not embed raw video or model binaries.
+- External HMR import is a recording JSON contract only. WHAM, GVHMR, GEM-X, SAM 3D Body, and similar heavy extractors must run outside the browser and output normalized recording JSON with 33 `poseLandmarks`, 33 `poseWorldLandmarks`, optional 21-point hand landmarks, and scalar `source`/`sourceMeta` metadata.
+- Worker tracking is opt-in and must return the same serialized `motionFrame` shape as main-thread detection.
+- Worker tracking must expose `requested`, `supported`, `active`, `frames`, `errors`, `fallbacks`, and `fallbackReason` through `getAppPerformanceReport().trackingWorker`.
+- Forwarding must be client-only and explicit opt-in.
+- The optional `face` field is serialized as blendshape scores plus transform matrix only; full face landmarks are not part of the default recording/forwarding contract. The transform matrix is part of the replayable head/neck pose signal.
+- These modules must stay dependency-free.
+
+### VRM Expression Mapping
+
+Owned scope:
+
+- `src/vrm-expression-mapping.js`
+
+Public surface:
+
+- `parseVrmExpressionMetadata(json)`
+- `resolveVrmExpressionTargets(metadata, options)`
+- `mapMediaPipeBlendShapesToVrmPresets(blendShapes)`
+- `applyVrmExpressionScores(mapping, targetScores, previousScores, alpha)`
+- `summarizeVrmExpressionMapping(mapping)`
+
+Consumes:
+
+- Plain GLTF JSON from `GLTFLoader`.
+- Node lookup callback provided by `src/avatar-renderer.js`.
+- Normalized `motionFrame.face.blendShapes`.
+
+Internal scope:
+
+- VRM0 preset alias normalization.
+- VRM1 expression preset parsing.
+- Morph target bind resolution.
+- MediaPipe/ARKit blendshape scoring heuristics.
+
+Rules:
+
+- Do not import Three.js here. The renderer provides resolved node objects.
+- Unknown blendshape names and missing morph targets must be ignored or reported diagnostically, not treated as runtime failures.
+- Keep the mapping dependency-free and testable from Node.
 
 ### Avatar Renderer
 
@@ -163,7 +308,7 @@ Public surface:
 Returned API:
 
 - `init()`
-- `update({ poseResults, handResults, mirrored, timestamp })`
+- `update({ motionFrame, poseResults, handResults, mirrored, timestamp })`
 - `getBodyValidationSnapshot(options)`
 - `getProjectedBodyPoseSnapshot(options)`
 - `getDepthValidationSnapshot(options)`
@@ -171,6 +316,7 @@ Returned API:
 - `setDepthScale(value)`
 - `getDepthScale()`
 - `getPerformanceSnapshot()`
+- `getModelDiagnostics()`
 - `clearPerformanceSamples()`
 - `resetView()`
 - `getViewState()`
@@ -190,8 +336,13 @@ Internal scope:
 - Bone name normalization and aliasing.
 - Model-kind detection.
 - Pose and hand landmark normalization.
+- Normalized motion-frame consumption.
 - Body, finger, head, neck, and limb retargeting.
-- Rest-pose and proportion calibration.
+- Face transform head/neck correction, face expression smoothing, and GLTF morph target influence application.
+- Rest-pose, upper-body-aware depth, and proportion calibration.
+- Landmark-visibility retarget gating and limb-plane secondary-axis stabilization.
+- Retarget smoothing mode normalization and reporting.
+- Rest-pose cache diagnostics and inferred bone orientation axis diagnostics.
 - Swing/twist limiting.
 - Validation row construction and summarization.
 - Orbit camera pointer/wheel handling.
@@ -202,6 +353,7 @@ Rules:
 - Other runtime modules must not import helper functions from this file. The factory and returned API are the only public interface.
 - New public methods must be added to the returned API object and documented here before `src/app.js` uses them.
 - Avatar model loading failures must report failure state without breaking camera/video tracking.
+- The renderer must continue to accept the legacy raw `poseResults`/`handResults` shape while `src/app.js` sends normalized `motionFrame`.
 
 ### Static Avatar Assets
 
@@ -242,6 +394,10 @@ Owned scope:
 - `scripts/avatar-performance-check.mjs`
 - `scripts/avatar-glb-performance-check.mjs`
 - `scripts/avatar-vrm-performance-check.mjs`
+- `scripts/frame-pump-performance-check.mjs`
+- `tests/avatar-vrm-expression-check.mjs`
+- `tests/motion-frame-check.mjs`
+- `tests/motion-forwarding-check.mjs`
 
 Public surface:
 
@@ -249,6 +405,10 @@ Public surface:
 - `npm run perf:avatar`
 - `npm run perf:avatar:soldier`
 - `npm run perf:avatar:vrm`
+- `npm run perf:pump`
+- `node tests/motion-frame-check.mjs`
+- `node tests/motion-forwarding-check.mjs`
+- `node tests/avatar-vrm-expression-check.mjs`
 
 Consumes:
 
