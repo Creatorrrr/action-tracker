@@ -19,6 +19,19 @@ let loadedFaceTrackingEnabled = false;
 let loadedFaceLandmarksEnabled = false;
 let frameCanvas = null;
 let frameContext = null;
+const MEDIAPIPE_PREFERRED_DELEGATE = "GPU";
+const MEDIAPIPE_FALLBACK_DELEGATE = "CPU";
+let requestedDelegate = MEDIAPIPE_PREFERRED_DELEGATE;
+const detectorDelegates = {
+  requested: requestedDelegate,
+  fallback: MEDIAPIPE_FALLBACK_DELEGATE,
+  hand: "unloaded",
+  pose: "unloaded",
+  face: "unloaded",
+  lastFallbackReason: "",
+  attempted: {},
+  fallbackReasons: {},
+};
 
 installMediaPipeModuleFactoryImportBridge();
 
@@ -52,7 +65,11 @@ async function handleMessage(message) {
   try {
     if (message.type === "init") {
       await initModels(message);
-      postWorkerMessage({ type: "ready", requestId });
+      postWorkerMessage({
+        type: "ready",
+        requestId,
+        detectorDelegates: getDetectorDelegates(),
+      });
       return;
     }
 
@@ -86,6 +103,7 @@ async function initModels({
   faceModelUrl,
   faceTrackingEnabled = false,
   faceLandmarksEnabled = false,
+  delegate = MEDIAPIPE_PREFERRED_DELEGATE,
 } = {}) {
   if (!wasmAssetPath || !poseModelUrl || !handModelUrl) {
     throw new Error("Tracking worker init requires wasm, pose, and hand model URLs.");
@@ -95,8 +113,12 @@ async function initModels({
     vision = await FilesetResolver.forVisionTasks(wasmAssetPath, true);
   }
 
+  requestedDelegate = normalizeMediaPipeDelegate(delegate);
+  detectorDelegates.requested = requestedDelegate;
+  resetDetectorDelegateTelemetry();
+
   if (!handLandmarker) {
-    handLandmarker = await HandLandmarker.createFromOptions(vision, {
+    handLandmarker = await createLandmarkerWithDelegate("hand", HandLandmarker, vision, {
       baseOptions: { modelAssetPath: handModelUrl },
       runningMode: "VIDEO",
       numHands: 2,
@@ -104,7 +126,7 @@ async function initModels({
   }
 
   if (!poseLandmarker || loadedPoseModelUrl !== poseModelUrl) {
-    const nextPoseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+    const nextPoseLandmarker = await createLandmarkerWithDelegate("pose", PoseLandmarker, vision, {
       baseOptions: { modelAssetPath: poseModelUrl },
       runningMode: "VIDEO",
       numPoses: 1,
@@ -115,7 +137,7 @@ async function initModels({
   }
 
   if (faceTrackingEnabled && !faceLandmarker) {
-    faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
+    faceLandmarker = await createLandmarkerWithDelegate("face", FaceLandmarker, vision, {
       baseOptions: { modelAssetPath: faceModelUrl },
       runningMode: "VIDEO",
       numFaces: 1,
@@ -127,10 +149,102 @@ async function initModels({
   if (!faceTrackingEnabled && faceLandmarker) {
     closeLandmarker(faceLandmarker);
     faceLandmarker = null;
+    detectorDelegates.face = "unloaded";
   }
 
   loadedFaceTrackingEnabled = Boolean(faceTrackingEnabled);
   loadedFaceLandmarksEnabled = Boolean(faceLandmarksEnabled);
+}
+
+async function createLandmarkerWithDelegate(detectorKey, Landmarker, visionRef, options) {
+  let preferredError = null;
+
+  for (const delegate of getMediaPipeDelegateAttemptOrder()) {
+    recordDetectorDelegateAttempt(detectorKey, delegate);
+
+    try {
+      const landmarker = await Landmarker.createFromOptions(visionRef, {
+        ...options,
+        baseOptions: {
+          ...(options.baseOptions ?? {}),
+          delegate,
+        },
+      });
+      markDetectorDelegate(detectorKey, delegate, preferredError);
+      return landmarker;
+    } catch (error) {
+      if (delegate === MEDIAPIPE_FALLBACK_DELEGATE) {
+        throw error;
+      }
+
+      preferredError = error;
+      console.warn(
+        `${detectorKey} ${MEDIAPIPE_PREFERRED_DELEGATE} delegate failed in worker; retrying with ${MEDIAPIPE_FALLBACK_DELEGATE}.`,
+        error,
+      );
+    }
+  }
+
+  throw preferredError ?? new Error(`Unable to create ${detectorKey} landmarker in worker.`);
+}
+
+function getMediaPipeDelegateAttemptOrder() {
+  if (requestedDelegate === MEDIAPIPE_FALLBACK_DELEGATE) {
+    return [MEDIAPIPE_FALLBACK_DELEGATE];
+  }
+
+  return [MEDIAPIPE_PREFERRED_DELEGATE, MEDIAPIPE_FALLBACK_DELEGATE];
+}
+
+function normalizeMediaPipeDelegate(value) {
+  return String(value ?? "").toLowerCase() === "cpu"
+    ? MEDIAPIPE_FALLBACK_DELEGATE
+    : MEDIAPIPE_PREFERRED_DELEGATE;
+}
+
+function markDetectorDelegate(detectorKey, delegate, fallbackError = null) {
+  detectorDelegates[detectorKey] = delegate;
+
+  if (fallbackError) {
+    const reason = getErrorDetail(fallbackError);
+    detectorDelegates.fallbackReasons[detectorKey] = reason;
+    detectorDelegates.lastFallbackReason = `${detectorKey}: ${reason}`;
+  } else {
+    delete detectorDelegates.fallbackReasons[detectorKey];
+  }
+}
+
+function getDetectorDelegates() {
+  return {
+    ...detectorDelegates,
+    attempted: cloneRecordArrayValues(detectorDelegates.attempted),
+    fallbackReasons: { ...detectorDelegates.fallbackReasons },
+  };
+}
+
+function recordDetectorDelegateAttempt(detectorKey, delegate) {
+  const attempts = detectorDelegates.attempted[detectorKey] ?? [];
+
+  if (!attempts.includes(delegate)) {
+    attempts.push(delegate);
+  }
+
+  detectorDelegates.attempted[detectorKey] = attempts;
+}
+
+function resetDetectorDelegateTelemetry() {
+  detectorDelegates.lastFallbackReason = "";
+  detectorDelegates.attempted = {};
+  detectorDelegates.fallbackReasons = {};
+}
+
+function cloneRecordArrayValues(value) {
+  return Object.fromEntries(
+    Object.entries(value ?? {}).map(([key, entry]) => [
+      key,
+      Array.isArray(entry) ? entry.slice() : entry,
+    ]),
+  );
 }
 
 async function detectMotionFrame({

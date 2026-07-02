@@ -14,7 +14,8 @@ directly from `index.html` through ES modules and import maps. The central bound
 - `src/motion-forwarding.js` owns the optional browser WebSocket forwarding client.
 - `src/vrm-expression-mapping.js` owns VRM0/VRM1 expression metadata parsing and MediaPipe blendshape-to-VRM preset mapping.
 - `src/avatar-renderer.js` owns Three.js rendering, model loading, avatar retargeting, validation snapshots, view controls, and performance samples.
-- Everything under `scripts/` and `tests/` is validation/tooling, not runtime application code.
+- `src/solver/` is the emerging pure solver boundary. It must stay DOM-free and renderer-free so synthetic GT and future joint-rotation checks can run in Node before the renderer applies poses.
+- Everything under `scripts/` and `tests/` is validation/tooling, not runtime application code. `scripts/motion-recording-compare.mjs` compares live/browser recordings with offline/HMR recordings by solving both through the pure solver and reporting angle deltas.
 
 ```mermaid
 flowchart TD
@@ -76,6 +77,7 @@ Browser Motion Tracker
 │     ├─ optional motion forwarding lifecycle
 │     ├─ 2D landmark overlay
 │     ├─ app and avatar performance metrics
+│     ├─ live motion status HUD
 │     ├─ status/error state
 │     ├─ strict/depth validation aggregation
 │     └─ debug API exposure
@@ -107,6 +109,11 @@ Browser Motion Tracker
 │  └─ assets/models/**
 ├─ Validation tooling
 │  ├─ tests/contract-check.mjs
+│  ├─ tests/motion-recording-compare-check.mjs
+│  ├─ scripts/validation-cli.mjs
+│  ├─ scripts/hmr-jsonl-adapter.mjs
+│  ├─ scripts/motion-recording-compare.mjs
+│  ├─ scripts/motion-status-hud-smoke.mjs
 │  └─ scripts/*.mjs
 └─ Documentation
    ├─ README.md
@@ -160,6 +167,7 @@ Public surface:
 - `window.motionTrackerDebug.getAvatarPerformanceReport()`
 - `window.motionTrackerDebug.clearAvatarPerformanceSamples()`
 - `window.motionTrackerDebug.getAppPerformanceReport()`
+- `window.motionTrackerDebug.getMotionStatusHudSnapshot()`
 - `window.motionTrackerDebug.clearAppPerformanceSamples()`
 - `window.motionTrackerDebug.getDetectionPumpStatus()`
 - `window.motionTrackerDebug.getTrackingWorkerStatus()`
@@ -171,8 +179,10 @@ Public surface:
 - `window.motionTrackerDebug.startMotionRecording()`
 - `window.motionTrackerDebug.stopMotionRecording()`
 - `window.motionTrackerDebug.getMotionRecording()`
+- `window.motionTrackerDebug.getMotionRecordingJsonl()`
 - `window.motionTrackerDebug.clearMotionRecording()`
 - `window.motionTrackerDebug.loadMotionRecording(recording)`
+- `window.motionTrackerDebug.loadMotionRecordingJsonl(jsonl)`
 - `window.motionTrackerDebug.getMotionReplayStatus()`
 - `window.motionTrackerDebug.stopMotionReplay()`
 - `window.motionTrackerDebug.setFaceTrackingEnabled(enabled)`
@@ -229,6 +239,8 @@ Public surface:
 - `serializeMotionFrame(frame)`
 - `createMotionRecording(options)`
 - `normalizeMotionRecording(recording)`
+- `serializeMotionRecordingJsonl(recording)`
+- `parseMotionRecordingJsonl(jsonl)`
 - `normalizeExternalMotionRecording(recording)`
 - `isExternalMotionRecording(recording)`
 - `motionFrameToPoseResults(frame)`
@@ -256,6 +268,8 @@ Rules:
 
 - Recording JSON must contain landmarks and metadata only; do not embed raw video or model binaries.
 - External HMR import is a recording JSON contract only. WHAM, GVHMR, GEM-X, SAM 3D Body, and similar heavy extractors must run outside the browser and output normalized recording JSON with 33 `poseLandmarks`, 33 `poseWorldLandmarks`, optional 21-point hand landmarks, and scalar `source`/`sourceMeta` metadata.
+- Live/offline comparison is a tooling concern. `scripts/motion-recording-compare.mjs` may load live and offline JSON/JSONL recordings, solve both with `src/solver/pose-solver.js`, and write target-angle/hinge-flexion deltas plus an optional static HTML graph report, but it must not add heavyweight HMR runtime dependencies to the browser app.
+- External HMR adapter conversion belongs in `scripts/hmr-jsonl-adapter.mjs`. It may map simple external joint-array formats such as `mediapipe33` and `coco17` into the repo's MediaPipe-33 recording contract, but the browser runtime and `src/motion-frame.js` should continue to consume only normalized recording frames.
 - Worker tracking is opt-in and must return the same serialized `motionFrame` shape as main-thread detection.
 - Worker tracking must expose `requested`, `supported`, `active`, `frames`, `errors`, `fallbacks`, and `fallbackReason` through `getAppPerformanceReport().trackingWorker`.
 - Forwarding must be client-only and explicit opt-in.

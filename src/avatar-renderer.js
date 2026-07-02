@@ -6,6 +6,7 @@ import {
   parseVrmHumanoid,
   serializeVrmHumanoidMapping,
 } from './vrm-humanoid-mapping.js';
+import { solvePoseTargetsFromPoints } from './solver/pose-solver.js';
 import {
   DEPTH_CALIBRATION_CLAMP_WARNING_RATIO,
   DEPTH_CALIBRATION_LENGTH_ERROR_THRESHOLD,
@@ -20,6 +21,7 @@ import {
   DEPTH_CALIBRATION_WARMUP_FRAMES,
   bodyScale2D,
   depthCalibrationCoverage,
+  estimateCalibrationPoseQuality,
   lengthConsistencyRow,
   normalizeDepthCalibrationMode,
   resolveDepthCalibrationMinSegments,
@@ -68,6 +70,11 @@ const ROOT_ORIENTATION_SIDE_ASPECT_RATIO = 0.18;
 const ROOT_ORIENTATION_MIN_WIDTH = 0.025;
 const RETARGET_LOW_CONFIDENCE_HOLD = 0.16;
 const RETARGET_FULL_CONFIDENCE_VISIBILITY = 0.78;
+const RETARGET_OCCLUSION_HOLD_MS = 220;
+const RETARGET_OCCLUSION_DECAY_MS = 420;
+const RETARGET_LOST_TRACKING_HOLD_MS = 80;
+const RETARGET_LOST_TRACKING_DECAY_MS = 360;
+const RETARGET_REACQUIRE_BLEND_MS = 180;
 const FACE_HEAD_POSE_SMOOTHING_MS = 72;
 const FACE_HEAD_POSE_MAX_ANGLE = 0.85;
 const FACE_NECK_POSE_MAX_ANGLE = 0.48;
@@ -82,6 +89,7 @@ const PERFORMANCE_BUDGETS_MS = {
   validationMedian: 1,
   validationP95: 2,
   faceApplyP95: 0.5,
+  poseSolverP95: 2,
 };
 const FACE_EXPRESSION_SMOOTHING_MS = 80;
 const RETARGET_SMOOTHING_MS = {
@@ -480,6 +488,32 @@ export function createAvatarRenderer(options = {}) {
     orientationMetrics: null,
     maxOffset: new THREE.Vector2(0, 0),
   };
+  const poseSolverState = {
+    facing: 'front',
+    mode: 'lost',
+  };
+  const trackingRecovery = {
+    lost: false,
+    lastLostAt: 0,
+    reacquiredAt: 0,
+    blend: 1,
+  };
+  const poseSolverMetrics = {
+    frames: 0,
+    hingeViolationFrames: 0,
+    maxHingeViolations: 0,
+    hingeLimitWarningFrames: 0,
+    maxHingeLimitWarnings: 0,
+    hingeLimitWarningByName: {},
+    maxHingeFlexDegByName: {},
+    maxHingeOverflowDegByName: {},
+    facingChanges: 0,
+    modeChanges: 0,
+    previousFacing: null,
+    previousMode: null,
+  };
+  const occludedBodyBones = new Map();
+  let lastPoseSolverSnapshot = null;
   const faceHeadPose = {
     baseQuaternion: null,
     lastQuaternion: null,
@@ -490,6 +524,7 @@ export function createAvatarRenderer(options = {}) {
     validationMs: [],
     depthCalibrationMs: [],
     faceApplyMs: [],
+    poseSolverMs: [],
   };
   let activeModelProfile = HEAD_NECK_PROFILE_DEFAULTS.default;
   let activeModelKind = 'default';
@@ -823,6 +858,9 @@ export function createAvatarRenderer(options = {}) {
     resetProportionCalibration();
     resetDepthCalibration();
     resetRootMotion(true);
+    resetPoseSolverMetrics();
+    resetTrackingRecoveryState();
+    resetBodyOcclusionState();
     resetFaceExpressions();
     resetFaceHeadPose();
     restoreRestPose(1);
@@ -880,6 +918,7 @@ export function createAvatarRenderer(options = {}) {
         validation: summarizePerformanceSamples(performanceStats.validationMs),
         depthCalibration: summarizePerformanceSamples(performanceStats.depthCalibrationMs),
         faceApply: summarizePerformanceSamples(performanceStats.faceApplyMs),
+        poseSolver: summarizePerformanceSamples(performanceStats.poseSolverMs),
       },
       depthCalibrationBudgetMs: {
         p95: DEPTH_CALIBRATION_RUNTIME_P95_BUDGET_MS,
@@ -907,6 +946,10 @@ export function createAvatarRenderer(options = {}) {
         targetYawOffset: rootMotion.targetYawOffset,
         orientationMetrics: rootMotion.orientationMetrics,
       },
+      poseSolver: lastPoseSolverSnapshot,
+      poseSolverMetrics: getPoseSolverMetricsSnapshot(),
+      occlusion: getOcclusionSnapshot(),
+      trackingRecovery: getTrackingRecoverySnapshot(),
     };
   }
 
@@ -930,6 +973,10 @@ export function createAvatarRenderer(options = {}) {
         modelRotationY: model?.rotation?.y ?? null,
         orientationMetrics: rootMotion.orientationMetrics,
       },
+      poseSolver: lastPoseSolverSnapshot,
+      poseSolverMetrics: getPoseSolverMetricsSnapshot(),
+      occlusion: getOcclusionSnapshot(),
+      trackingRecovery: getTrackingRecoverySnapshot(),
     };
   }
 
@@ -939,6 +986,8 @@ export function createAvatarRenderer(options = {}) {
     performanceStats.validationMs.length = 0;
     performanceStats.depthCalibrationMs.length = 0;
     performanceStats.faceApplyMs.length = 0;
+    performanceStats.poseSolverMs.length = 0;
+    resetPoseSolverMetrics();
     return getPerformanceSnapshot();
   }
 
@@ -1923,6 +1972,7 @@ export function createAvatarRenderer(options = {}) {
     const active = isDynamicDepthCalibrationActive();
     const ready = active && depthCalibration.frozen && referenceSegmentCount > 0;
     const summary = depthCalibration.lastSummary ?? summarizeLengthConsistency([]);
+    const poseQuality = estimateCalibrationPoseQuality(depthCalibration.lastRawPoints ?? depthCalibration.lastPoints);
 
     return {
       mode: depthCalibrationMode,
@@ -1930,9 +1980,11 @@ export function createAvatarRenderer(options = {}) {
       ready,
       frozen: depthCalibration.frozen,
       frames: depthCalibration.frames,
+      warmupFrames: DEPTH_CALIBRATION_WARMUP_FRAMES,
       referenceSegmentCount,
       minimumReferenceSegments: depthCalibration.minimumReferenceSegments,
       coverage: { ...depthCalibration.lastCoverage },
+      poseQuality,
       targetScore: DEPTH_CALIBRATION_TARGET_SCORE,
       lengthErrorThreshold: DEPTH_CALIBRATION_LENGTH_ERROR_THRESHOLD,
       smoothnessThreshold: DEPTH_CALIBRATION_SMOOTHNESS_THRESHOLD,
@@ -1971,34 +2023,63 @@ export function createAvatarRenderer(options = {}) {
 
   function applyPose(landmarks, mirrored, delta, worldLandmarks = null, timestamp = 0) {
     const { points } = getPoseFramePoints(landmarks, mirrored, worldLandmarks, timestamp, delta);
-    const relaxAlpha = smoothingAlpha(delta, RETARGET_SMOOTHING_MS.relax);
     const limbPlaneNormals = computeLimbPlaneNormals(points);
+    const solverStartedAt = nowMs();
+    const solvedPose = solvePoseTargetsFromPoints(points, poseSolverState, { timestamp });
+    recordPerformanceSample(performanceStats.poseSolverMs, nowMs() - solverStartedAt);
+    Object.assign(poseSolverState, solvedPose.state);
+    recordPoseSolverMetrics(solvedPose);
+    const solverSnapshot = createPoseSolverSnapshot(solvedPose);
+    const solvedTargetsByBone = new Map(solvedPose.targets.map((target) => [target.bone, target]));
+    const reacquireBlend = updateTrackingRecoveryState(solvedPose.meta.mode, timestamp);
+
+    if (solvedPose.meta.mode === 'lost') {
+      applyLostTrackingBodyPose(timestamp, delta);
+      lastPoseSolverSnapshot = {
+        ...solverSnapshot,
+        occlusion: getOcclusionSnapshot(),
+        trackingRecovery: getTrackingRecoverySnapshot(),
+      };
+      return;
+    }
 
     applyRootOrientation(points, delta);
 
     for (const target of BODY_RETARGETS) {
-      const from = points[target.from];
-      const to = points[target.to];
+      const solvedTarget = solvedTargetsByBone.get(target.bone);
 
-      if (!from || !to) {
-        relaxBone(target.bone, relaxAlpha * 0.24);
+      if (!solvedTarget) {
+        applyOccludedBodyBone(target.bone, timestamp, delta);
         continue;
       }
 
-      const direction = tmpVectorC.subVectors(to, from);
+      if (solvedPose.meta.mode === 'upper-body' && (target.group === 'legs' || target.group === 'feet')) {
+        applyOccludedBodyBone(target.bone, timestamp, delta, {
+          holdMs: 0,
+          decayMs: RETARGET_LOST_TRACKING_DECAY_MS,
+        });
+        continue;
+      }
+
+      const direction = tmpVectorC.set(
+        solvedTarget.direction.x,
+        solvedTarget.direction.y,
+        solvedTarget.direction.z,
+      );
       const profile = target.profileKey ? activeModelProfile[target.profileKey] : null;
       const smoothingMs = (RETARGET_SMOOTHING_MS[target.smoothing] ?? RETARGET_SMOOTHING_MS.foreArm)
         * (target.profileKey ? activeModelProfile.smoothingScale : 1);
       const alpha = smoothingAlpha(delta, smoothingMs);
-      const confidence = retargetConfidence(from, to);
+      const confidence = solvedTarget.confidence;
       const secondaryWorld = resolveBodySecondaryAxis(target, points) ?? limbPlaneNormals[target.bone] ?? null;
 
       if (confidence <= RETARGET_LOW_CONFIDENCE_HOLD) {
-        relaxBone(target.bone, relaxAlpha * 0.04);
+        applyOccludedBodyBone(target.bone, timestamp, delta);
         continue;
       }
 
-      applyAimToBone(target.bone, direction, alpha * confidence * target.strength * (profile?.strengthScale ?? 1), target.maxAngle * (profile?.maxAngleScale ?? 1), {
+      clearBodyOcclusionState(target.bone);
+      applyAimToBone(target.bone, direction, alpha * reacquireBlend * confidence * target.strength * (profile?.strengthScale ?? 1), target.maxAngle * (profile?.maxAngleScale ?? 1), {
         maxTwist: target.profileKey ? target.maxTwist * (profile?.maxTwistScale ?? 1) : undefined,
         secondaryWorld,
         deadband: profile?.deadband,
@@ -2007,6 +2088,259 @@ export function createAvatarRenderer(options = {}) {
     }
 
     applyRootMotion(landmarks, mirrored, delta);
+    lastPoseSolverSnapshot = {
+      ...solverSnapshot,
+      occlusion: getOcclusionSnapshot(),
+      trackingRecovery: getTrackingRecoverySnapshot(),
+    };
+  }
+
+  function createPoseSolverSnapshot(solvedPose) {
+    return {
+      version: solvedPose.version,
+      timestamp: solvedPose.timestamp,
+      facing: solvedPose.meta.facing,
+      mode: solvedPose.meta.mode,
+      targetCount: solvedPose.meta.targetCount,
+      lowConfidenceTargets: solvedPose.meta.lowConfidenceTargets,
+      hingeCount: solvedPose.meta.hingeCount,
+      hingeViolations: solvedPose.meta.hingeViolations,
+      hingeLimitWarnings: solvedPose.meta.hingeLimitWarnings,
+      lowConfidenceHinges: solvedPose.meta.lowConfidenceHinges,
+      targets: solvedPose.targets.map((target) => ({
+        bone: target.bone,
+        group: target.group,
+        confidence: target.confidence,
+        length: target.length,
+        hinge: target.hinge,
+      })),
+      hinges: solvedPose.hinges.map((hinge) => ({
+        name: hinge.name,
+        group: hinge.group,
+        flexDeg: hinge.flexDeg,
+        confidence: hinge.confidence,
+        minFlexDeg: hinge.minFlexDeg,
+        maxFlexDeg: hinge.maxFlexDeg,
+        violation: hinge.violation,
+        limitWarning: hinge.limitWarning,
+        reason: hinge.reason,
+      })),
+    };
+  }
+
+  function recordPoseSolverMetrics(solvedPose) {
+    poseSolverMetrics.frames += 1;
+
+    if (solvedPose.meta.hingeViolations > 0) {
+      poseSolverMetrics.hingeViolationFrames += 1;
+      poseSolverMetrics.maxHingeViolations = Math.max(
+        poseSolverMetrics.maxHingeViolations,
+        solvedPose.meta.hingeViolations,
+      );
+    }
+
+    if (solvedPose.meta.hingeLimitWarnings > 0) {
+      poseSolverMetrics.hingeLimitWarningFrames += 1;
+      poseSolverMetrics.maxHingeLimitWarnings = Math.max(
+        poseSolverMetrics.maxHingeLimitWarnings,
+        solvedPose.meta.hingeLimitWarnings,
+      );
+    }
+
+    for (const hinge of solvedPose.hinges) {
+      if (!hinge?.name || !Number.isFinite(hinge.flexDeg)) {
+        continue;
+      }
+
+      updateNamedMaxMetric(poseSolverMetrics.maxHingeFlexDegByName, hinge.name, hinge.flexDeg);
+
+      if (hinge.limitWarning) {
+        incrementNamedMetric(poseSolverMetrics.hingeLimitWarningByName, hinge.name);
+        updateNamedMaxMetric(
+          poseSolverMetrics.maxHingeOverflowDegByName,
+          hinge.name,
+          hinge.flexDeg - hinge.maxFlexDeg,
+        );
+      }
+    }
+
+    if (
+      poseSolverMetrics.previousFacing &&
+      poseSolverMetrics.previousFacing !== solvedPose.meta.facing
+    ) {
+      poseSolverMetrics.facingChanges += 1;
+    }
+
+    if (
+      poseSolverMetrics.previousMode &&
+      poseSolverMetrics.previousMode !== solvedPose.meta.mode
+    ) {
+      poseSolverMetrics.modeChanges += 1;
+    }
+
+    poseSolverMetrics.previousFacing = solvedPose.meta.facing;
+    poseSolverMetrics.previousMode = solvedPose.meta.mode;
+  }
+
+  function resetPoseSolverMetrics() {
+    poseSolverMetrics.frames = 0;
+    poseSolverMetrics.hingeViolationFrames = 0;
+    poseSolverMetrics.maxHingeViolations = 0;
+    poseSolverMetrics.hingeLimitWarningFrames = 0;
+    poseSolverMetrics.maxHingeLimitWarnings = 0;
+    poseSolverMetrics.hingeLimitWarningByName = {};
+    poseSolverMetrics.maxHingeFlexDegByName = {};
+    poseSolverMetrics.maxHingeOverflowDegByName = {};
+    poseSolverMetrics.facingChanges = 0;
+    poseSolverMetrics.modeChanges = 0;
+    poseSolverMetrics.previousFacing = null;
+    poseSolverMetrics.previousMode = null;
+  }
+
+  function resetTrackingRecoveryState() {
+    trackingRecovery.lost = false;
+    trackingRecovery.lastLostAt = 0;
+    trackingRecovery.reacquiredAt = 0;
+    trackingRecovery.blend = 1;
+  }
+
+  function updateTrackingRecoveryState(mode, timestamp) {
+    const now = Number.isFinite(timestamp) ? timestamp : nowMs();
+
+    if (mode === 'lost') {
+      trackingRecovery.lost = true;
+      trackingRecovery.lastLostAt = now;
+      trackingRecovery.reacquiredAt = 0;
+      trackingRecovery.blend = 0;
+      return trackingRecovery.blend;
+    }
+
+    if (trackingRecovery.lost) {
+      trackingRecovery.lost = false;
+      trackingRecovery.reacquiredAt = now;
+      trackingRecovery.blend = 0;
+      return trackingRecovery.blend;
+    }
+
+    if (trackingRecovery.reacquiredAt > 0) {
+      const elapsed = Math.max(0, now - trackingRecovery.reacquiredAt);
+      trackingRecovery.blend = clamp01(elapsed / RETARGET_REACQUIRE_BLEND_MS);
+
+      if (trackingRecovery.blend >= 1) {
+        trackingRecovery.reacquiredAt = 0;
+        trackingRecovery.blend = 1;
+      }
+
+      return trackingRecovery.blend;
+    }
+
+    trackingRecovery.blend = 1;
+    return trackingRecovery.blend;
+  }
+
+  function applyLostTrackingBodyPose(timestamp, delta) {
+    for (const target of BODY_RETARGETS) {
+      applyOccludedBodyBone(target.bone, timestamp, delta, {
+        holdMs: RETARGET_LOST_TRACKING_HOLD_MS,
+        decayMs: RETARGET_LOST_TRACKING_DECAY_MS,
+      });
+    }
+  }
+
+  function getTrackingRecoverySnapshot() {
+    return {
+      lost: trackingRecovery.lost,
+      lastLostAt: trackingRecovery.lastLostAt,
+      reacquiredAt: trackingRecovery.reacquiredAt,
+      blend: trackingRecovery.blend,
+      lostHoldMs: RETARGET_LOST_TRACKING_HOLD_MS,
+      lostDecayMs: RETARGET_LOST_TRACKING_DECAY_MS,
+      reacquireBlendMs: RETARGET_REACQUIRE_BLEND_MS,
+    };
+  }
+
+  function getPoseSolverMetricsSnapshot() {
+    return {
+      frames: poseSolverMetrics.frames,
+      hingeViolationFrames: poseSolverMetrics.hingeViolationFrames,
+      maxHingeViolations: poseSolverMetrics.maxHingeViolations,
+      hingeLimitWarningFrames: poseSolverMetrics.hingeLimitWarningFrames,
+      maxHingeLimitWarnings: poseSolverMetrics.maxHingeLimitWarnings,
+      hingeLimitWarningByName: { ...poseSolverMetrics.hingeLimitWarningByName },
+      maxHingeFlexDegByName: { ...poseSolverMetrics.maxHingeFlexDegByName },
+      maxHingeOverflowDegByName: { ...poseSolverMetrics.maxHingeOverflowDegByName },
+      facingChanges: poseSolverMetrics.facingChanges,
+      modeChanges: poseSolverMetrics.modeChanges,
+      currentFacing: poseSolverMetrics.previousFacing,
+      currentMode: poseSolverMetrics.previousMode,
+    };
+  }
+
+  function incrementNamedMetric(target, name, amount = 1) {
+    target[name] = (target[name] ?? 0) + amount;
+  }
+
+  function updateNamedMaxMetric(target, name, value) {
+    if (!Number.isFinite(value)) {
+      return;
+    }
+
+    target[name] = Math.max(target[name] ?? -Infinity, value);
+  }
+
+  function applyOccludedBodyBone(boneNameKey, timestamp, delta, options = {}) {
+    const bone = getBone(boneNameKey);
+    const rest = getBoneRest(bone);
+
+    if (!bone || !rest) {
+      return;
+    }
+
+    const key = boneName(boneNameKey);
+    const now = Number.isFinite(timestamp) ? timestamp : nowMs();
+    let state = occludedBodyBones.get(key);
+
+    if (!state) {
+      state = {
+        startedAt: now,
+        holdQuaternion: bone.quaternion.clone(),
+      };
+      occludedBodyBones.set(key, state);
+    }
+
+    const elapsed = Math.max(0, now - state.startedAt);
+    const holdMs = Number.isFinite(options.holdMs) ? Math.max(0, options.holdMs) : RETARGET_OCCLUSION_HOLD_MS;
+    const decayMs = Number.isFinite(options.decayMs) ? Math.max(1, options.decayMs) : RETARGET_OCCLUSION_DECAY_MS;
+    const decayProgress = options.decayImmediately
+      ? 1
+      : clamp01((elapsed - holdMs) / decayMs);
+
+    if (decayProgress <= 0) {
+      bone.quaternion.copy(state.holdQuaternion);
+    } else {
+      bone.quaternion.copy(
+        tmpQuaternionG.copy(state.holdQuaternion).slerp(rest.quaternion, decayProgress),
+      );
+    }
+
+    bone.updateMatrixWorld(true);
+  }
+
+  function clearBodyOcclusionState(boneNameKey) {
+    occludedBodyBones.delete(boneName(boneNameKey));
+  }
+
+  function resetBodyOcclusionState() {
+    occludedBodyBones.clear();
+  }
+
+  function getOcclusionSnapshot() {
+    return {
+      activeCount: occludedBodyBones.size,
+      holdMs: RETARGET_OCCLUSION_HOLD_MS,
+      decayMs: RETARGET_OCCLUSION_DECAY_MS,
+      bones: Array.from(occludedBodyBones.keys()),
+    };
   }
 
   function resolveBodySecondaryAxis(target, points) {

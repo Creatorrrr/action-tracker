@@ -4,7 +4,7 @@ import {
   HandLandmarker,
   PoseLandmarker,
 } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/vision_bundle.mjs";
-import { createAvatarRenderer } from "./avatar-renderer.js?v=20260702-secondary-aim-rest-basis-1";
+import { createAvatarRenderer } from "./avatar-renderer.js?v=20260702-solver-metrics-stale-rvfc-1";
 import {
   MOTION_RECORDING_FRAME_LIMIT,
   createMotionFrame,
@@ -14,8 +14,10 @@ import {
   motionFrameToPoseResults,
   normalizeFace,
   normalizeMotionRecording,
+  parseMotionRecordingJsonl,
   serializeMotionFrame,
-} from "./motion-frame.js?v=20260618-tracked-channels-1";
+  serializeMotionRecordingJsonl,
+} from "./motion-frame.js?v=20260702-recording-jsonl-1";
 import { createMotionForwarder } from "./motion-forwarding.js?v=20260529-face-expression-1";
 import {
   DEPTH_CALIBRATION_CLAMP_WARNING_RATIO,
@@ -24,6 +26,7 @@ import {
   DEPTH_CALIBRATION_MIN_RELIABLE_CV_SEGMENTS,
   DEPTH_CALIBRATION_MODE_DYNAMIC,
   DEPTH_CALIBRATION_MODE_STATIC,
+  DEPTH_CALIBRATION_POSE_QUALITY_TARGET_SCORE,
   DEPTH_CALIBRATION_RUNTIME_P95_BUDGET_MS,
   DEPTH_CALIBRATION_SMOOTHNESS_THRESHOLD,
   DEPTH_CALIBRATION_TARGET_SCORE,
@@ -59,6 +62,11 @@ const AVATAR_SMOOTHING_MODE_ALIASES = {
 };
 const APP_PERFORMANCE_SAMPLE_LIMIT = 900;
 const TRACKING_WORKER_TIMEOUT_MS = 10000;
+const MEDIAPIPE_PREFERRED_DELEGATE = "GPU";
+const MEDIAPIPE_FALLBACK_DELEGATE = "CPU";
+const MAX_STALE_VIDEO_FRAME_CALLBACK_MS = 66;
+const MAX_CONSECUTIVE_STALE_VIDEO_FRAME_SKIPS = 2;
+const MOTION_STATUS_HUD_INTERVAL_MS = 250;
 
 const POSE_MODEL_URLS = {
   pose_lite:
@@ -154,6 +162,17 @@ const ELEMENT_IDS = {
   avatarViewReset: "avatar-view-reset",
   avatarStatus: "avatar-status",
   avatarBoneCount: "avatar-bone-count",
+  motionStatusFacing: "motion-status-facing",
+  motionStatusMode: "motion-status-mode",
+  motionStatusQuality: "motion-status-quality",
+  motionStatusDelegate: "motion-status-delegate",
+  motionStatusFps: "motion-status-fps",
+  motionStatusFrameAge: "motion-status-frame-age",
+  motionStatusSolver: "motion-status-solver",
+  motionStatusDrops: "motion-status-drops",
+  motionStatusCalibration: "motion-status-calibration",
+  motionStatusCalibrationGuide: "motion-status-calibration-guide",
+  motionStatusCalibrateButton: "motion-status-calibrate",
 };
 
 const REQUIRED_ELEMENT_KEYS = [
@@ -172,6 +191,16 @@ const REQUIRED_ELEMENT_KEYS = [
   "leftHandCount",
   "rightHandCount",
   "errorMessage",
+  "motionStatusFacing",
+  "motionStatusMode",
+  "motionStatusQuality",
+  "motionStatusDelegate",
+  "motionStatusFps",
+  "motionStatusFrameAge",
+  "motionStatusSolver",
+  "motionStatusDrops",
+  "motionStatusCalibration",
+  "motionStatusCalibrationGuide",
 ];
 const AVATAR_ELEMENT_KEYS = ["avatarCanvas", "avatarStatus", "avatarBoneCount"];
 
@@ -282,8 +311,12 @@ const state = {
     duplicateFrames: 0,
     emptyFrames: 0,
     busySkips: 0,
+    latestWinsFrames: 0,
+    staleFrameCallbacks: 0,
+    consecutiveStaleFrameCallbacks: 0,
     errors: 0,
     busy: false,
+    pendingLatestFrame: null,
   },
   trackingWorker: {
     requested: getInitialTrackingWorkerEnabled(),
@@ -301,6 +334,17 @@ const state = {
     errors: 0,
     fallbacks: 0,
     fallbackReason: "",
+    detectorDelegates: null,
+  },
+  detectorDelegates: {
+    requested: getInitialMediaPipeDelegate(),
+    fallback: MEDIAPIPE_FALLBACK_DELEGATE,
+    hand: "unloaded",
+    pose: "unloaded",
+    face: "unloaded",
+    lastFallbackReason: "",
+    attempted: {},
+    fallbackReasons: {},
   },
   appPerformance: {
     startedAt: 0,
@@ -314,11 +358,18 @@ const state = {
     processMs: [],
     drawMs: [],
     frameTotalMs: [],
+    frameAgeMs: [],
+    frameCallbackLagMs: [],
+  },
+  motionStatusHud: {
+    lastUpdatedAt: 0,
+    lastSnapshot: null,
   },
   avatarRenderer: null,
   avatarInitPromise: null,
   avatarLoadToken: 0,
   bodyValidation: {
+    enabled: getInitialValidationEnabled(),
     samples: [],
     lastSample: null,
   },
@@ -393,6 +444,9 @@ function boot() {
   });
   state.elements.avatarViewReset?.addEventListener("click", () => {
     state.avatarRenderer?.resetView?.();
+  });
+  state.elements.motionStatusCalibrateButton?.addEventListener("click", () => {
+    resetDepthCalibrationFromUi();
   });
   state.elements.modelSelect?.addEventListener("change", () => {
     clearError();
@@ -564,6 +618,7 @@ async function startCamera() {
     resizeCanvasToVideoFrame();
     setMirrorPreference(true);
     applyMirrorPreference();
+    configureDetectionRuntime();
 
     await ensureModelsLoaded();
 
@@ -576,7 +631,6 @@ async function startCamera() {
     state.lastVideoTime = -1;
     state.lastFrameTimestamp = 0;
     state.smoothedFps = 0;
-    configureDetectionRuntime();
     resetAppPerformance();
     resetBodyValidation();
     state.avatarRenderer?.resetDepthCalibration?.();
@@ -657,6 +711,7 @@ async function startVideoFile(file) {
     resizeCanvasToVideoFrame();
     setMirrorPreference(false);
     applyMirrorPreference();
+    configureDetectionRuntime();
 
     await ensureModelsLoaded();
 
@@ -669,7 +724,6 @@ async function startVideoFile(file) {
     state.lastVideoTime = -1;
     state.lastFrameTimestamp = 0;
     state.smoothedFps = 0;
-    configureDetectionRuntime();
     resetAppPerformance();
     resetBodyValidation();
     state.avatarRenderer?.resetDepthCalibration?.();
@@ -862,7 +916,7 @@ async function loadModels(selectedPoseModelKey) {
     }
 
     if (!state.handLandmarker) {
-      state.handLandmarker = await HandLandmarker.createFromOptions(state.vision, {
+      state.handLandmarker = await createLandmarkerWithDelegate("hand", HandLandmarker, state.vision, {
         baseOptions: {
           modelAssetPath: HAND_MODEL_URL,
         },
@@ -872,7 +926,7 @@ async function loadModels(selectedPoseModelKey) {
     }
 
     if (!state.poseLandmarker || state.poseModelKey !== selectedPoseModelKey) {
-      const nextPoseLandmarker = await PoseLandmarker.createFromOptions(state.vision, {
+      const nextPoseLandmarker = await createLandmarkerWithDelegate("pose", PoseLandmarker, state.vision, {
         baseOptions: {
           modelAssetPath: POSE_MODEL_URLS[selectedPoseModelKey],
         },
@@ -888,7 +942,7 @@ async function loadModels(selectedPoseModelKey) {
       state.faceTracking.status = "loading";
 
       try {
-        state.faceLandmarker = await FaceLandmarker.createFromOptions(state.vision, {
+        state.faceLandmarker = await createLandmarkerWithDelegate("face", FaceLandmarker, state.vision, {
           baseOptions: {
             modelAssetPath: FACE_MODEL_URL,
           },
@@ -918,6 +972,75 @@ async function loadModels(selectedPoseModelKey) {
     wrapped.code = "MODEL_LOAD_FAILED";
     throw wrapped;
   }
+}
+
+async function createLandmarkerWithDelegate(detectorKey, Landmarker, vision, options) {
+  let preferredError = null;
+
+  for (const delegate of getMediaPipeDelegateAttemptOrder()) {
+    recordDetectorDelegateAttempt(detectorKey, delegate);
+
+    try {
+      const landmarker = await Landmarker.createFromOptions(vision, {
+        ...options,
+        baseOptions: {
+          ...(options.baseOptions ?? {}),
+          delegate,
+        },
+      });
+      markDetectorDelegate(detectorKey, delegate, preferredError);
+      return landmarker;
+    } catch (error) {
+      if (delegate === MEDIAPIPE_FALLBACK_DELEGATE) {
+        throw error;
+      }
+
+      preferredError = error;
+      console.warn(
+        `${detectorKey} ${MEDIAPIPE_PREFERRED_DELEGATE} delegate failed; retrying with ${MEDIAPIPE_FALLBACK_DELEGATE}.`,
+        error,
+      );
+    }
+  }
+
+  throw preferredError ?? new Error(`Unable to create ${detectorKey} landmarker.`);
+}
+
+function getMediaPipeDelegateAttemptOrder() {
+  if (state.detectorDelegates.requested === MEDIAPIPE_FALLBACK_DELEGATE) {
+    return [MEDIAPIPE_FALLBACK_DELEGATE];
+  }
+
+  return [MEDIAPIPE_PREFERRED_DELEGATE, MEDIAPIPE_FALLBACK_DELEGATE];
+}
+
+function markDetectorDelegate(detectorKey, delegate, fallbackError = null) {
+  state.detectorDelegates[detectorKey] = delegate;
+
+  if (fallbackError) {
+    const reason = getErrorDetail(fallbackError);
+    state.detectorDelegates.fallbackReasons[detectorKey] = reason;
+    state.detectorDelegates.lastFallbackReason = `${detectorKey}: ${reason}`;
+  } else {
+    delete state.detectorDelegates.fallbackReasons[detectorKey];
+  }
+}
+
+function recordDetectorDelegateAttempt(detectorKey, delegate) {
+  const attempts = state.detectorDelegates.attempted[detectorKey] ?? [];
+
+  if (!attempts.includes(delegate)) {
+    attempts.push(delegate);
+  }
+
+  state.detectorDelegates.attempted[detectorKey] = attempts;
+}
+
+function resetDetectorDelegateTelemetry() {
+  state.detectorDelegates.requested = getInitialMediaPipeDelegate();
+  state.detectorDelegates.lastFallbackReason = "";
+  state.detectorDelegates.attempted = {};
+  state.detectorDelegates.fallbackReasons = {};
 }
 
 function isTrackingWorkerReadyFor(selectedPoseModelKey) {
@@ -970,19 +1093,21 @@ async function ensureTrackingWorkerReady(selectedPoseModelKey) {
 async function initTrackingWorker(selectedPoseModelKey) {
   try {
     const worker = getOrCreateTrackingWorker();
-    await postTrackingWorkerRequest("init", {
+    const response = await postTrackingWorkerRequest("init", {
       wasmAssetPath: WASM_ASSET_PATH,
       poseModelUrl: POSE_MODEL_URLS[selectedPoseModelKey],
       handModelUrl: HAND_MODEL_URL,
       faceModelUrl: FACE_MODEL_URL,
       faceTrackingEnabled: state.faceTracking.enabled,
       faceLandmarksEnabled: state.faceTracking.landmarksEnabled,
+      delegate: state.detectorDelegates.requested,
     });
     state.trackingWorker.active = true;
     state.trackingWorker.status = "ready";
     state.trackingWorker.poseModelKey = selectedPoseModelKey;
     state.trackingWorker.faceTrackingEnabled = state.faceTracking.enabled;
     state.trackingWorker.faceLandmarksEnabled = state.faceTracking.landmarksEnabled;
+    state.trackingWorker.detectorDelegates = response.detectorDelegates ?? null;
     state.trackingWorker.fallbackReason = "";
     return worker;
   } catch (error) {
@@ -997,7 +1122,7 @@ function getOrCreateTrackingWorker() {
   }
 
   const worker = new Worker(
-    new URL("./motion-worker.js?v=20260618-tracked-channels-1", import.meta.url),
+    new URL("./motion-worker.js?v=20260702-delegate-latest-wins-1", import.meta.url),
     { type: "module" },
   );
   worker.addEventListener("message", handleTrackingWorkerMessage);
@@ -1094,6 +1219,7 @@ function disposeTrackingWorker(options = {}) {
   state.trackingWorker.poseModelKey = "";
   state.trackingWorker.faceTrackingEnabled = false;
   state.trackingWorker.faceLandmarksEnabled = false;
+  state.trackingWorker.detectorDelegates = null;
 
   if (!options.keepStatus) {
     state.trackingWorker.status = state.trackingWorker.requested ? "requested" : "disabled";
@@ -1153,18 +1279,35 @@ async function runDetectionFrame(timestamp, options = {}) {
     return;
   }
 
-  const frameTimestamp = Number.isFinite(timestamp) ? timestamp : nowMs();
+  const callbackReceivedAt = nowMs();
+  const callbackTimestamp = Number.isFinite(timestamp) ? timestamp : callbackReceivedAt;
   const pumpMode = options.pumpMode ?? state.detectionPump.activeMode;
-  recordDetectionCallback(frameTimestamp);
+  const callbackLagMs = Math.max(0, callbackReceivedAt - callbackTimestamp);
+  recordDetectionCallback(callbackTimestamp);
+  recordAppPerformanceSample("frameCallbackLagMs", callbackLagMs);
 
   if (state.detectionPump.busy) {
     state.detectionPump.busySkips += 1;
+    state.detectionPump.pendingLatestFrame = {
+      timestamp: callbackTimestamp,
+      options,
+    };
     scheduleDetectionFrame();
     return;
   }
 
+  if (shouldSkipStaleVideoFrameCallback(callbackLagMs, options)) {
+    state.detectionPump.staleFrameCallbacks += 1;
+    state.detectionPump.consecutiveStaleFrameCallbacks += 1;
+    scheduleDetectionFrame();
+    return;
+  }
+
+  state.detectionPump.consecutiveStaleFrameCallbacks = 0;
+
   state.detectionPump.busy = true;
   const frameStartedAt = nowMs();
+  const frameTimestamp = normalizeDetectionTimestamp(callbackTimestamp, frameStartedAt, callbackLagMs, options);
   let shouldScheduleNext = true;
 
   try {
@@ -1199,6 +1342,7 @@ async function runDetectionFrame(timestamp, options = {}) {
     state.lastVideoTime = video.currentTime;
     state.detectionPump.processedFrames += 1;
     recordDetectionProcessedFrame(frameTimestamp);
+    recordAppPerformanceSample("frameAgeMs", nowMs() - frameTimestamp);
 
     resizeCanvasToVideoFrame();
 
@@ -1226,7 +1370,15 @@ async function runDetectionFrame(timestamp, options = {}) {
   } finally {
     state.detectionPump.busy = false;
 
-    if (shouldScheduleNext) {
+    const pendingLatestFrame = state.detectionPump.pendingLatestFrame;
+    state.detectionPump.pendingLatestFrame = null;
+
+    if (shouldScheduleNext && pendingLatestFrame) {
+      state.detectionPump.latestWinsFrames += 1;
+      queueMicrotask(() => {
+        runDetectionFrame(nowMs(), pendingLatestFrame.options);
+      });
+    } else if (shouldScheduleNext) {
       scheduleDetectionFrame();
     }
   }
@@ -1242,6 +1394,25 @@ async function detectMotionFrameForVideo(video, frameTimestamp) {
   }
 
   return detectMotionFrameOnMainThread(video, frameTimestamp);
+}
+
+function shouldSkipStaleVideoFrameCallback(callbackLagMs, options = {}) {
+  return Boolean(
+    options.pumpMode === DETECTION_PUMP_RVFC &&
+      callbackLagMs > MAX_STALE_VIDEO_FRAME_CALLBACK_MS &&
+      state.detectionPump.consecutiveStaleFrameCallbacks < MAX_CONSECUTIVE_STALE_VIDEO_FRAME_SKIPS
+  );
+}
+
+function normalizeDetectionTimestamp(callbackTimestamp, frameStartedAt, callbackLagMs, options = {}) {
+  if (
+    options.pumpMode === DETECTION_PUMP_RVFC &&
+      callbackLagMs > MAX_STALE_VIDEO_FRAME_CALLBACK_MS
+  ) {
+    return frameStartedAt;
+  }
+
+  return callbackTimestamp;
 }
 
 function shouldUseTrackingWorker() {
@@ -1372,7 +1543,10 @@ function processMotionFrame(motionFrame, options = {}) {
   const handResults = motionFrameToHandResults(normalizedFrame);
 
   updateAvatarRendererFromMotionFrame(normalizedFrame);
-  recordBodyValidation(normalizedFrame);
+
+  if (state.bodyValidation.enabled) {
+    recordBodyValidation(normalizedFrame);
+  }
 
   if (record) {
     appendMotionRecordingFrame(normalizedFrame);
@@ -1637,6 +1811,7 @@ function updateDetectionMetrics(poseResults, handResults, timestamp) {
   }
 
   state.lastFrameTimestamp = timestamp;
+  maybeUpdateMotionStatusHud();
 }
 
 function countHandLandmarks(handResults) {
@@ -1753,6 +1928,311 @@ function resetMetrics() {
   setText("poseCount", "0");
   setText("leftHandCount", "0");
   setText("rightHandCount", "0");
+  updateMotionStatusHud({ force: true });
+}
+
+function resetDepthCalibrationFromUi() {
+  try {
+    const snapshot = state.avatarRenderer?.resetDepthCalibration?.() ?? null;
+    resetBodyValidation();
+    updateMotionStatusHud({ force: true });
+    return state.avatarRenderer?.getDepthCalibrationSnapshot?.() ?? snapshot;
+  } catch (error) {
+    console.warn("Unable to reset depth calibration.", error);
+    return null;
+  }
+}
+
+function maybeUpdateMotionStatusHud() {
+  const currentTime = nowMs();
+
+  if (currentTime - state.motionStatusHud.lastUpdatedAt < MOTION_STATUS_HUD_INTERVAL_MS) {
+    return state.motionStatusHud.lastSnapshot;
+  }
+
+  return updateMotionStatusHud({ currentTime });
+}
+
+function updateMotionStatusHud({ force = false, currentTime = nowMs() } = {}) {
+  if (!force && currentTime - state.motionStatusHud.lastUpdatedAt < MOTION_STATUS_HUD_INTERVAL_MS) {
+    return state.motionStatusHud.lastSnapshot;
+  }
+
+  const snapshot = buildMotionStatusHudSnapshot();
+  state.motionStatusHud.lastUpdatedAt = currentTime;
+  state.motionStatusHud.lastSnapshot = snapshot;
+
+  setText("motionStatusFacing", snapshot.facingLabel);
+  setText("motionStatusMode", snapshot.modeLabel);
+  setText("motionStatusQuality", snapshot.qualityLabel);
+  setText("motionStatusDelegate", snapshot.delegateLabel);
+  setText("motionStatusFps", formatMetricNumber(snapshot.fps, 1));
+  setText("motionStatusFrameAge", formatMs(snapshot.frameAgeP95Ms));
+  setText("motionStatusSolver", formatMs(snapshot.poseSolverP95Ms));
+  setText("motionStatusDrops", formatPercent(snapshot.dropRatio));
+  setText("motionStatusCalibration", snapshot.calibrationLabel);
+  setText("motionStatusCalibrationGuide", snapshot.calibrationGuideLabel);
+
+  return snapshot;
+}
+
+function getMotionStatusHudSnapshot() {
+  return state.motionStatusHud.lastSnapshot ?? buildMotionStatusHudSnapshot();
+}
+
+function buildMotionStatusHudSnapshot() {
+  const appReport = getAppPerformanceReport();
+  const avatarPerformance = state.avatarRenderer?.getPerformanceSnapshot?.() ?? null;
+  const motionState = state.avatarRenderer?.getMotionStateSnapshot?.() ?? null;
+  const poseSolver = motionState?.poseSolver ?? avatarPerformance?.poseSolver ?? null;
+  const poseSolverMetrics = motionState?.poseSolverMetrics ?? avatarPerformance?.poseSolverMetrics ?? null;
+  const occlusion = motionState?.occlusion ?? avatarPerformance?.occlusion ?? null;
+  const depthCalibration = state.avatarRenderer?.getDepthCalibrationSnapshot?.() ?? null;
+  const pump = appReport.pump ?? {};
+  const processedFrames = Number(pump.processedFrames ?? 0);
+  const droppedFrameWork = Number(pump.duplicateFrames ?? 0) +
+    Number(pump.busySkips ?? 0) +
+    Number(pump.latestWinsFrames ?? 0) +
+    Number(pump.staleFrameCallbacks ?? 0);
+  const dropDenominator = processedFrames + droppedFrameWork;
+  const mode = poseSolver?.mode ?? poseSolverMetrics?.currentMode ?? "idle";
+  const facing = poseSolver?.facing ?? poseSolverMetrics?.currentFacing ?? motionState?.rootMotion?.facing ?? "idle";
+  const frameAgeP95Ms = appReport.samples?.frameAge?.p95Ms ?? 0;
+  const poseSolverP95Ms = avatarPerformance?.samples?.poseSolver?.p95Ms ?? 0;
+  const active = state.active || state.motionReplay.active;
+
+  return {
+    active,
+    facing,
+    mode,
+    quality: resolveMotionQuality({
+      active,
+      poseSolver,
+      poseSolverMetrics,
+      occlusion,
+      frameAgeP95Ms,
+    }),
+    delegate: resolveActiveDelegate(appReport),
+    fps: Number(appReport.fps?.detection ?? 0),
+    frameAgeP95Ms,
+    poseSolverP95Ms,
+    depthCalibration,
+    dropRatio: dropDenominator > 0 ? droppedFrameWork / dropDenominator : 0,
+    droppedFrameWork,
+    processedFrames,
+    facingLabel: formatStatusToken(facing),
+    modeLabel: formatStatusToken(mode),
+    qualityLabel: resolveMotionQualityLabel({
+      active,
+      poseSolver,
+      poseSolverMetrics,
+      occlusion,
+      frameAgeP95Ms,
+    }),
+    delegateLabel: formatStatusToken(resolveActiveDelegate(appReport)),
+    calibrationLabel: resolveDepthCalibrationLabel(depthCalibration, active),
+    calibrationGuideLabel: resolveDepthCalibrationGuideLabel(depthCalibration, active),
+    pumpMode: pump.activeMode ?? "",
+    staleFrameCallbacks: pump.staleFrameCallbacks ?? 0,
+  };
+}
+
+function resolveDepthCalibrationLabel(snapshot, active) {
+  if (!active) {
+    return "Idle";
+  }
+
+  if (!snapshot) {
+    return "Unavailable";
+  }
+
+  if (snapshot.mode === DEPTH_CALIBRATION_MODE_STATIC || !snapshot.active) {
+    return "Static";
+  }
+
+  if (snapshot.ready) {
+    return `Ready ${formatPercent(snapshot.score)}`;
+  }
+
+  return `Warm ${Math.min(snapshot.frames ?? 0, snapshot.warmupFrames ?? 0)}/${snapshot.warmupFrames ?? "?"}`;
+}
+
+function resolveDepthCalibrationGuideLabel(snapshot, active) {
+  if (!active) {
+    return "Start input";
+  }
+
+  if (!snapshot || snapshot.mode === DEPTH_CALIBRATION_MODE_STATIC || !snapshot.active) {
+    return "Static depth";
+  }
+
+  if (snapshot.ready) {
+    return snapshot.passed ? "Locked" : "Check pose";
+  }
+
+  const coverage = snapshot.coverage ?? {};
+  const poseQuality = snapshot.poseQuality ?? null;
+  const upperBodySegments = Number(coverage.upperBodySegments ?? 0);
+  const fullBodySegments = Number(coverage.validSegments ?? 0);
+  const requiredSegments = Number(snapshot.minimumReferenceSegments ?? 0);
+
+  if (fullBodySegments >= requiredSegments) {
+    if (poseQuality && !poseQuality.passed) {
+      return resolveCalibrationPoseQualityGuide(poseQuality);
+    }
+
+    return "Hold still";
+  }
+
+  if (upperBodySegments >= requiredSegments) {
+    if (poseQuality && !poseQuality.passed) {
+      return resolveCalibrationPoseQualityGuide(poseQuality);
+    }
+
+    return "Upper OK";
+  }
+
+  return "Show body";
+}
+
+function resolveCalibrationPoseQualityGuide(poseQuality) {
+  const reasons = new Set(poseQuality?.reasons ?? []);
+
+  if (reasons.has("arms_not_level")) {
+    return "Level arms";
+  }
+
+  if (reasons.has("arms_not_open") || reasons.has("asymmetric_arms")) {
+    return "Open arms";
+  }
+
+  if (reasons.has("low_visibility")) {
+    return "Stay visible";
+  }
+
+  return "T Pose";
+}
+
+function resolveMotionQuality({
+  active,
+  poseSolver,
+  poseSolverMetrics,
+  occlusion,
+  frameAgeP95Ms,
+}) {
+  if (!active) {
+    return "idle";
+  }
+
+  if (!state.latestMotionFrame?.poseLandmarks) {
+    return "no-pose";
+  }
+
+  const mode = poseSolver?.mode ?? poseSolverMetrics?.currentMode ?? "lost";
+
+  if (mode === "lost") {
+    return "lost";
+  }
+
+  if (Number(poseSolver?.hingeViolations ?? 0) > 0) {
+    return "hinge-fail";
+  }
+
+  if (Number(frameAgeP95Ms ?? 0) > 66) {
+    return "lagging";
+  }
+
+  if (Number(poseSolver?.lowConfidenceTargets ?? 0) > 4) {
+    return "low-confidence";
+  }
+
+  if (Number(occlusion?.activeCount ?? 0) > 0) {
+    return "occluded";
+  }
+
+  if (Number(poseSolver?.hingeLimitWarnings ?? 0) > 0) {
+    return "soft-warning";
+  }
+
+  return "good";
+}
+
+function resolveMotionQualityLabel(input) {
+  const quality = resolveMotionQuality(input);
+  const labels = {
+    idle: "Idle",
+    "no-pose": "No pose",
+    lost: "Lost",
+    "hinge-fail": "Hinge fail",
+    lagging: "Lagging",
+    "low-confidence": "Low confidence",
+    occluded: "Occluded",
+    "soft-warning": "Warning",
+    good: "Good",
+  };
+
+  return labels[quality] ?? formatStatusToken(quality);
+}
+
+function resolveActiveDelegate(appReport) {
+  const workerPoseDelegate = appReport.trackingWorker?.detectorDelegates?.pose;
+  const poseDelegate = workerPoseDelegate ?? appReport.detectorDelegates?.pose ?? "unloaded";
+
+  if (appReport.trackingWorker?.active && workerPoseDelegate) {
+    return `${poseDelegate} worker`;
+  }
+
+  return poseDelegate;
+}
+
+function formatStatusToken(value) {
+  const token = String(value ?? "").trim();
+
+  if (!token) {
+    return "Idle";
+  }
+
+  return token
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((part) => part.length <= 3 && part.toUpperCase() === part
+      ? part
+      : `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
+}
+
+function formatMetricNumber(value, digits = 1) {
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) {
+    return "0";
+  }
+
+  return number.toFixed(digits);
+}
+
+function formatMs(value) {
+  const number = Number(value);
+
+  if (!Number.isFinite(number) || number <= 0) {
+    return "0ms";
+  }
+
+  if (number < 10) {
+    return `${number.toFixed(1)}ms`;
+  }
+
+  return `${Math.round(number)}ms`;
+}
+
+function formatPercent(value) {
+  const number = Number(value);
+
+  if (!Number.isFinite(number) || number <= 0) {
+    return "0%";
+  }
+
+  return `${(number * 100).toFixed(number < 0.1 ? 1 : 0)}%`;
 }
 
 function configureDetectionRuntime() {
@@ -1760,6 +2240,7 @@ function configureDetectionRuntime() {
   state.detectionPump.supportsVideoFrameCallback = supportsVideoFrameCallback();
   state.detectionPump.activeMode = resolveDetectionPumpMode();
   state.debugOverlayEnabled = getInitialDebugOverlayEnabled();
+  resetDetectorDelegateTelemetry();
   configureTrackingWorkerRuntime();
 }
 
@@ -1828,8 +2309,12 @@ function resetAppPerformance() {
   state.detectionPump.duplicateFrames = 0;
   state.detectionPump.emptyFrames = 0;
   state.detectionPump.busySkips = 0;
+  state.detectionPump.latestWinsFrames = 0;
+  state.detectionPump.staleFrameCallbacks = 0;
+  state.detectionPump.consecutiveStaleFrameCallbacks = 0;
   state.detectionPump.errors = 0;
   state.detectionPump.busy = false;
+  state.detectionPump.pendingLatestFrame = null;
   state.detectionPump.supportsVideoFrameCallback = supportsVideoFrameCallback();
   state.detectionPump.activeMode = resolveDetectionPumpMode();
   state.appPerformance.startedAt = nowMs();
@@ -1843,6 +2328,8 @@ function resetAppPerformance() {
   state.appPerformance.processMs.length = 0;
   state.appPerformance.drawMs.length = 0;
   state.appPerformance.frameTotalMs.length = 0;
+  state.appPerformance.frameAgeMs.length = 0;
+  state.appPerformance.frameCallbackLagMs.length = 0;
   state.faceTracking.detectFrames = 0;
   state.faceTracking.facesDetected = 0;
   state.faceTracking.lastTimestamp = 0;
@@ -1906,10 +2393,22 @@ function getAppPerformanceReport() {
       duplicateFrames: state.detectionPump.duplicateFrames,
       emptyFrames: state.detectionPump.emptyFrames,
       busySkips: state.detectionPump.busySkips,
+      latestWinsFrames: state.detectionPump.latestWinsFrames,
+      staleFrameCallbacks: state.detectionPump.staleFrameCallbacks,
+      hasPendingLatestFrame: Boolean(state.detectionPump.pendingLatestFrame),
       errors: state.detectionPump.errors,
       debugOverlayEnabled: state.debugOverlayEnabled,
     },
     trackingWorker: getTrackingWorkerStatus(),
+    detectorDelegates: {
+      ...state.detectorDelegates,
+      attempted: cloneRecordArrayValues(state.detectorDelegates.attempted),
+      fallbackReasons: { ...state.detectorDelegates.fallbackReasons },
+    },
+    validation: {
+      enabled: state.bodyValidation.enabled,
+      samples: state.bodyValidation.samples.length,
+    },
     fps: {
       callback: elapsedSeconds > 0 ? state.detectionPump.callbacks / elapsedSeconds : 0,
       detection: elapsedSeconds > 0 ? state.detectionPump.processedFrames / elapsedSeconds : 0,
@@ -1924,8 +2423,19 @@ function getAppPerformanceReport() {
       process: summarizeAppPerformanceSamples(state.appPerformance.processMs),
       draw: summarizeAppPerformanceSamples(state.appPerformance.drawMs),
       frameTotal: summarizeAppPerformanceSamples(state.appPerformance.frameTotalMs),
+      frameAge: summarizeAppPerformanceSamples(state.appPerformance.frameAgeMs),
+      frameCallbackLag: summarizeAppPerformanceSamples(state.appPerformance.frameCallbackLagMs),
     },
   };
+}
+
+function cloneRecordArrayValues(value) {
+  return Object.fromEntries(
+    Object.entries(value ?? {}).map(([key, entry]) => [
+      key,
+      Array.isArray(entry) ? entry.slice() : entry,
+    ]),
+  );
 }
 
 function getTrackingWorkerStatus() {
@@ -1942,6 +2452,7 @@ function getTrackingWorkerStatus() {
     fallbacks: state.trackingWorker.fallbacks,
     pendingRequests: state.trackingWorker.pendingRequests.size,
     fallbackReason: state.trackingWorker.fallbackReason,
+    detectorDelegates: state.trackingWorker.detectorDelegates,
   };
 }
 
@@ -2145,6 +2656,12 @@ function getMotionRecording() {
   return state.motionRecording.lastRecording;
 }
 
+function getMotionRecordingJsonl() {
+  const recording = getMotionRecording();
+
+  return recording ? serializeMotionRecordingJsonl(recording) : "";
+}
+
 function clearMotionRecording() {
   state.motionRecording.active = false;
   state.motionRecording.createdAt = "";
@@ -2218,6 +2735,10 @@ function loadMotionRecording(recording) {
   updateControls();
   scheduleMotionReplayFrame();
   return getMotionReplayStatus();
+}
+
+function loadMotionRecordingJsonl(source) {
+  return loadMotionRecording(parseMotionRecordingJsonl(source));
 }
 
 function getMotionReplayStatus() {
@@ -2660,9 +3181,11 @@ function buildDepthCalibrationReport(samples) {
       minReliableCvSegments: DEPTH_CALIBRATION_MIN_RELIABLE_CV_SEGMENTS,
       clampWarningRatio: DEPTH_CALIBRATION_CLAMP_WARNING_RATIO,
       runtimeP95Ms: DEPTH_CALIBRATION_RUNTIME_P95_BUDGET_MS,
+      poseQuality: DEPTH_CALIBRATION_POSE_QUALITY_TARGET_SCORE,
     },
     passed,
     referenceSegmentCount: latest?.referenceSegmentCount ?? 0,
+    poseQuality: latest?.poseQuality ?? null,
     score: summary.score,
     summary,
     byGroup: summarizeDepthCalibrationRowsByKey(rows, "group"),
@@ -3056,9 +3579,10 @@ function exposeDebugApi() {
       resetBodyValidation();
       return nextMode;
     },
-    resetDepthCalibration: () => state.avatarRenderer?.resetDepthCalibration?.() ?? null,
+    resetDepthCalibration: resetDepthCalibrationFromUi,
     getAvatarPerformanceReport: () => state.avatarRenderer?.getPerformanceSnapshot?.() ?? null,
     getAppPerformanceReport,
+    getMotionStatusHudSnapshot,
     clearAppPerformanceSamples: resetAppPerformance,
     getDetectionPumpStatus: () => getAppPerformanceReport().pump,
     getTrackingWorkerStatus,
@@ -3082,9 +3606,11 @@ function exposeDebugApi() {
     startMotionRecording,
     stopMotionRecording,
     getMotionRecording,
+    getMotionRecordingJsonl,
     clearMotionRecording,
     getMotionRecordingStatus,
     loadMotionRecording,
+    loadMotionRecordingJsonl,
     getMotionReplayStatus,
     stopMotionReplay,
     setFaceTrackingEnabled,
@@ -3507,6 +4033,21 @@ function getInitialFaceTrackingEnabled() {
 
 function getInitialFaceLandmarksEnabled() {
   return isTruthyQueryFlag("face-landmarks") || isTruthyQueryFlag("face-mesh");
+}
+
+function getInitialValidationEnabled() {
+  return isTruthyQueryFlag("validation");
+}
+
+function getInitialMediaPipeDelegate() {
+  const value = new URLSearchParams(globalThis.location?.search ?? "").get("delegate");
+  const normalized = String(value ?? "").toLowerCase();
+
+  if (normalized === "cpu") {
+    return MEDIAPIPE_FALLBACK_DELEGATE;
+  }
+
+  return MEDIAPIPE_PREFERRED_DELEGATE;
 }
 
 function isTruthyQueryFlag(name) {

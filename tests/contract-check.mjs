@@ -18,6 +18,7 @@ const files = {
   motionFrame: "src/motion-frame.js",
   motionWorker: "src/motion-worker.js",
   motionForwarding: "src/motion-forwarding.js",
+  poseSolver: "src/solver/pose-solver.js",
   vrmHumanoidMapping: "src/vrm-humanoid-mapping.js",
   vrmExpressionMapping: "src/vrm-expression-mapping.js",
   avatarModel: "assets/models/Xbot.glb",
@@ -27,12 +28,23 @@ const files = {
   avatarPerformanceScript: "scripts/avatar-performance-check.mjs",
   avatarMotionAgreementScript: "scripts/avatar-motion-agreement-check.mjs",
   framePumpPerformanceScript: "scripts/frame-pump-performance-check.mjs",
+  syntheticGeneratorScript: "scripts/generate-synthetic-landmarks.mjs",
+  validationCliScript: "scripts/validation-cli.mjs",
+  hmrJsonlAdapterScript: "scripts/hmr-jsonl-adapter.mjs",
+  motionRecordingCompareScript: "scripts/motion-recording-compare.mjs",
+  motionStatusHudSmokeScript: "scripts/motion-status-hud-smoke.mjs",
+  motionGoalAuditScript: "scripts/motion-goal-audit.mjs",
   avatarVrmPerformanceScript: "scripts/avatar-vrm-performance-check.mjs",
   avatarVrmHumanoidCheck: "tests/avatar-vrm-humanoid-check.mjs",
   avatarVrmExpressionCheck: "tests/avatar-vrm-expression-check.mjs",
   depthCalibrationCheck: "tests/depth-calibration-check.mjs",
   motionFrameCheck: "tests/motion-frame-check.mjs",
   motionForwardingCheck: "tests/motion-forwarding-check.mjs",
+  solverSyntheticCheck: "tests/solver-synthetic-check.mjs",
+  motionRecordingCompareCheck: "tests/motion-recording-compare-check.mjs",
+  hmrJsonlAdapterCheck: "tests/hmr-jsonl-adapter-check.mjs",
+  clipManifestCheck: "tests/clip-manifest-check.mjs",
+  clipFamilyManifest: "tests/fixtures/clip-family/manifest.json",
 };
 
 const mediaPipeVersion = "0.10.35";
@@ -56,6 +68,17 @@ const requiredTrackerDomIds = [
   "pose-count",
   "left-hand-count",
   "right-hand-count",
+  "motion-status-facing",
+  "motion-status-mode",
+  "motion-status-quality",
+  "motion-status-delegate",
+  "motion-status-fps",
+  "motion-status-frame-age",
+  "motion-status-solver",
+  "motion-status-drops",
+  "motion-status-calibration",
+  "motion-status-calibration-guide",
+  "motion-status-calibrate",
 ];
 
 const requiredAvatarDomIds = [
@@ -237,8 +260,8 @@ function checkSyntax(relativePath) {
 
 function checkPackageContract(packageJson) {
   check(
-    packageJson?.scripts?.check === "node tests/contract-check.mjs && node tests/avatar-vrm-humanoid-check.mjs && node tests/avatar-vrm-expression-check.mjs && node tests/depth-calibration-check.mjs && node tests/motion-frame-check.mjs && node tests/motion-forwarding-check.mjs",
-    "package.json: check script must run the contract, VRM humanoid, VRM expression, depth calibration, motion frame, and forwarding checks",
+    packageJson?.scripts?.check === "node tests/contract-check.mjs && node tests/avatar-vrm-humanoid-check.mjs && node tests/avatar-vrm-expression-check.mjs && node tests/depth-calibration-check.mjs && node tests/motion-frame-check.mjs && node tests/motion-forwarding-check.mjs && node tests/solver-synthetic-check.mjs && node tests/motion-recording-compare-check.mjs && node tests/hmr-jsonl-adapter-check.mjs && node tests/clip-manifest-check.mjs",
+    "package.json: check script must run the contract, VRM humanoid, VRM expression, depth calibration, motion frame, forwarding, solver synthetic, recording compare, HMR adapter, and clip manifest checks",
   );
   check(
     packageJson?.scripts?.start === "python3 -m http.server 8000 --bind 127.0.0.1",
@@ -255,6 +278,30 @@ function checkPackageContract(packageJson) {
   check(
     packageJson?.scripts?.["motion:avatar"] === "node scripts/avatar-motion-agreement-check.mjs",
     "package.json: motion:avatar script must run the browser motion agreement check",
+  );
+  check(
+    packageJson?.scripts?.["validate:all"] === "node scripts/validation-cli.mjs --suite all",
+    "package.json: validate:all script must run the consolidated validation CLI",
+  );
+  check(
+    packageJson?.scripts?.["hmr:jsonl"] === "node scripts/hmr-jsonl-adapter.mjs",
+    "package.json: hmr:jsonl script must run the external HMR JSONL adapter",
+  );
+  check(
+    packageJson?.scripts?.["compare:recordings"] === "node scripts/motion-recording-compare.mjs",
+    "package.json: compare:recordings script must run the live/offline recording comparison CLI",
+  );
+  check(
+    packageJson?.scripts?.["smoke:hud"] === "node scripts/motion-status-hud-smoke.mjs",
+    "package.json: smoke:hud script must run the browser Motion State HUD smoke check",
+  );
+  check(
+    packageJson?.scripts?.["smoke:hud:gpu"] === "node scripts/motion-status-hud-smoke.mjs --delegate gpu --output output/reports/motion-status-hud-smoke-gpu-latest.json --screenshot output/reports/motion-status-hud-smoke-gpu-latest.png",
+    "package.json: smoke:hud:gpu script must run the browser Motion State HUD smoke check with GPU requested",
+  );
+  check(
+    packageJson?.scripts?.["goal:audit"] === "node scripts/motion-goal-audit.mjs",
+    "package.json: goal:audit script must run the motion goal audit",
   );
 
   for (const field of [
@@ -513,6 +560,7 @@ function checkAvatarAppContract(app) {
     ["syncs avatar skeleton debug option", /function\s+syncAvatarDebugOptions\s*\(\s*\)[\s\S]*?setSkeletonVisible/],
     ["records body validation after avatar update", /function\s+processMotionFrame\s*\([^)]*\)[\s\S]*?updateAvatarRendererFromMotionFrame\s*\(\s*normalizedFrame\s*\)[\s\S]*?recordBodyValidation\s*\(\s*normalizedFrame\s*\)/],
     ["wires avatar view reset button", /avatarViewReset[\s\S]*?addEventListener\(\s*["']click["'][\s\S]*?resetView/],
+    ["wires motion status calibration button", /motionStatusCalibrateButton\?\.\s*addEventListener\(\s*["']click["'][\s\S]*?resetDepthCalibrationFromUi\s*\(\s*\)/],
     ["reports body match rate against fixed threshold", /const\s+BODY_MATCH_THRESHOLD_DEG\s*=\s*30[\s\S]*matchRate/],
     ["records projected visual body validation", /getProjectedBodyPoseSnapshot[\s\S]*visualJoints/],
     ["records projected segment agreement", /projectedSegmentOverall[\s\S]*projectionByGroup/],
@@ -526,6 +574,13 @@ function checkAvatarAppContract(app) {
     ["exposes dynamic depth calibration debug API", /getDepthCalibrationReport[\s\S]*setDepthCalibrationMode/],
     ["exposes avatar performance debug API", /getAvatarPerformanceReport[\s\S]*clearAvatarPerformanceSamples/],
     ["exposes app performance debug API", /getAppPerformanceReport[\s\S]*clearAppPerformanceSamples[\s\S]*getDetectionPumpStatus/],
+    ["reports detector delegate fallback telemetry", /detectorDelegates[\s\S]*fallbackReasons[\s\S]*recordDetectorDelegateAttempt/],
+    ["exposes motion status HUD debug API", /getMotionStatusHudSnapshot/],
+    ["updates motion status HUD from detection metrics", /function\s+updateDetectionMetrics\s*\([^)]*\)[\s\S]*maybeUpdateMotionStatusHud\s*\(\s*\)/],
+    ["reports depth calibration readiness in HUD", /motionStatusCalibration[\s\S]*resolveDepthCalibrationLabel[\s\S]*resolveDepthCalibrationGuideLabel/],
+    ["uses calibration pose quality in HUD guide", /function\s+resolveDepthCalibrationGuideLabel\s*\([^)]*\)[\s\S]*poseQuality[\s\S]*resolveCalibrationPoseQualityGuide/],
+    ["derives motion status quality from solver state", /function\s+resolveMotionQuality\s*\([^)]*\)[\s\S]*hinge-fail[\s\S]*low-confidence/],
+    ["reports stale rVFC callback drops", /staleFrameCallbacks[\s\S]*frameCallbackLag/],
     ["exposes tracking worker debug API", /getTrackingWorkerStatus/],
     ["exposes debug overlay toggle", /setDebugOverlayEnabled[\s\S]*getDebugOverlayEnabled/],
     ["exposes tracked channel report debug API", /getTrackedChannelReport[\s\S]*faceLandmarkCount[\s\S]*worldLandmarkCount/],
@@ -534,7 +589,7 @@ function checkAvatarAppContract(app) {
     ["checks strict side-order agreement", /function\s+buildStrictSideOrderRows\s*\([^)]*\)[\s\S]*sourceDelta[\s\S]*avatarDelta/],
     ["checks strict temporal agreement", /function\s+buildStrictTemporalRows\s*\([^)]*\)[\s\S]*sourceMotion[\s\S]*motionRatio/],
     ["exposes motion tracker debug API", /globalThis\.motionTrackerDebug\s*=\s*\{[\s\S]*?getBodyValidationReport[\s\S]*?clearBodyValidation/],
-    ["exposes motion recording debug API", /startMotionRecording[\s\S]*stopMotionRecording[\s\S]*getMotionRecording[\s\S]*loadMotionRecording/],
+    ["exposes motion recording debug API", /startMotionRecording[\s\S]*stopMotionRecording[\s\S]*getMotionRecording[\s\S]*getMotionRecordingJsonl[\s\S]*loadMotionRecording[\s\S]*loadMotionRecordingJsonl/],
     ["exposes motion forwarding debug API", /connectMotionForwarding[\s\S]*disconnectMotionForwarding[\s\S]*getMotionForwardingStatus/],
     ["exposes face tracking debug API", /setFaceTrackingEnabled[\s\S]*getFaceTrackingStatus[\s\S]*getFaceTrackingEnabled/],
     ["resets avatar pose on camera stop", /function\s+stopCamera\s*\([^)]*\)[\s\S]*?resetAvatarPose\s*\(\s*\)/],
@@ -563,6 +618,7 @@ function checkAvatarRendererContract(avatarRenderer) {
     ["imports VRM expression helpers", /from\s+["']\.\/vrm-expression-mapping\.js["']/],
     ["defines runtime performance budgets", /const\s+PERFORMANCE_BUDGETS_MS\s*=\s*\{[\s\S]*updateMedian\s*:\s*1\.5[\s\S]*validationP95\s*:\s*2/],
     ["defines face apply performance budget", /faceApplyP95\s*:\s*0\.5/],
+    ["defines pose solver performance budget", /poseSolverP95\s*:\s*2/],
     ["defines group-specific smoothing", /const\s+RETARGET_SMOOTHING_MS\s*=\s*\{[\s\S]*upperArm[\s\S]*foreArm[\s\S]*finger/],
     ["normalizes opt-in smoothing mode", /function\s+normalizeAvatarSmoothingMode\s*\([^)]*\)[\s\S]*retarget[\s\S]*strong/],
     ["reports retarget smoothing mode", /retargetSmoothing\s*:\s*\{[\s\S]*mode\s*:\s*activeSmoothingMode/],
@@ -614,6 +670,13 @@ function checkAvatarRendererContract(avatarRenderer) {
     ["stabilizes root facing before yaw changes", /ROOT_ORIENTATION_SWITCH_FRAMES[\s\S]*candidateFacingFrames[\s\S]*function\s+updateStableRootFacing/],
     ["freezes proportion calibration", /const\s+PROPORTION_CALIBRATION_FRAMES\s*=\s*30[\s\S]*function\s+freezeProportionCalibration\s*\(/],
     ["exposes avatar performance snapshot", /function\s+getPerformanceSnapshot\s*\([^)]*\)[\s\S]*PERFORMANCE_BUDGETS_MS/],
+    ["reports pose solver timing", /poseSolverMs[\s\S]*samples\s*:\s*\{[\s\S]*poseSolver\s*:\s*summarizePerformanceSamples/],
+    ["reports pose solver hinge metrics", /hingeViolations[\s\S]*hingeLimitWarnings[\s\S]*lowConfidenceHinges[\s\S]*solvedPose\.hinges\.map/],
+    ["reports pose solver aggregate metrics", /poseSolverMetrics[\s\S]*hingeViolationFrames[\s\S]*hingeLimitWarningFrames[\s\S]*facingChanges[\s\S]*modeChanges/],
+    ["reports hinge warning breakdown by name", /hingeLimitWarningByName[\s\S]*maxHingeFlexDegByName[\s\S]*maxHingeOverflowDegByName/],
+    ["defines lost tracking recovery timing", /RETARGET_LOST_TRACKING_HOLD_MS[\s\S]*RETARGET_LOST_TRACKING_DECAY_MS[\s\S]*RETARGET_REACQUIRE_BLEND_MS/],
+    ["eases lost tracking body pose to rest", /function\s+applyLostTrackingBodyPose\s*\([^)]*\)[\s\S]*applyOccludedBodyBone[\s\S]*RETARGET_LOST_TRACKING_HOLD_MS/],
+    ["blends retarget after reacquiring pose", /function\s+updateTrackingRecoveryState\s*\([^)]*\)[\s\S]*reacquiredAt[\s\S]*RETARGET_REACQUIRE_BLEND_MS[\s\S]*trackingRecovery\.blend/],
     ["applies face transform matrix to head pose", /function\s+applyFaceHeadPose\s*\([^)]*\)[\s\S]*faceTransformQuaternion[\s\S]*applyLocalPoseDeltaToBone\(["']Head["']/],
     ["applies face expressions after hand retargeting", /applyHands\s*\([\s\S]*?\)[\s\S]*?applyFaceExpressions\s*\(/],
     ["reports expression diagnostics", /expressionPresetCount[\s\S]*resolvedMorphTargetCount[\s\S]*missingPresets/],
@@ -672,6 +735,8 @@ function checkCssContract(css) {
     ["avatar canvas orbit cursor", /#avatar-canvas\s*\{[\s\S]*?cursor\s*:\s*grab[\s\S]*?touch-action\s*:\s*none/],
     ["avatar view reset button", /\.avatar-view-reset\s*\{[\s\S]*?position\s*:\s*absolute[\s\S]*?z-index\s*:\s*3/],
     ["avatar status list grid", /\.avatar-status-list\s*\{[\s\S]*?grid-template-columns\s*:\s*repeat\(\s*2\s*,\s*minmax\(\s*0\s*,\s*1fr\s*\)\s*\)/],
+    ["motion status HUD grid", /\.motion-status-grid\s*\{[\s\S]*?grid-template-columns\s*:\s*repeat\(\s*2\s*,\s*minmax\(\s*0\s*,\s*1fr\s*\)\s*\)/],
+    ["motion status calibration action", /\.motion-status-actions\s*\{[\s\S]*?margin-top[\s\S]*?\.motion-status-calibrate\s*\{[\s\S]*?width\s*:\s*100%/],
     ["control rail grid", /\.control-rail\s*\{[\s\S]*?display\s*:\s*grid/],
     ["video file input styling", /\.file-field\s+input\s*\{[\s\S]*?border\s*:\s*1px\s+solid\s+var\(--panel-line\)/],
     ["stacked debug toggle spacing", /\.toggle\s*\+\s*\.toggle\s*\{[\s\S]*?margin-top\s*:/],
@@ -713,9 +778,17 @@ const [
   motionFrame,
   motionWorker,
   motionForwarding,
+  poseSolver,
   avatarMotionAgreementScript,
+  syntheticGeneratorScript,
+  validationCliScript,
+  hmrJsonlAdapterScript,
+  motionRecordingCompareScript,
+  motionStatusHudSmokeScript,
+  motionGoalAuditScript,
   vrmHumanoidMapping,
   vrmExpressionMapping,
+  clipFamilyManifestSource,
   avatarModelBytes,
   claudeSettings,
   claudeCodexCommand,
@@ -732,9 +805,17 @@ const [
     readProjectFile(files.motionFrame),
     readProjectFile(files.motionWorker),
     readProjectFile(files.motionForwarding),
+    readProjectFile(files.poseSolver),
     readProjectFile(files.avatarMotionAgreementScript),
+    readProjectFile(files.syntheticGeneratorScript),
+    readProjectFile(files.validationCliScript),
+    readProjectFile(files.hmrJsonlAdapterScript),
+    readProjectFile(files.motionRecordingCompareScript),
+    readProjectFile(files.motionStatusHudSmokeScript),
+    readProjectFile(files.motionGoalAuditScript),
     readProjectFile(files.vrmHumanoidMapping),
     readProjectFile(files.vrmExpressionMapping),
+    readProjectFile(files.clipFamilyManifest),
     readProjectBytes(files.avatarModel),
     readProjectFile(files.claudeSettings),
     readProjectFile(files.claudeCodexCommand),
@@ -742,6 +823,7 @@ const [
   ]);
 
 const packageJson = parseJson(files.packageJson, packageSource);
+const clipFamilyManifest = parseJson(files.clipFamilyManifest, clipFamilyManifestSource);
 const avatarModelJson = parseGlbJson(avatarModelBytes, files.avatarModel);
 
 checkPackageContract(packageJson);
@@ -759,8 +841,11 @@ check(vrmExpressionMapping.includes("parseVrmExpressionMetadata"), `${files.vrmE
 check(vrmExpressionMapping.includes("mapMediaPipeBlendShapesToVrmPresets"), `${files.vrmExpressionMapping}: expected MediaPipe blendshape mapper`);
 check(depthCalibration.includes("solveDistalDepth"), `${files.depthCalibration}: expected depth solver`);
 check(depthCalibration.includes("DEPTH_CALIBRATION_TARGET_SCORE"), `${files.depthCalibration}: expected depth calibration target`);
+check(depthCalibration.includes("estimateCalibrationPoseQuality"), `${files.depthCalibration}: expected calibration pose quality helper`);
 check(motionFrame.includes("createMotionFrame"), `${files.motionFrame}: expected motion frame factory`);
 check(motionFrame.includes("createMotionRecording"), `${files.motionFrame}: expected motion recording factory`);
+check(motionFrame.includes("serializeMotionRecordingJsonl"), `${files.motionFrame}: expected motion recording JSONL serializer`);
+check(motionFrame.includes("parseMotionRecordingJsonl"), `${files.motionFrame}: expected motion recording JSONL parser`);
 check(motionFrame.includes("normalizeExternalMotionRecording"), `${files.motionFrame}: expected external HMR recording normalizer`);
 check(motionFrame.includes("isExternalMotionRecording"), `${files.motionFrame}: expected external HMR recording detector`);
 check(motionFrame.includes("leftHandWorldLandmarks"), `${files.motionFrame}: expected hand world landmarks in motion frames`);
@@ -773,8 +858,13 @@ check(/FilesetResolver\.forVisionTasks\s*\(\s*wasmAssetPath\s*,\s*true\s*\)/.tes
 check(motionWorker.includes("installMediaPipeModuleFactoryImportBridge"), `${files.motionWorker}: expected module-worker ModuleFactory import bridge`);
 check(motionWorker.includes("OffscreenCanvas"), `${files.motionWorker}: expected ImageBitmap frames to be drawn to OffscreenCanvas before detection`);
 check(motionWorker.includes("getImageData"), `${files.motionWorker}: expected worker detection to use ImageData from transferred frames`);
+check(motionWorker.includes("fallbackReasons"), `${files.motionWorker}: expected worker delegate fallback reasons`);
+check(motionWorker.includes("recordDetectorDelegateAttempt"), `${files.motionWorker}: expected worker delegate attempt telemetry`);
 check(motionForwarding.includes("createMotionForwarder"), `${files.motionForwarding}: expected motion forwarding client`);
 check(motionForwarding.includes("action-tracker-motion-frame"), `${files.motionForwarding}: expected stable forwarding payload type`);
+check(poseSolver.includes("solveHinges"), `${files.poseSolver}: expected hinge metric solver`);
+check(poseSolver.includes("hingeViolations"), `${files.poseSolver}: expected hinge violation reporting`);
+check(poseSolver.includes("estimateTrackingMode"), `${files.poseSolver}: expected upper-body mode estimator`);
 check(avatarMotionAgreementScript.includes("--tracking-worker"), `${files.avatarMotionAgreementScript}: expected tracking worker query flag support`);
 check(avatarMotionAgreementScript.includes('"tracking-worker"'), `${files.avatarMotionAgreementScript}: expected tracking-worker URL parameter`);
 check(avatarMotionAgreementScript.includes("trackingWorkerRequested"), `${files.avatarMotionAgreementScript}: expected tracking worker requested summary field`);
@@ -782,15 +872,74 @@ check(avatarMotionAgreementScript.includes("trackingWorkerFallbackReason"), `${f
 check(avatarMotionAgreementScript.includes("--smoothing"), `${files.avatarMotionAgreementScript}: expected smoothing query flag support`);
 check(avatarMotionAgreementScript.includes('"smoothing"'), `${files.avatarMotionAgreementScript}: expected smoothing URL parameter`);
 check(avatarMotionAgreementScript.includes("avatarSmoothingMode"), `${files.avatarMotionAgreementScript}: expected smoothing summary field`);
+check(avatarMotionAgreementScript.includes("--delegate"), `${files.avatarMotionAgreementScript}: expected delegate query flag support`);
+check(avatarMotionAgreementScript.includes("normalizeDelegateArg"), `${files.avatarMotionAgreementScript}: expected delegate normalization`);
+check(avatarMotionAgreementScript.includes("detectorDelegateAttempts"), `${files.avatarMotionAgreementScript}: expected delegate attempt summary field`);
+check(avatarMotionAgreementScript.includes("detectorDelegateFallbackReasons"), `${files.avatarMotionAgreementScript}: expected delegate fallback reason summary field`);
+check(avatarMotionAgreementScript.includes("pumpStaleFrameCallbacks"), `${files.avatarMotionAgreementScript}: expected stale callback summary field`);
+check(avatarMotionAgreementScript.includes("poseSolverHingeViolationFrames"), `${files.avatarMotionAgreementScript}: expected aggregate hinge violation summary field`);
 check(/if\s*\(\s*keyframeLabels\.length\s*===\s*0\s*\)\s*\{[\s\S]*?await\s+waitForExpression/.test(avatarMotionAgreementScript), `${files.avatarMotionAgreementScript}: expected measurement-only runs to wait for minimum pose frames`);
+check(syntheticGeneratorScript.includes("left-elbow-flex"), `${files.syntheticGeneratorScript}: expected elbow flex synthetic scenario`);
+check(syntheticGeneratorScript.includes("left-wrist-occlusion"), `${files.syntheticGeneratorScript}: expected wrist occlusion synthetic scenario`);
+check(validationCliScript.includes("buildSyntheticMetrics"), `${files.validationCliScript}: expected synthetic metric summary`);
+check(validationCliScript.includes("maxReliableTargetAngularVelocityDegPerSec"), `${files.validationCliScript}: expected synthetic target angular velocity metric`);
+check(validationCliScript.includes("jitterRmsDegPerSec"), `${files.validationCliScript}: expected synthetic jitter RMS metric`);
+check(validationCliScript.includes("maxReliableOcclusionSpikeCount"), `${files.validationCliScript}: expected reliable occlusion spike metric`);
+check(validationCliScript.includes("maxModeChatterEvents"), `${files.validationCliScript}: expected mode chatter metric`);
+check(validationCliScript.includes("buildSyntheticQualityGates"), `${files.validationCliScript}: expected synthetic quality gates`);
+check(validationCliScript.includes("buildAgreementMetrics"), `${files.validationCliScript}: expected agreement metric summary`);
+check(validationCliScript.includes("buildAgreementQualityGates"), `${files.validationCliScript}: expected agreement quality gates`);
+check(validationCliScript.includes("validateClipManifest"), `${files.validationCliScript}: expected clip manifest schema validation`);
+check(validationCliScript.includes("validateClipLabels"), `${files.validationCliScript}: expected clip label schema validation`);
+check(validationCliScript.includes("CLIP_LABEL_SCHEMA"), `${files.validationCliScript}: expected typed clip label schema`);
+check(validationCliScript.includes("missingScenarioIds"), `${files.validationCliScript}: expected clip scenario coverage reporting`);
+check(validationCliScript.includes("labels missing required label"), `${files.validationCliScript}: expected clip required label validation`);
+check(validationCliScript.includes("clipPathExists"), `${files.validationCliScript}: expected clip path existence validation`);
+check(hmrJsonlAdapterScript.includes("normalizeExternalMotionRecording"), `${files.hmrJsonlAdapterScript}: expected external HMR recording validation`);
+check(hmrJsonlAdapterScript.includes("serializeMotionRecordingJsonl"), `${files.hmrJsonlAdapterScript}: expected external HMR JSONL serialization`);
+check(hmrJsonlAdapterScript.includes("parseMotionRecordingJsonl"), `${files.hmrJsonlAdapterScript}: expected JSONL input support`);
+check(hmrJsonlAdapterScript.includes("convertJointArrayRecording"), `${files.hmrJsonlAdapterScript}: expected generic HMR joint-array conversion`);
+check(hmrJsonlAdapterScript.includes("COCO17_TO_MEDIAPIPE33"), `${files.hmrJsonlAdapterScript}: expected coco17 to MediaPipe 33 mapping`);
+check(hmrJsonlAdapterScript.includes("--joint-format"), `${files.hmrJsonlAdapterScript}: expected joint format CLI option`);
+check(motionRecordingCompareScript.includes("compareRecordings"), `${files.motionRecordingCompareScript}: expected live/offline comparison function`);
+check(motionRecordingCompareScript.includes("solvePoseFrame"), `${files.motionRecordingCompareScript}: expected solver-backed comparison`);
+check(motionRecordingCompareScript.includes("targetAngle"), `${files.motionRecordingCompareScript}: expected target angle delta summary`);
+check(motionRecordingCompareScript.includes("hingeFlex"), `${files.motionRecordingCompareScript}: expected hinge flexion delta summary`);
+check(motionRecordingCompareScript.includes("renderComparisonHtml"), `${files.motionRecordingCompareScript}: expected static HTML comparison report renderer`);
+check(motionRecordingCompareScript.includes("--html"), `${files.motionRecordingCompareScript}: expected HTML output option`);
+check(motionStatusHudSmokeScript.includes("getMotionStatusHudSnapshot"), `${files.motionStatusHudSmokeScript}: expected Motion State HUD snapshot validation`);
+check(motionStatusHudSmokeScript.includes("#motion-status-calibration-guide"), `${files.motionStatusHudSmokeScript}: expected calibration guide DOM validation`);
+check(motionStatusHudSmokeScript.includes("#motion-status-calibrate"), `${files.motionStatusHudSmokeScript}: expected calibration action DOM validation`);
+check(motionStatusHudSmokeScript.includes("resetCalibrationThroughHud"), `${files.motionStatusHudSmokeScript}: expected calibration reset smoke flow`);
+check(motionStatusHudSmokeScript.includes("DOM.setFileInputFiles"), `${files.motionStatusHudSmokeScript}: expected video file upload through Chrome DevTools`);
+check(motionStatusHudSmokeScript.includes("Page.captureScreenshot"), `${files.motionStatusHudSmokeScript}: expected HUD screenshot capture`);
+check(motionGoalAuditScript.includes("passed_with_external_blockers"), `${files.motionGoalAuditScript}: expected external blocker audit status`);
+check(motionGoalAuditScript.includes("validateClipManifest"), `${files.motionGoalAuditScript}: expected clip manifest validation reuse`);
+check(motionGoalAuditScript.includes("P0.2.gpu-delegate-telemetry"), `${files.motionGoalAuditScript}: expected GPU delegate telemetry audit`);
+check(motionGoalAuditScript.includes("P2.2.real-clip-missing"), `${files.motionGoalAuditScript}: expected real clip blocker audit`);
+check(
+  Array.isArray(clipFamilyManifest?.scenarios) && clipFamilyManifest.scenarios.length >= 7,
+  `${files.clipFamilyManifest}: expected at least 7 labeled clip scenarios`,
+);
+check(
+  Array.isArray(clipFamilyManifest?.clips),
+  `${files.clipFamilyManifest}: expected clips array`,
+);
 checkSyntax(files.app);
 checkSyntax(files.avatarRenderer);
 checkSyntax(files.depthCalibration);
 checkSyntax(files.motionFrame);
 checkSyntax(files.motionWorker);
 checkSyntax(files.motionForwarding);
+checkSyntax(files.poseSolver);
 checkSyntax(files.avatarMotionAgreementScript);
 checkSyntax(files.framePumpPerformanceScript);
+checkSyntax(files.syntheticGeneratorScript);
+checkSyntax(files.validationCliScript);
+checkSyntax(files.hmrJsonlAdapterScript);
+checkSyntax(files.motionRecordingCompareScript);
+checkSyntax(files.motionStatusHudSmokeScript);
+checkSyntax(files.motionGoalAuditScript);
 checkSyntax(files.vrmHumanoidMapping);
 checkSyntax(files.vrmExpressionMapping);
 checkSyntax(files.avatarPerformanceScript);
@@ -800,6 +949,10 @@ checkSyntax(files.avatarVrmExpressionCheck);
 checkSyntax(files.depthCalibrationCheck);
 checkSyntax(files.motionFrameCheck);
 checkSyntax(files.motionForwardingCheck);
+checkSyntax(files.solverSyntheticCheck);
+checkSyntax(files.motionRecordingCompareCheck);
+checkSyntax(files.hmrJsonlAdapterCheck);
+checkSyntax(files.clipManifestCheck);
 
 if (failures.length > 0) {
   console.error(`Contract check failed with ${failures.length} issue(s):`);

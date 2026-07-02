@@ -20,7 +20,13 @@ coverage/
 
 # Generated verification artifacts
 .playwright-mcp/
+.playwright-cli/
 .implementation-orchestrator-runs/
+.codex-analysis/
 output/
 avatar-*.png
 avatar-page.png
+
+# Local downloaded model assets
+assets/models/[0-9]*.glb
+assets/models/sysmocap/

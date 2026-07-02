@@ -4,13 +4,22 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "node tests/contract-check.mjs && node tests/avatar-vrm-humanoid-check.mjs && node tests/avatar-vrm-expression-check.mjs && node tests/depth-calibration-check.mjs && node tests/motion-frame-check.mjs && node tests/motion-forwarding-check.mjs",
+    "check": "node tests/contract-check.mjs && node tests/avatar-vrm-humanoid-check.mjs && node tests/avatar-vrm-expression-check.mjs && node tests/depth-calibration-check.mjs && node tests/motion-frame-check.mjs && node tests/motion-forwarding-check.mjs && node tests/solver-synthetic-check.mjs && node tests/motion-recording-compare-check.mjs && node tests/hmr-jsonl-adapter-check.mjs && node tests/clip-manifest-check.mjs",
     "perf:avatar": "node scripts/avatar-performance-check.mjs",
     "perf:avatar:soldier": "node scripts/avatar-glb-performance-check.mjs assets/models/ratio-candidates/soldier.glb",
     "perf:avatar:vrm": "node scripts/avatar-vrm-performance-check.mjs",
     "perf:pump": "node scripts/frame-pump-performance-check.mjs",
     "motion:avatar": "node scripts/avatar-motion-agreement-check.mjs",
     "motion:avatar:labeled": "node scripts/avatar-motion-agreement-check.mjs --labels tests/fixtures/repository-test-keyframes.json",
+    "validate:motion": "node scripts/validation-cli.mjs --suite agreement",
+    "validate:synthetic": "node scripts/validation-cli.mjs --suite synthetic",
+    "validate:clips": "node scripts/validation-cli.mjs --suite clips",
+    "validate:all": "node scripts/validation-cli.mjs --suite all",
+    "hmr:jsonl": "node scripts/hmr-jsonl-adapter.mjs",
+    "compare:recordings": "node scripts/motion-recording-compare.mjs",
+    "smoke:hud": "node scripts/motion-status-hud-smoke.mjs",
+    "smoke:hud:gpu": "node scripts/motion-status-hud-smoke.mjs --delegate gpu --output output/reports/motion-status-hud-smoke-gpu-latest.json --screenshot output/reports/motion-status-hud-smoke-gpu-latest.png",
+    "goal:audit": "node scripts/motion-goal-audit.mjs",
     "keyframes:avatar": "node scripts/extract-video-keyframes.mjs",
     "start": "python3 -m http.server 8000 --bind 127.0.0.1"
   }

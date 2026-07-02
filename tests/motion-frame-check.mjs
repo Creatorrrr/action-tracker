@@ -2,6 +2,8 @@
 import assert from "node:assert/strict";
 import {
   MOTION_FRAME_VERSION,
+  MOTION_RECORDING_JSONL_FRAME_TYPE,
+  MOTION_RECORDING_JSONL_TYPE,
   MOTION_RECORDING_VERSION,
   createMotionFrame,
   createMotionRecording,
@@ -11,7 +13,9 @@ import {
   normalizeExternalMotionRecording,
   normalizeMotionRecording,
   normalizeFace,
+  parseMotionRecordingJsonl,
   serializeMotionFrame,
+  serializeMotionRecordingJsonl,
 } from "../src/motion-frame.js";
 
 function landmarks(count, xOffset = 0) {
@@ -132,8 +136,9 @@ assert.equal(handResults.handedness[0][0].categoryName, "Left");
 assert.equal(handResults.handedness[1][0].categoryName, "Right");
 
 const recording = createMotionRecording({
-  source: { inputKind: "video" },
+  source: { inputKind: "video", videoFileName: "sample.mp4", videoRef: "sample.mp4" },
   frames: [frame],
+  createdAt: "2026-07-02T00:00:00.000Z",
   droppedFrames: 2,
 });
 assert.equal(recording.version, MOTION_RECORDING_VERSION);
@@ -141,6 +146,26 @@ assert.equal(recording.frames.length, 1);
 assert.equal(recording.droppedFrames, 2);
 assert.deepEqual(normalizeMotionRecording(recording), recording);
 assert.throws(() => normalizeMotionRecording({ version: 99, frames: [] }), /version 1/);
+
+const recordingJsonl = serializeMotionRecordingJsonl(recording);
+const recordingJsonlLines = recordingJsonl.trim().split("\n").map((line) => JSON.parse(line));
+assert.equal(recordingJsonlLines.length, 2);
+assert.equal(recordingJsonlLines[0].type, MOTION_RECORDING_JSONL_TYPE);
+assert.equal(recordingJsonlLines[0].frameCount, 1);
+assert.equal(recordingJsonlLines[0].source.videoRef, "sample.mp4");
+assert.equal(recordingJsonlLines[1].type, MOTION_RECORDING_JSONL_FRAME_TYPE);
+assert.deepEqual(parseMotionRecordingJsonl(recordingJsonl), recording);
+assert.throws(
+  () => parseMotionRecordingJsonl(`${JSON.stringify({ ...recordingJsonlLines[0], frameCount: 2 })}\n${JSON.stringify(recordingJsonlLines[1])}\n`),
+  /frameCount 2 does not match 1/,
+);
+assert.throws(
+  () => serializeMotionRecordingJsonl({
+    ...recording,
+    source: { ...recording.source, rawVideoBytes: "not allowed" },
+  }),
+  /raw video or model binary/i,
+);
 
 const externalRecording = normalizeExternalMotionRecording({
   version: MOTION_RECORDING_VERSION,

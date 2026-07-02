@@ -1,5 +1,7 @@
 export const MOTION_FRAME_VERSION = 1;
 export const MOTION_RECORDING_VERSION = 1;
+export const MOTION_RECORDING_JSONL_TYPE = "action-tracker-motion-recording";
+export const MOTION_RECORDING_JSONL_FRAME_TYPE = "action-tracker-motion-frame";
 export const MOTION_RECORDING_FRAME_LIMIT = 18000;
 export const MOTION_FACE_VERSION = 1;
 export const EXTERNAL_HMR_SOURCE_TYPE = "external-hmr";
@@ -122,6 +124,85 @@ export function normalizeMotionRecording(recording) {
   });
 }
 
+export function serializeMotionRecordingJsonl(recording) {
+  const normalizedRecording = normalizeMotionRecording(recording);
+
+  assertNoEmbeddedMotionBinary(normalizedRecording.source, "recording.source");
+
+  const header = {
+    type: MOTION_RECORDING_JSONL_TYPE,
+    version: MOTION_RECORDING_VERSION,
+    createdAt: normalizedRecording.createdAt,
+    source: normalizedRecording.source,
+    droppedFrames: normalizedRecording.droppedFrames,
+    frameCount: normalizedRecording.frames.length,
+  };
+  const lines = [JSON.stringify(header)];
+
+  normalizedRecording.frames.forEach((frame, index) => {
+    assertNoEmbeddedMotionBinary(frame.sourceMeta, `frames[${index}].sourceMeta`);
+    lines.push(JSON.stringify({
+      type: MOTION_RECORDING_JSONL_FRAME_TYPE,
+      version: MOTION_FRAME_VERSION,
+      frame,
+    }));
+  });
+
+  return `${lines.join("\n")}\n`;
+}
+
+export function parseMotionRecordingJsonl(source) {
+  if (typeof source !== "string") {
+    throw new Error("Expected motion recording JSONL text.");
+  }
+
+  const lines = source
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length === 0) {
+    throw new Error("Motion recording JSONL is empty.");
+  }
+
+  const header = parseJsonlLine(lines[0], 1);
+
+  if (
+    header?.type !== MOTION_RECORDING_JSONL_TYPE ||
+    header.version !== MOTION_RECORDING_VERSION
+  ) {
+    throw new Error(`Expected ${MOTION_RECORDING_JSONL_TYPE} JSONL header with version 1.`);
+  }
+
+  assertNoEmbeddedMotionBinary(header.source, "recording.source");
+
+  const frames = lines.slice(1).map((line, index) => {
+    const parsed = parseJsonlLine(line, index + 2);
+
+    if (
+      parsed?.type !== MOTION_RECORDING_JSONL_FRAME_TYPE ||
+      parsed.version !== MOTION_FRAME_VERSION ||
+      !parsed.frame
+    ) {
+      throw new Error(`Expected ${MOTION_RECORDING_JSONL_FRAME_TYPE} entry on JSONL line ${index + 2}.`);
+    }
+
+    assertNoEmbeddedMotionBinary(parsed.frame.sourceMeta, `frames[${index}].sourceMeta`);
+    return parsed.frame;
+  });
+
+  if (Number.isFinite(header.frameCount) && header.frameCount !== frames.length) {
+    throw new Error(`Motion recording JSONL frameCount ${header.frameCount} does not match ${frames.length} frame lines.`);
+  }
+
+  return createMotionRecording({
+    source: header.source ?? {},
+    frames,
+    createdAt: header.createdAt ?? new Date().toISOString(),
+    droppedFrames: header.droppedFrames ?? 0,
+  });
+}
+
 export function isExternalMotionRecording(recording) {
   const source = recording?.source;
 
@@ -133,6 +214,14 @@ export function isExternalMotionRecording(recording) {
   const extractor = normalizeSourceToken(source.extractor ?? source.detector);
 
   return type === EXTERNAL_HMR_SOURCE_TYPE || type === "hmr" || EXTERNAL_HMR_EXTRACTORS.includes(extractor);
+}
+
+function parseJsonlLine(line, lineNumber) {
+  try {
+    return JSON.parse(line);
+  } catch (error) {
+    throw new Error(`Invalid motion recording JSONL on line ${lineNumber}: ${error.message}`);
+  }
 }
 
 export function normalizeExternalMotionRecording(recording) {

@@ -12,7 +12,7 @@ const defaults = {
   minPoseFrames: "180",
   warmupPoseFrames: "90",
   timeoutMs: "240000",
-  debugOverlay: "on",
+  debugOverlay: "off",
 };
 
 await main();
@@ -97,10 +97,13 @@ function extractRunSummary(report) {
     pumpCallbacks: summary.pumpCallbacks ?? 0,
     pumpProcessedFrames: summary.pumpProcessedFrames ?? 0,
     pumpDuplicateFrames: summary.pumpDuplicateFrames ?? 0,
+    pumpStaleFrameCallbacks: summary.pumpStaleFrameCallbacks ?? 0,
     appDetectP95Ms: summary.appDetectP95Ms ?? 0,
     appProcessP95Ms: summary.appProcessP95Ms ?? 0,
     appDrawP95Ms: summary.appDrawP95Ms ?? 0,
     appFrameTotalP95Ms: summary.appFrameTotalP95Ms ?? 0,
+    appFrameAgeP95Ms: summary.appFrameAgeP95Ms ?? 0,
+    appFrameCallbackLagP95Ms: summary.appFrameCallbackLagP95Ms ?? 0,
     appCallbackFps: summary.appCallbackFps ?? 0,
     appDetectionFps: summary.appDetectionFps ?? 0,
   };
@@ -197,8 +200,8 @@ function printComparison(comparison, relativePath) {
   const rvfc = comparison.runs.rvfc;
 
   console.log("Frame pump performance comparison:");
-  console.log(`- RAF callbacks=${raf.pumpCallbacks}, duplicates=${raf.pumpDuplicateFrames}, frame p95=${formatMs(raf.appFrameTotalP95Ms)}, motion=${formatPercent(raf.overallScore)}`);
-  console.log(`- rVFC callbacks=${rvfc.pumpCallbacks}, duplicates=${rvfc.pumpDuplicateFrames}, frame p95=${formatMs(rvfc.appFrameTotalP95Ms)}, motion=${formatPercent(rvfc.overallScore)}`);
+  console.log(`- RAF callbacks=${raf.pumpCallbacks}, duplicates=${raf.pumpDuplicateFrames}, stale=${raf.pumpStaleFrameCallbacks}, frame p95=${formatMs(raf.appFrameTotalP95Ms)}, age p95=${formatMs(raf.appFrameAgeP95Ms)}, motion=${formatPercent(raf.overallScore)}`);
+  console.log(`- rVFC callbacks=${rvfc.pumpCallbacks}, duplicates=${rvfc.pumpDuplicateFrames}, stale=${rvfc.pumpStaleFrameCallbacks}, frame p95=${formatMs(rvfc.appFrameTotalP95Ms)}, age p95=${formatMs(rvfc.appFrameAgeP95Ms)}, motion=${formatPercent(rvfc.overallScore)}`);
   console.log(`- callback reduction=${formatPercent(comparison.comparison.callbackReduction)}, duplicate reduction=${formatPercent(comparison.comparison.duplicateReduction)}`);
   console.log(`- frame p95 reduction=${formatPercent(comparison.comparison.frameTotalP95Reduction)}, detect p95 reduction=${formatPercent(comparison.comparison.detectP95Reduction)}`);
   console.log(`Report: ${relativePath}`);

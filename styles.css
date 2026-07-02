@@ -184,7 +184,8 @@ h2 {
 
 .status-strip span,
 .field span,
-.metric-list dt {
+.metric-list dt,
+.motion-status-grid dt {
   display: block;
   margin-bottom: 0.25rem;
   color: var(--muted);
@@ -341,7 +342,8 @@ h2 {
 }
 
 .control-group,
-.metrics-panel {
+.metrics-panel,
+.motion-status-panel {
   min-width: 0;
   padding: 1rem;
   background: var(--panel);
@@ -395,14 +397,16 @@ select {
   overflow-wrap: anywhere;
 }
 
-.metric-list {
+.metric-list,
+.motion-status-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.75rem;
   margin: 0;
 }
 
-.metric-list div {
+.metric-list div,
+.motion-status-grid div {
   min-width: 0;
   padding: 0.85rem;
   background: #0c1219;
@@ -410,11 +414,27 @@ select {
   border-radius: 0.5rem;
 }
 
-.metric-list dd {
+.metric-list dd,
+.motion-status-grid dd {
   margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-size: 1.35rem;
   font-weight: 800;
   line-height: 1;
+}
+
+.motion-status-grid dd {
+  font-size: 1rem;
+  line-height: 1.15;
+}
+
+.motion-status-actions {
+  margin-top: 0.75rem;
+}
+
+.motion-status-calibrate {
+  width: 100%;
 }
 
 @media (max-width: 920px) {
@@ -462,6 +482,7 @@ select {
   .control-rail,
   .button-row,
   .metric-list,
+  .motion-status-grid,
   .avatar-status-list {
     grid-template-columns: 1fr;
   }

@@ -17,6 +17,7 @@ const limits = {
   validationMedianMs: 1,
   validationP95Ms: 2,
   faceApplyP95Ms: 0.5,
+  poseSolverP95Ms: 2,
   performanceSampleLimit: 240,
   defaultDepthScale: 0.5,
   maxDevicePixelRatio: 2,
@@ -100,6 +101,8 @@ checkPattern(rendererSource, /PERFORMANCE_BUDGETS_MS\s*=\s*\{[\s\S]*updateMedian
   "avatar renderer must declare explicit performance budgets");
 checkPattern(rendererSource, /faceApplyP95:\s*0\.5/,
   "avatar renderer must declare the face expression apply budget");
+checkPattern(rendererSource, /poseSolverP95:\s*2/,
+  "avatar renderer must declare the pose solver budget");
 checkPattern(rendererSource, /RETARGET_SMOOTHING_MS\s*=\s*\{[\s\S]*upperArm[\s\S]*foreArm[\s\S]*finger/,
   "avatar renderer must use bone-group smoothing budgets");
 checkPattern(rendererSource, /PROPORTION_CALIBRATION_FRAMES\s*=\s*30/,
@@ -140,6 +143,7 @@ const report = {
     validationMedian: limits.validationMedianMs,
     validationP95: limits.validationP95Ms,
     faceApplyP95: limits.faceApplyP95Ms,
+    poseSolverP95: limits.poseSolverP95Ms,
   },
 };
 

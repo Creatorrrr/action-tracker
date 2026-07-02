@@ -115,6 +115,8 @@ async function main() {
         depthCalibration: args.depthCalibration ?? defaults.depthCalibration,
         pump: args.pump ?? null,
         debugOverlay: args.debugOverlay ?? null,
+        validation: "on",
+        delegate: normalizeDelegateArg(args.delegate),
         trackingWorker: args.trackingWorker ?? null,
         smoothing: args.smoothing ?? null,
         measurementOnly: Boolean(args.measurementOnly),
@@ -182,6 +184,8 @@ function parseArgs(rawArgs) {
       parsed.pump = rawArgs[++index];
     } else if (arg === "--debug-overlay") {
       parsed.debugOverlay = rawArgs[++index];
+    } else if (arg === "--delegate") {
+      parsed.delegate = rawArgs[++index];
     } else if (arg === "--face-tracking") {
       parsed.faceTracking = rawArgs[++index];
     } else if (arg === "--tracking-worker") {
@@ -223,6 +227,8 @@ function resolveVideoInputs(args) {
 
 function buildAppUrl(port, args) {
   const url = new URL(`http://127.0.0.1:${port}/index.html`);
+  url.searchParams.set("validation", "on");
+  url.searchParams.set("delegate", normalizeDelegateArg(args.delegate));
 
   if (Number.isFinite(args.depthScale)) {
     url.searchParams.set("depth-scale", String(args.depthScale));
@@ -253,6 +259,16 @@ function buildAppUrl(port, args) {
   }
 
   return url.href;
+}
+
+function normalizeDelegateArg(value) {
+  const normalized = String(value ?? "cpu").toLowerCase();
+
+  if (normalized === "gpu") {
+    return "gpu";
+  }
+
+  return "cpu";
 }
 
 function parseModelArg(value) {
@@ -292,6 +308,7 @@ Options:
   --depth-calibration <mode> Set ?depth-calibration=dynamic|static.
   --pump <auto|rvfc|raf>     Set ?pump frame scheduling mode.
   --debug-overlay <on|off>   Set ?debug-overlay for canvas skeleton drawing.
+  --delegate <cpu|gpu>       Set ?delegate. Default CPU keeps headless validation stable.
   --face-tracking <on|off>   Set ?face-tracking for optional FaceLandmarker smoke checks.
   --tracking-worker <on|off> Set ?tracking-worker opt-in worker detection mode.
   --smoothing <mode>         Set ?smoothing=off|retarget|strong avatar retarget smoothing mode.
@@ -603,6 +620,7 @@ async function runModelCheck({
     }
 
     await evaluate(client, "window.motionTrackerDebug?.resetAvatarView?.()");
+    await evaluate(client, "window.motionTrackerDebug?.clearAppPerformanceSamples?.()");
     await evaluate(client, "window.motionTrackerDebug?.clearAvatarPerformanceSamples?.()");
     await evaluate(client, "window.motionTrackerDebug?.clearBodyValidation?.()");
     await setFileInput(client, "#video-file-input", absoluteVideoPath);
@@ -619,6 +637,7 @@ async function runModelCheck({
       `window.motionTrackerDebug?.getBodyValidationReport?.()?.framesWithPose >= ${warmupPoseFrames}`,
       timeoutMs,
     );
+    await evaluate(client, "window.motionTrackerDebug?.clearAppPerformanceSamples?.()");
     await evaluate(client, "window.motionTrackerDebug?.clearAvatarPerformanceSamples?.()");
     await evaluate(client, "window.motionTrackerDebug?.clearBodyValidation?.()");
     const shouldCheckRecordingReplay = keyframeLabels.length === 0 && !measurementOnly;
@@ -653,6 +672,9 @@ async function runModelCheck({
     const recording = shouldCheckRecordingReplay
       ? await evaluate(client, "window.motionTrackerDebug?.stopMotionRecording?.()")
       : null;
+    const recordingJsonl = recording
+      ? await evaluate(client, "window.motionTrackerDebug?.getMotionRecordingJsonl?.()")
+      : "";
     const payload = await evaluate(client, `(() => ({
       avatarStatus: document.querySelector("#avatar-status")?.textContent ?? "",
       cameraStatus: document.querySelector("#camera-status")?.textContent ?? "",
@@ -661,6 +683,7 @@ async function runModelCheck({
       body: window.motionTrackerDebug.getBodyValidationReport(),
       performance: window.motionTrackerDebug.getAvatarPerformanceReport(),
       appPerformance: window.motionTrackerDebug.getAppPerformanceReport(),
+      motionState: window.motionTrackerDebug.getAvatarMotionState(),
       rig: window.motionTrackerDebug.getAvatarRigReport()
     }))()`);
     const bodySamples = keyframeLabels.length > 0
@@ -670,7 +693,7 @@ async function runModelCheck({
       ? buildKeyframeLabelValidation(model, keyframeLabels, bodySamples)
       : null;
     const recordingReplay = recording
-      ? await runRecordingReplayCheck(client, recording, payload.body, minPoseFrames, timeoutMs)
+      ? await runRecordingReplayCheck(client, recording, recordingJsonl, payload.body, minPoseFrames, timeoutMs)
       : null;
     const summary = buildResultSummary(model, payload, {
       measurementOnly,
@@ -692,15 +715,18 @@ async function runModelCheck({
   }
 }
 
-async function runRecordingReplayCheck(client, recording, liveBody, minPoseFrames, timeoutMs) {
+async function runRecordingReplayCheck(client, recording, recordingJsonl, liveBody, minPoseFrames, timeoutMs) {
   const recordingFrameCount = recording?.frames?.length ?? 0;
+  const recordingJsonlLineCount = typeof recordingJsonl === "string"
+    ? recordingJsonl.trim().split(/\r?\n/).filter(Boolean).length
+    : 0;
   const targetPoseFrames = Math.min(minPoseFrames, Math.max(1, recordingFrameCount));
 
   await evaluate(client, "window.motionTrackerDebug?.clearBodyValidation?.()");
   await evaluate(client, "window.motionTrackerDebug?.clearAvatarPerformanceSamples?.()");
   await evaluate(
     client,
-    `window.motionTrackerDebug?.loadMotionRecording?.(${JSON.stringify(recording)})`,
+    `window.motionTrackerDebug?.loadMotionRecordingJsonl?.(${JSON.stringify(recordingJsonl)})`,
   );
   await waitForExpression(
     client,
@@ -717,12 +743,15 @@ async function runRecordingReplayCheck(client, recording, liveBody, minPoseFrame
   const scoreDelta = Math.abs(liveScore - replayScore);
   const passed =
     recordingFrameCount >= targetPoseFrames &&
+    recordingJsonlLineCount === recordingFrameCount + 1 &&
     (replayBody?.framesWithPose ?? 0) >= targetPoseFrames &&
     scoreDelta <= 0.03;
 
   return {
     passed,
     recordingFrameCount,
+    recordingJsonlBytes: typeof recordingJsonl === "string" ? recordingJsonl.length : 0,
+    recordingJsonlLineCount,
     replayFramesWithPose: replayBody?.framesWithPose ?? 0,
     liveScore,
     replayScore,
@@ -964,6 +993,8 @@ function buildResultSummary(model, payload, options = {}) {
   const motion = payload.body?.motionAgreement;
   const performance = payload.performance;
   const appPerformance = payload.appPerformance;
+  const poseSolver = payload.motionState?.poseSolver ?? null;
+  const poseSolverMetrics = payload.motionState?.poseSolverMetrics ?? null;
   const trackingWorker = appPerformance?.trackingWorker ?? {};
   const retargetSmoothing = performance?.retargetSmoothing ?? {};
   const rig = payload.rig;
@@ -1138,14 +1169,45 @@ function buildResultSummary(model, payload, options = {}) {
       renderP95Ms: performance?.samples?.render?.p95Ms ?? null,
       validationP95Ms: performance?.samples?.validation?.p95Ms ?? null,
       depthCalibrationP95Ms: depthCalibrationP95,
+      poseSolverP95Ms: performance?.samples?.poseSolver?.p95Ms ?? null,
       avatarSmoothingMode: retargetSmoothing.mode ?? null,
       avatarSmoothingEnabled: retargetSmoothing.enabled ?? null,
       avatarSmoothingScale: retargetSmoothing.scale ?? null,
+      poseSolverFacing: poseSolver?.facing ?? null,
+      poseSolverMode: poseSolver?.mode ?? null,
+      poseSolverTargetCount: poseSolver?.targetCount ?? null,
+      poseSolverLowConfidenceTargets: poseSolver?.lowConfidenceTargets ?? null,
+      poseSolverHingeViolations: poseSolver?.hingeViolations ?? null,
+      poseSolverHingeLimitWarnings: poseSolver?.hingeLimitWarnings ?? null,
+      poseSolverLowConfidenceHinges: poseSolver?.lowConfidenceHinges ?? null,
+      poseSolverMetricFrames: poseSolverMetrics?.frames ?? null,
+      poseSolverHingeViolationFrames: poseSolverMetrics?.hingeViolationFrames ?? null,
+      poseSolverMaxHingeViolations: poseSolverMetrics?.maxHingeViolations ?? null,
+      poseSolverHingeLimitWarningFrames: poseSolverMetrics?.hingeLimitWarningFrames ?? null,
+      poseSolverMaxHingeLimitWarnings: poseSolverMetrics?.maxHingeLimitWarnings ?? null,
+      poseSolverHingeLimitWarningByName: poseSolverMetrics?.hingeLimitWarningByName ?? null,
+      poseSolverMaxHingeFlexDegByName: poseSolverMetrics?.maxHingeFlexDegByName ?? null,
+      poseSolverMaxHingeOverflowDegByName: poseSolverMetrics?.maxHingeOverflowDegByName ?? null,
+      poseSolverFacingChanges: poseSolverMetrics?.facingChanges ?? null,
+      poseSolverModeChanges: poseSolverMetrics?.modeChanges ?? null,
+      poseSolverOcclusionActive: poseSolver?.occlusion?.activeCount ?? null,
       pumpMode: appPerformance?.pump?.activeMode ?? null,
       pumpRequestedMode: appPerformance?.pump?.requestedMode ?? null,
       pumpCallbacks: appPerformance?.pump?.callbacks ?? null,
       pumpProcessedFrames: appPerformance?.pump?.processedFrames ?? null,
       pumpDuplicateFrames: appPerformance?.pump?.duplicateFrames ?? null,
+      pumpLatestWinsFrames: appPerformance?.pump?.latestWinsFrames ?? null,
+      pumpStaleFrameCallbacks: appPerformance?.pump?.staleFrameCallbacks ?? null,
+      validationEnabled: appPerformance?.validation?.enabled ?? null,
+      validationSamples: appPerformance?.validation?.samples ?? null,
+      detectorDelegates: appPerformance?.detectorDelegates ?? null,
+      detectorDelegateRequested: appPerformance?.detectorDelegates?.requested ?? null,
+      detectorDelegatePose: appPerformance?.detectorDelegates?.pose ?? null,
+      detectorDelegateHand: appPerformance?.detectorDelegates?.hand ?? null,
+      detectorDelegateFace: appPerformance?.detectorDelegates?.face ?? null,
+      detectorDelegateAttempts: appPerformance?.detectorDelegates?.attempted ?? null,
+      detectorDelegateFallbackReasons: appPerformance?.detectorDelegates?.fallbackReasons ?? null,
+      detectorDelegateLastFallbackReason: appPerformance?.detectorDelegates?.lastFallbackReason ?? null,
       trackingWorkerRequested: trackingWorker.requested ?? null,
       trackingWorkerSupported: trackingWorker.supported ?? null,
       trackingWorkerActive: trackingWorker.active ?? null,
@@ -1154,10 +1216,13 @@ function buildResultSummary(model, payload, options = {}) {
       trackingWorkerErrors: trackingWorker.errors ?? null,
       trackingWorkerFallbacks: trackingWorker.fallbacks ?? null,
       trackingWorkerFallbackReason: trackingWorker.fallbackReason ?? null,
+      trackingWorkerDetectorDelegates: trackingWorker.detectorDelegates ?? null,
       appDetectP95Ms: appPerformance?.samples?.detect?.p95Ms ?? null,
       appProcessP95Ms: appPerformance?.samples?.process?.p95Ms ?? null,
       appDrawP95Ms: appPerformance?.samples?.draw?.p95Ms ?? null,
       appFrameTotalP95Ms: appPerformance?.samples?.frameTotal?.p95Ms ?? null,
+      appFrameAgeP95Ms: appPerformance?.samples?.frameAge?.p95Ms ?? null,
+      appFrameCallbackLagP95Ms: appPerformance?.samples?.frameCallbackLag?.p95Ms ?? null,
       appCallbackFps: appPerformance?.fps?.callback ?? null,
       appDetectionFps: appPerformance?.fps?.detection ?? null,
       keyframeLabels: labelValidation
@@ -1421,9 +1486,40 @@ function printModelSummary(result, videoLabel = "") {
     + `depth calibration ${((summary.depthCalibrationScore ?? 0) * 100).toFixed(1)}%, `
     + `finger min ${summary.minFingerChainLength}, `
     + `${summary.framesWithPose} pose frames, `
+    + `solver ${summary.poseSolverMode ?? "unknown"}/${summary.poseSolverFacing ?? "unknown"}, `
+    + `solver p95 ${formatNullableMs(summary.poseSolverP95Ms)}, `
+    + `hinge diag ${summary.poseSolverHingeViolations ?? "n/a"}/${summary.poseSolverHingeViolationFrames ?? "n/a"}f, `
+    + `warn ${summary.poseSolverHingeLimitWarningFrames ?? "n/a"}f`
+    + `${formatHingeWarningBreakdown(summary.poseSolverHingeLimitWarningByName, summary.poseSolverMaxHingeOverflowDegByName)}, `
+    + `occ ${summary.poseSolverOcclusionActive ?? "n/a"}, `
     + `pump ${summary.pumpMode ?? "unknown"}, `
+    + `delegate ${summary.detectorDelegatePose ?? summary.detectorDelegateRequested ?? "unknown"}, `
     + `detect p95 ${formatNullableMs(summary.appDetectP95Ms)}, `
-    + `frame p95 ${formatNullableMs(summary.appFrameTotalP95Ms)}`);
+    + `frame p95 ${formatNullableMs(summary.appFrameTotalP95Ms)}, `
+    + `age p95 ${formatNullableMs(summary.appFrameAgeP95Ms)}, `
+    + `lag p95 ${formatNullableMs(summary.appFrameCallbackLagP95Ms)}, `
+    + `stale ${summary.pumpStaleFrameCallbacks ?? "n/a"}`);
+}
+
+function formatHingeWarningBreakdown(warningByName, overflowByName) {
+  const entries = Object.entries(warningByName ?? {})
+    .filter(([, count]) => Number(count) > 0)
+    .sort(([leftName], [rightName]) => leftName.localeCompare(rightName));
+
+  if (entries.length === 0) {
+    return "";
+  }
+
+  const label = entries
+    .map(([name, count]) => {
+      const overflow = overflowByName?.[name];
+      return Number.isFinite(overflow)
+        ? `${name}:${count}/+${overflow.toFixed(1)}deg`
+        : `${name}:${count}`;
+    })
+    .join(",");
+
+  return ` (${label})`;
 }
 
 function formatNullableMs(value) {

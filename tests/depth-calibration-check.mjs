@@ -6,10 +6,12 @@ import {
   DEPTH_CALIBRATION_MIN_FULL_BODY_SEGMENTS,
   DEPTH_CALIBRATION_MIN_RELIABLE_CV_SEGMENTS,
   DEPTH_CALIBRATION_MIN_UPPER_BODY_SEGMENTS,
+  DEPTH_CALIBRATION_POSE_QUALITY_TARGET_SCORE,
   DEPTH_CALIBRATION_SHOULDER_WIDTH_TO_TORSO_SCALE,
   DEPTH_CALIBRATION_SEGMENTS,
   bodyScale2D,
   depthCalibrationCoverage,
+  estimateCalibrationPoseQuality,
   lengthConsistencyRow,
   normalizeDepthCalibrationMode,
   resolveDepthCalibrationMinSegments,
@@ -144,6 +146,37 @@ const fullBodyCoverage = depthCalibrationCoverage({
 });
 assert.ok(fullBodyCoverage.lowerBodySegments > 0);
 assert.equal(resolveDepthCalibrationMinSegments(fullBodyCoverage), DEPTH_CALIBRATION_MIN_FULL_BODY_SEGMENTS);
+
+const tPoseQuality = estimateCalibrationPoseQuality({
+  leftShoulder: { x: -0.3, y: 1, z: 0, visibility: 0.95 },
+  leftElbow: { x: -0.75, y: 1.02, z: 0.02, visibility: 0.95 },
+  leftWrist: { x: -1.15, y: 1.01, z: 0.03, visibility: 0.95 },
+  rightShoulder: { x: 0.3, y: 1, z: 0, visibility: 0.95 },
+  rightElbow: { x: 0.75, y: 0.98, z: -0.02, visibility: 0.95 },
+  rightWrist: { x: 1.15, y: 0.99, z: -0.03, visibility: 0.95 },
+  leftHip: { x: -0.25, y: 0, z: 0, visibility: 0.95 },
+  rightHip: { x: 0.25, y: 0, z: 0, visibility: 0.95 },
+  shoulderMid: { x: 0, y: 1, z: 0, visibility: 0.95 },
+  hipMid: { x: 0, y: 0, z: 0, visibility: 0.95 },
+});
+assert.equal(tPoseQuality.passed, true);
+assert.ok(tPoseQuality.score >= DEPTH_CALIBRATION_POSE_QUALITY_TARGET_SCORE);
+assert.ok(tPoseQuality.coverage.upperBodySegments >= DEPTH_CALIBRATION_MIN_UPPER_BODY_SEGMENTS);
+assert.deepEqual(tPoseQuality.reasons, []);
+
+const armsDownQuality = estimateCalibrationPoseQuality({
+  leftShoulder: { x: -0.3, y: 1, z: 0, visibility: 0.95 },
+  leftElbow: { x: -0.42, y: 0.45, z: 0.02, visibility: 0.95 },
+  leftWrist: { x: -0.45, y: -0.05, z: 0.03, visibility: 0.95 },
+  rightShoulder: { x: 0.3, y: 1, z: 0, visibility: 0.95 },
+  rightElbow: { x: 0.42, y: 0.45, z: -0.02, visibility: 0.95 },
+  rightWrist: { x: 0.45, y: -0.05, z: -0.03, visibility: 0.95 },
+  shoulderMid: { x: 0, y: 1, z: 0, visibility: 0.95 },
+});
+assert.equal(armsDownQuality.passed, false);
+assert.ok(armsDownQuality.score < DEPTH_CALIBRATION_POSE_QUALITY_TARGET_SCORE);
+assert.ok(armsDownQuality.reasons.includes("arms_not_open"));
+assert.ok(armsDownQuality.reasons.includes("arms_not_level"));
 
 const clampedSummary = summarizeLengthConsistency([
   row,

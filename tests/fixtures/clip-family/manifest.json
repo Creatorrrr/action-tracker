@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "labelSchemaVersion": 1,
+  "description": "Real-world regression clip family schema for motion solver validation. Clip files are intentionally not bundled yet.",
+  "scenarios": [
+    {
+      "id": "front_still_baseline",
+      "description": "Front-facing still pose used to measure jitter and accidental facing flips.",
+      "requiredLabels": ["expectedFacing", "expectedMode", "staticPoseInterval"]
+    },
+    {
+      "id": "turn_180",
+      "description": "Controlled front-to-back turn used to measure facing transition count and latency.",
+      "requiredLabels": ["expectedFacingTimeline", "turnStartMs", "turnEndMs"]
+    },
+    {
+      "id": "arm_behind_back_occlusion",
+      "description": "Arm moves behind the torso so wrist/hand visibility drops while elbow and shoulder remain partially visible.",
+      "requiredLabels": ["occludedJoints", "occlusionIntervals", "maxAngularVelocityDegPerSec"]
+    },
+    {
+      "id": "crossed_arms_elbow_flex",
+      "description": "Forearms cross or fold in front of the body to stress elbow hinge limits.",
+      "requiredLabels": ["jointFlexionTimeline", "hingeLimits"]
+    },
+    {
+      "id": "upper_body_only",
+      "description": "Only head, shoulders, arms, and partial torso are visible to validate upper-body mode stability.",
+      "requiredLabels": ["expectedMode", "visibleBodyRegion", "hiddenJoints"]
+    },
+    {
+      "id": "head_pitch_yaw",
+      "description": "Head pitch/yaw/roll changes while torso stays mostly stable.",
+      "requiredLabels": ["headRotationTimeline", "torsoStaticInterval"]
+    },
+    {
+      "id": "lost_and_reacquired",
+      "description": "Body leaves the frame or becomes unreliable and then returns.",
+      "requiredLabels": ["lostIntervals", "reacquiredAtMs", "expectedRecoveryMode"]
+    }
+  ],
+  "clips": []
+}

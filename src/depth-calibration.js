@@ -13,6 +13,7 @@ export const DEPTH_CALIBRATION_MIN_FULL_BODY_SEGMENTS = 6;
 export const DEPTH_CALIBRATION_MIN_UPPER_BODY_SEGMENTS = 4;
 export const DEPTH_CALIBRATION_SHOULDER_WIDTH_TO_TORSO_SCALE = 2.5;
 export const DEPTH_CALIBRATION_AMBIGUOUS_DEPTH_SIGN_DXY_RATIO = 0.92;
+export const DEPTH_CALIBRATION_POSE_QUALITY_TARGET_SCORE = 0.8;
 
 export const DEPTH_CALIBRATION_SEGMENTS = [
   { name: 'torso', group: 'torso', from: 'hipMid', to: 'shoulderMid', gated: true },
@@ -124,6 +125,101 @@ export function resolveDepthCalibrationMinSegments(coverage = {}) {
   return (coverage.lowerBodySegments ?? 0) > 0
     ? DEPTH_CALIBRATION_MIN_FULL_BODY_SEGMENTS
     : DEPTH_CALIBRATION_MIN_UPPER_BODY_SEGMENTS;
+}
+
+export function estimateCalibrationPoseQuality(points) {
+  const coverage = depthCalibrationCoverage(points);
+  const shoulderWidth = distance2D(points?.leftShoulder, points?.rightShoulder);
+  const emptyResult = {
+    score: 0,
+    passed: false,
+    targetScore: DEPTH_CALIBRATION_POSE_QUALITY_TARGET_SCORE,
+    coverage,
+    requiredUpperBodySegments: DEPTH_CALIBRATION_MIN_UPPER_BODY_SEGMENTS,
+    shoulderWidth,
+    coverageScore: 0,
+    armScore: 0,
+    levelScore: 0,
+    symmetryScore: 0,
+    visibilityScore: 0,
+    leftArm: scoreCalibrationArm(null, 'left', shoulderWidth),
+    rightArm: scoreCalibrationArm(null, 'right', shoulderWidth),
+    reasons: ['missing_shoulders'],
+  };
+
+  if (!Number.isFinite(shoulderWidth) || shoulderWidth < 0.0001) {
+    return emptyResult;
+  }
+
+  const leftArm = scoreCalibrationArm(points, 'left', shoulderWidth);
+  const rightArm = scoreCalibrationArm(points, 'right', shoulderWidth);
+  const armScore = average([leftArm.score, rightArm.score]);
+  const levelScore = average([leftArm.levelScore, rightArm.levelScore]);
+  const visibilityScore = average([leftArm.visibilityScore, rightArm.visibilityScore]);
+  const coverageScore = clamp01(
+    (coverage.upperBodySegments - 2) / Math.max(1, DEPTH_CALIBRATION_MIN_UPPER_BODY_SEGMENTS - 2),
+  );
+  const symmetryScore = leftArm.present && rightArm.present
+    ? 1 - clamp01(Math.abs(leftArm.wristSpreadRatio - rightArm.wristSpreadRatio) / 0.5)
+    : 0;
+  const score = clamp01(
+    coverageScore * 0.25
+      + armScore * 0.45
+      + levelScore * 0.15
+      + symmetryScore * 0.1
+      + visibilityScore * 0.05,
+  );
+  const reasons = [];
+
+  if (coverage.upperBodySegments < DEPTH_CALIBRATION_MIN_UPPER_BODY_SEGMENTS) {
+    reasons.push('upper_body_coverage');
+  }
+
+  if (!leftArm.present) {
+    reasons.push('left_arm_missing');
+  }
+
+  if (!rightArm.present) {
+    reasons.push('right_arm_missing');
+  }
+
+  if (leftArm.openScore < 0.7 || rightArm.openScore < 0.7) {
+    reasons.push('arms_not_open');
+  }
+
+  if (leftArm.levelScore < 0.65 || rightArm.levelScore < 0.65) {
+    reasons.push('arms_not_level');
+  }
+
+  if (visibilityScore < 0.65) {
+    reasons.push('low_visibility');
+  }
+
+  if (symmetryScore < 0.65) {
+    reasons.push('asymmetric_arms');
+  }
+
+  const passed = score >= DEPTH_CALIBRATION_POSE_QUALITY_TARGET_SCORE
+    && coverage.upperBodySegments >= DEPTH_CALIBRATION_MIN_UPPER_BODY_SEGMENTS
+    && leftArm.passed
+    && rightArm.passed;
+
+  return {
+    score,
+    passed,
+    targetScore: DEPTH_CALIBRATION_POSE_QUALITY_TARGET_SCORE,
+    coverage,
+    requiredUpperBodySegments: DEPTH_CALIBRATION_MIN_UPPER_BODY_SEGMENTS,
+    shoulderWidth,
+    coverageScore,
+    armScore,
+    levelScore,
+    symmetryScore,
+    visibilityScore,
+    leftArm,
+    rightArm,
+    reasons: passed ? [] : reasons,
+  };
 }
 
 export function solveDistalDepth({
@@ -286,6 +382,73 @@ function chooseDepthSign(rawDz, previousDz, epsilon, options = {}) {
   return { sign: 0, source: 'none' };
 }
 
+function scoreCalibrationArm(points, side, shoulderWidth) {
+  const names = side === 'left'
+    ? { shoulder: 'leftShoulder', elbow: 'leftElbow', wrist: 'leftWrist' }
+    : { shoulder: 'rightShoulder', elbow: 'rightElbow', wrist: 'rightWrist' };
+  const shoulder = points?.[names.shoulder];
+  const elbow = points?.[names.elbow];
+  const wrist = points?.[names.wrist];
+  const direction = side === 'left' ? -1 : 1;
+  const empty = {
+    present: false,
+    score: 0,
+    passed: false,
+    openScore: 0,
+    levelScore: 0,
+    orderScore: 0,
+    extensionScore: 0,
+    visibilityScore: 0,
+    elbowSpreadRatio: 0,
+    wristSpreadRatio: 0,
+    elbowLevelError: 1,
+    wristLevelError: 1,
+  };
+
+  if (!shoulder || !elbow || !wrist || !Number.isFinite(shoulderWidth) || shoulderWidth < 0.0001) {
+    return empty;
+  }
+
+  const elbowSpreadRatio = direction * (elbow.x - shoulder.x) / shoulderWidth;
+  const wristSpreadRatio = direction * (wrist.x - shoulder.x) / shoulderWidth;
+  const elbowLevelError = Math.abs(elbow.y - shoulder.y) / shoulderWidth;
+  const wristLevelError = Math.abs(wrist.y - shoulder.y) / shoulderWidth;
+  const openScore = Math.min(
+    ramp(elbowSpreadRatio, 0.25, 0.7),
+    ramp(wristSpreadRatio, 0.75, 1.2),
+  );
+  const orderScore = elbowSpreadRatio > 0.12 && wristSpreadRatio > elbowSpreadRatio + 0.05 ? 1 : 0;
+  const levelScore = average([
+    inverseRamp(elbowLevelError, 0.2, 0.55),
+    inverseRamp(wristLevelError, 0.25, 0.65),
+  ]);
+  const extensionScore = ramp(distance2D(shoulder, wrist) / shoulderWidth, 0.75, 1.25);
+  const visibility = minVisibility(shoulder, elbow, wrist);
+  const visibilityScore = ramp(visibility, 0.2, 0.7);
+  const score = clamp01(
+    openScore * 0.35
+      + levelScore * 0.3
+      + orderScore * 0.15
+      + extensionScore * 0.1
+      + visibilityScore * 0.1,
+  );
+
+  return {
+    present: true,
+    score,
+    passed: score >= 0.75 && openScore >= 0.7 && levelScore >= 0.65 && visibilityScore >= 0.6,
+    openScore,
+    levelScore,
+    orderScore,
+    extensionScore,
+    visibilityScore,
+    elbowSpreadRatio,
+    wristSpreadRatio,
+    elbowLevelError,
+    wristLevelError,
+  };
+}
+
 function coefficientOfVariation(values) {
   const valid = values.filter((value) => Number.isFinite(value) && value > 0);
 
@@ -311,6 +474,38 @@ function trimCentralRange(sortedValues, lowerPercentile, upperPercentile) {
   const end = Math.max(start + 1, Math.ceil(sortedValues.length * upperPercentile));
 
   return sortedValues.slice(start, end);
+}
+
+function ramp(value, start, end) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
+  if (end <= start) {
+    return value >= end ? 1 : 0;
+  }
+
+  return clamp01((value - start) / (end - start));
+}
+
+function inverseRamp(value, pass, fail) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
+  if (fail <= pass) {
+    return value <= pass ? 1 : 0;
+  }
+
+  return 1 - clamp01((value - pass) / (fail - pass));
+}
+
+function minVisibility(...points) {
+  const values = points
+    .map((point) => point?.visibility)
+    .filter((value) => Number.isFinite(value));
+
+  return values.length > 0 ? Math.min(...values) : 1;
 }
 
 function groupBy(items, keyFn) {
