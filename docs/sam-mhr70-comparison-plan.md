@@ -46,3 +46,11 @@
 
 ## 진행 로그 규칙
 - 각 체크포인트마다 현재 단계, 변경 사항, 검증 결과, 남은 일, 차단 여부를 짧게 기록한다.
+
+## MHR70 Head Proxy Audit
+
+- `jujae-regression-0-16_5/skeletons_mhr70.jsonl` 기준으로 MHR70 head proxy 3/4의 lateralization을 확인했다.
+- 어깨 midline 대비 2D 위치를 기준으로 joint 3은 person-left, joint 4는 person-right로 분류되는 프레임이 우세했다.
+- 따라서 MediaPipe leftEar(7) <- MHR70 3, rightEar(8) <- MHR70 4 매핑은 유지한다.
+- 코드에서는 혼동을 줄이기 위해 joint 3/4의 로컬 이름만 `left_ear_proxy` / `right_ear_proxy`로 정정했다.
+- 새 SAM skeleton family를 추가할 때는 같은 방식으로 head proxy 좌우성을 재확인한 뒤 매핑을 고정한다.

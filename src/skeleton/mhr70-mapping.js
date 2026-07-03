@@ -5,8 +5,8 @@ const MHR70_JOINT_NAMES = Object.freeze([
   "nose",
   "left_eye_proxy_a",
   "right_eye_proxy_a",
-  "left_eye_proxy_b",
-  "left_eye_proxy_c",
+  "left_ear_proxy",
+  "right_ear_proxy",
   "left_shoulder",
   "right_shoulder",
   "left_elbow",
@@ -111,6 +111,7 @@ const MHR70_TO_MEDIAPIPE33 = Object.freeze({
 const MHR70_MAPPING_NOTES = Object.freeze({
   wrist: "MediaPipe wrist landmarks are mapped from the closest available MHR70 hand/wrist proxy joints observed in SAM-3D-Body output.",
   fingers: "MediaPipe pinky/index/thumb landmarks are approximated from MHR70 hand proxy joints, not full 21-point hand landmarks.",
+  ears: "MHR70 head proxies 3 and 4 are kept mapped to MediaPipe left/right ears after jujae skeleton lateralization audit; only the local names were corrected.",
   axes: "MHR70 world coordinates are kept native by default; axisAudit records the observed y-down and z-camera-negative ratios for each conversion.",
 });
 

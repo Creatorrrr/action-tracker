@@ -8,6 +8,7 @@ export const DEPTH_CALIBRATION_WARMUP_FRAMES = 30;
 export const DEPTH_CALIBRATION_MIN_SEGMENT_SAMPLES = 8;
 export const DEPTH_CALIBRATION_MIN_CV_SEGMENT_SAMPLES = 60;
 export const DEPTH_CALIBRATION_MIN_RELIABLE_CV_SEGMENTS = 4;
+export const DEPTH_CALIBRATION_MIN_OBSERVED_CV_SEGMENTS_WITH_PROFILE = 2;
 export const DEPTH_CALIBRATION_CLAMP_WARNING_RATIO = 0.2;
 export const DEPTH_CALIBRATION_MIN_FULL_BODY_SEGMENTS = 6;
 export const DEPTH_CALIBRATION_MIN_UPPER_BODY_SEGMENTS = 4;
@@ -164,6 +165,36 @@ export function resolveDepthCalibrationMinSegments(coverage = {}) {
   return (coverage.lowerBodySegments ?? 0) > 0
     ? DEPTH_CALIBRATION_MIN_FULL_BODY_SEGMENTS
     : DEPTH_CALIBRATION_MIN_UPPER_BODY_SEGMENTS;
+}
+
+export function evaluateDepthCalibrationSegmentGate({
+  cvReliableSegmentCount = 0,
+  externalReferenceSegmentCount = 0,
+  minReliableSegments = DEPTH_CALIBRATION_MIN_RELIABLE_CV_SEGMENTS,
+  minObservedWithProfile = DEPTH_CALIBRATION_MIN_OBSERVED_CV_SEGMENTS_WITH_PROFILE,
+} = {}) {
+  const observedReliableSegmentCount = Math.max(0, Number(cvReliableSegmentCount) || 0);
+  const externalSegmentCount = Math.max(0, Number(externalReferenceSegmentCount) || 0);
+  const profileAssisted = externalSegmentCount > 0;
+  const observableReliableSegmentCount = profileAssisted
+    ? Math.max(observedReliableSegmentCount, externalSegmentCount)
+    : observedReliableSegmentCount;
+  const observedRequirementMet = !profileAssisted ||
+    observedReliableSegmentCount >= minObservedWithProfile;
+  const reliableSegmentsPassed =
+    observableReliableSegmentCount >= minReliableSegments &&
+    observedRequirementMet;
+
+  return {
+    profileAssisted,
+    observedReliableSegmentCount,
+    externalReferenceSegmentCount: externalSegmentCount,
+    observableReliableSegmentCount,
+    minReliableSegments,
+    minObservedWithProfile: profileAssisted ? minObservedWithProfile : 0,
+    observedRequirementMet,
+    reliableSegmentsPassed,
+  };
 }
 
 export function estimateCalibrationPoseQuality(points) {

@@ -37,6 +37,63 @@ const degradedFacingOracle = evaluateSamRegressionOracle(degradedFacingReport);
 assert.equal(degradedFacingOracle.status, "failed");
 assert.ok(degradedFacingOracle.failures.some((check) => check.metric === "facingAgreement.backSideAgreementRatio"));
 
+const degradedStableFacingReport = createReport({
+  summary: {
+    facingAgreement: {
+      agreementRatio: 0.98,
+      stableAgreementRatio: 0.3,
+    },
+  },
+});
+const degradedStableFacingOracle = evaluateSamRegressionOracle(degradedStableFacingReport);
+assert.equal(degradedStableFacingOracle.status, "failed");
+assert.ok(degradedStableFacingOracle.failures.some((check) => check.metric === "facingAgreement.stableAgreementRatio"));
+
+const degradedBracketGapReport = createReport({
+  summary: {
+    interpolationBracketGap: {
+      p95: 400,
+      max: 410,
+    },
+  },
+});
+const degradedBracketGapOracle = evaluateSamRegressionOracle(degradedBracketGapReport);
+assert.equal(degradedBracketGapOracle.status, "failed");
+assert.ok(degradedBracketGapOracle.failures.some((check) => check.metric === "interpolationBracketGap.p95"));
+
+const missingBracketGapReport = createReport({
+  summary: {
+    interpolationBracketGap: undefined,
+  },
+});
+const missingBracketGapOracle = evaluateSamRegressionOracle(missingBracketGapReport);
+assert.equal(missingBracketGapOracle.status, "failed");
+assert.ok(missingBracketGapOracle.failures.some((check) => check.metric === "interpolationBracketGap.count"));
+
+const degradedProvenanceReport = createReport({
+  interpolate: "none",
+});
+const degradedProvenanceOracle = evaluateSamRegressionOracle(degradedProvenanceReport);
+assert.equal(degradedProvenanceOracle.status, "failed");
+assert.ok(degradedProvenanceOracle.failures.some((check) => check.metric === "interpolate"));
+assert.equal(evaluateSamRegressionOracle(degradedProvenanceReport, { skipProvenance: true }).status, "passed");
+
+const sparseOcclusionReport = createReport({
+  summary: {
+    occlusionArmTargetAngle: {
+      count: 8,
+      p95: 0,
+      max: 0,
+    },
+  },
+});
+assert.equal(evaluateSamRegressionOracle(sparseOcclusionReport).status, "failed");
+assert.ok(
+  evaluateSamRegressionOracle(sparseOcclusionReport)
+    .failures
+    .some((check) => check.metric === "occlusionArmTargetAngle.count"),
+);
+
 const missingOcclusionReport = createReport({
   summary: {
     occlusionArmTargetAngle: {
@@ -87,15 +144,32 @@ console.log("SAM regression oracle check passed.");
 
 function createReport(overrides = {}) {
   const base = {
+    comparisonType: "live-vs-offline-motion-recording",
+    maxTimestampDeltaMs: 25,
+    timestampSource: "sourceMeta.videoTime",
+    interpolate: "offline",
+    liveTargetStabilization: true,
+    offlineTargetStabilization: false,
+    offsetMs: "auto",
+    estimatedOffsetMs: 5,
+    labelsProvided: true,
+    labelFrameCount: 120,
+    labelWindowCount: 4,
     summary: {
       liveFrames: 120,
       offlineFrames: 120,
       pairedFrames: 120,
       pairedRatio: 1,
+      offlineUsageRatio: 0.5,
       timestampDelta: {
         count: 120,
         p95: 0,
         max: 0,
+      },
+      interpolationBracketGap: {
+        count: 120,
+        p95: 17,
+        max: 20,
       },
       targetAngle: {
         count: 960,
@@ -104,6 +178,7 @@ function createReport(overrides = {}) {
         max: 72,
         weightedMean: 16,
         weightedP95: 41,
+        weightSum: 900,
       },
       occlusionArmTargetAngle: {
         count: 32,
@@ -123,9 +198,14 @@ function createReport(overrides = {}) {
         count: 120,
         matched: 118,
         agreementRatio: 0.983333,
+        stableAgreementRatio: 0.7,
+        yawStateAgreementRatio: 0.83,
+        yawToleranceAgreementRatio: 0.97,
         backSideCount: 40,
         backSideMatched: 38,
         backSideAgreementRatio: 0.95,
+        stableBackSideAgreementRatio: 0.45,
+        yawBackSideAgreementRatio: 0.75,
         yawError: {
           count: 120,
           p95: 27,

@@ -13,11 +13,33 @@ export const DEFAULT_SAM_ORACLE_THRESHOLDS = Object.freeze({
   maxTargetWeightedP95Deg: 50,
   maxTargetMaxDeg: 180,
   maxHingeP95Deg: 55,
+  minOfflineUsageRatio: 0.35,
+  maxBracketGapP95Ms: 50,
+  maxBracketGapMaxMs: 250,
+  minTargetWeightSum: 1,
   minFacingAgreement: 0.95,
+  minStableFacingAgreement: 0.6,
+  minYawStateFacingAgreement: 0.78,
+  minYawToleranceFacingAgreement: 0.93,
   minBackSideFacingAgreement: 0.9,
+  minStableBackSideFacingAgreement: 0.4,
+  minYawBackSideFacingAgreement: 0.7,
   maxYawP95Deg: 35,
+  minOcclusionCount: 16,
   maxOcclusionArmP95Deg: 75,
   maxOcclusionArmMaxDeg: 120,
+  maxPairingDeltaMs: 25,
+  maxEstimatedOffsetAbsMs: 500,
+});
+
+const DEFAULT_SAM_ORACLE_EXPECTATIONS = Object.freeze({
+  comparisonType: "live-vs-offline-motion-recording",
+  timestampSource: "sourceMeta.videoTime",
+  interpolate: "offline",
+  offsetMode: "auto",
+  liveTargetStabilization: true,
+  offlineTargetStabilization: false,
+  labelsProvided: true,
 });
 
 if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
@@ -41,6 +63,8 @@ async function main() {
   const report = JSON.parse(await readFile(reportPath, "utf8"));
   const oracle = evaluateSamRegressionOracle(report, {
     thresholds: args.thresholds,
+    expectations: args.expectations,
+    skipProvenance: args.skipProvenance,
     allowMissingFacing: args.allowMissingFacing,
     allowMissingOcclusion: args.allowMissingOcclusion,
   });
@@ -68,6 +92,8 @@ function parseArgs(rawArgs) {
     report: "",
     output: "",
     thresholds: { ...DEFAULT_SAM_ORACLE_THRESHOLDS },
+    expectations: { ...DEFAULT_SAM_ORACLE_EXPECTATIONS },
+    skipProvenance: false,
     allowMissingFacing: false,
     allowMissingOcclusion: false,
     help: false,
@@ -92,16 +118,48 @@ function parseArgs(rawArgs) {
       parsed.thresholds.maxTargetMaxDeg = numberArg(rawArgs[++index], arg);
     } else if (arg === "--max-hinge-p95-deg") {
       parsed.thresholds.maxHingeP95Deg = numberArg(rawArgs[++index], arg);
+    } else if (arg === "--min-offline-usage-ratio") {
+      parsed.thresholds.minOfflineUsageRatio = numberArg(rawArgs[++index], arg);
+    } else if (arg === "--max-bracket-gap-p95-ms") {
+      parsed.thresholds.maxBracketGapP95Ms = numberArg(rawArgs[++index], arg);
+    } else if (arg === "--max-bracket-gap-max-ms") {
+      parsed.thresholds.maxBracketGapMaxMs = numberArg(rawArgs[++index], arg);
+    } else if (arg === "--min-target-weight-sum") {
+      parsed.thresholds.minTargetWeightSum = numberArg(rawArgs[++index], arg);
     } else if (arg === "--min-facing-agreement") {
       parsed.thresholds.minFacingAgreement = numberArg(rawArgs[++index], arg);
+    } else if (arg === "--min-stable-facing-agreement") {
+      parsed.thresholds.minStableFacingAgreement = numberArg(rawArgs[++index], arg);
+    } else if (arg === "--min-yaw-state-facing-agreement") {
+      parsed.thresholds.minYawStateFacingAgreement = numberArg(rawArgs[++index], arg);
+    } else if (arg === "--min-yaw-tolerance-facing-agreement") {
+      parsed.thresholds.minYawToleranceFacingAgreement = numberArg(rawArgs[++index], arg);
     } else if (arg === "--min-back-side-facing-agreement") {
       parsed.thresholds.minBackSideFacingAgreement = numberArg(rawArgs[++index], arg);
+    } else if (arg === "--min-stable-back-side-facing-agreement") {
+      parsed.thresholds.minStableBackSideFacingAgreement = numberArg(rawArgs[++index], arg);
+    } else if (arg === "--min-yaw-back-side-facing-agreement") {
+      parsed.thresholds.minYawBackSideFacingAgreement = numberArg(rawArgs[++index], arg);
     } else if (arg === "--max-yaw-p95-deg") {
       parsed.thresholds.maxYawP95Deg = numberArg(rawArgs[++index], arg);
+    } else if (arg === "--min-occlusion-count") {
+      parsed.thresholds.minOcclusionCount = numberArg(rawArgs[++index], arg);
     } else if (arg === "--max-occlusion-arm-p95-deg") {
       parsed.thresholds.maxOcclusionArmP95Deg = numberArg(rawArgs[++index], arg);
     } else if (arg === "--max-occlusion-arm-max-deg") {
       parsed.thresholds.maxOcclusionArmMaxDeg = numberArg(rawArgs[++index], arg);
+    } else if (arg === "--max-pairing-delta-ms") {
+      parsed.thresholds.maxPairingDeltaMs = numberArg(rawArgs[++index], arg);
+    } else if (arg === "--max-estimated-offset-abs-ms") {
+      parsed.thresholds.maxEstimatedOffsetAbsMs = numberArg(rawArgs[++index], arg);
+    } else if (arg === "--expect-timestamp-source") {
+      parsed.expectations.timestampSource = rawArgs[++index] ?? parsed.expectations.timestampSource;
+    } else if (arg === "--expect-interpolate") {
+      parsed.expectations.interpolate = rawArgs[++index] ?? parsed.expectations.interpolate;
+    } else if (arg === "--expect-offset-mode") {
+      parsed.expectations.offsetMode = rawArgs[++index] ?? parsed.expectations.offsetMode;
+    } else if (arg === "--skip-provenance") {
+      parsed.skipProvenance = true;
     } else if (arg === "--allow-missing-facing") {
       parsed.allowMissingFacing = true;
     } else if (arg === "--allow-missing-occlusion") {
@@ -133,30 +191,68 @@ function evaluateSamRegressionOracle(report, options = {}) {
     ...DEFAULT_SAM_ORACLE_THRESHOLDS,
     ...(options.thresholds ?? {}),
   };
+  const expectations = {
+    ...DEFAULT_SAM_ORACLE_EXPECTATIONS,
+    ...(options.expectations ?? {}),
+  };
   const summary = report?.summary ?? {};
   const checks = [
     minCheck("pairedRatio", summary.pairedRatio, thresholds.minPairedRatio),
     minCountCheck("pairedFrames", summary.pairedFrames, 1),
+    minCheck("offlineUsageRatio", summary.offlineUsageRatio, thresholds.minOfflineUsageRatio),
     maxCheck("timestampDelta.p95", summary.timestampDelta?.p95, thresholds.maxTimestampP95Ms),
     minCountCheck("targetAngle.count", summary.targetAngle?.count, 1),
+    minCheck("targetAngle.weightSum", summary.targetAngle?.weightSum, thresholds.minTargetWeightSum),
     maxCheck("targetAngle.p95", summary.targetAngle?.p95, thresholds.maxTargetP95Deg),
     maxCheck("targetAngle.weightedP95", summary.targetAngle?.weightedP95, thresholds.maxTargetWeightedP95Deg),
     maxCheck("targetAngle.max", summary.targetAngle?.max, thresholds.maxTargetMaxDeg),
     minCountCheck("hingeFlex.count", summary.hingeFlex?.count, 1),
     maxCheck("hingeFlex.p95", summary.hingeFlex?.p95, thresholds.maxHingeP95Deg),
+    minCountCheck("interpolationBracketGap.count", summary.interpolationBracketGap?.count, 1),
+    maxCheck("interpolationBracketGap.p95", summary.interpolationBracketGap?.p95, thresholds.maxBracketGapP95Ms),
+    maxCheck("interpolationBracketGap.max", summary.interpolationBracketGap?.max, thresholds.maxBracketGapMaxMs),
   ];
   const facing = summary.facingAgreement ?? {};
   const occlusion = summary.occlusionArmTargetAngle ?? {};
+
+  if (!options.skipProvenance) {
+    checks.push(...buildProvenanceChecks(report, thresholds, expectations));
+  }
 
   if (Number(facing.count ?? 0) > 0 || !options.allowMissingFacing) {
     checks.push(
       minCountCheck("facingAgreement.count", facing.count, 1),
       minCheck("facingAgreement.agreementRatio", facing.agreementRatio, thresholds.minFacingAgreement),
+      minCheck(
+        "facingAgreement.stableAgreementRatio",
+        facing.stableAgreementRatio,
+        thresholds.minStableFacingAgreement,
+      ),
+      minCheck(
+        "facingAgreement.yawStateAgreementRatio",
+        facing.yawStateAgreementRatio,
+        thresholds.minYawStateFacingAgreement,
+      ),
+      minCheck(
+        "facingAgreement.yawToleranceAgreementRatio",
+        facing.yawToleranceAgreementRatio,
+        thresholds.minYawToleranceFacingAgreement,
+      ),
       minCountCheck("facingAgreement.backSideCount", facing.backSideCount, 1),
       minCheck(
         "facingAgreement.backSideAgreementRatio",
         facing.backSideAgreementRatio,
         thresholds.minBackSideFacingAgreement,
+      ),
+      minCheck(
+        "facingAgreement.stableBackSideAgreementRatio",
+        facing.stableBackSideAgreementRatio,
+        thresholds.minStableBackSideFacingAgreement,
+      ),
+      minCheck(
+        "facingAgreement.yawBackSideAgreementRatio",
+        facing.yawBackSideAgreementRatio,
+        thresholds.minYawBackSideFacingAgreement,
       ),
       maxCheck("facingAgreement.yawError.p95", facing.yawError?.p95, thresholds.maxYawP95Deg),
     );
@@ -164,7 +260,7 @@ function evaluateSamRegressionOracle(report, options = {}) {
 
   if (Number(occlusion.count ?? 0) > 0 || !options.allowMissingOcclusion) {
     checks.push(
-      minCountCheck("occlusionArmTargetAngle.count", occlusion.count, 1),
+      minCountCheck("occlusionArmTargetAngle.count", occlusion.count, thresholds.minOcclusionCount),
       maxCheck("occlusionArmTargetAngle.p95", occlusion.p95, thresholds.maxOcclusionArmP95Deg),
       maxCheck("occlusionArmTargetAngle.max", occlusion.max, thresholds.maxOcclusionArmMaxDeg),
     );
@@ -181,6 +277,31 @@ function evaluateSamRegressionOracle(report, options = {}) {
     failureCount: failedChecks.length,
     failures: failedChecks,
   };
+}
+
+function buildProvenanceChecks(report, thresholds, expectations = {}) {
+  const checks = [
+    equalCheck("comparisonType", report?.comparisonType, expectations.comparisonType),
+    maxCheck("maxTimestampDeltaMs", report?.maxTimestampDeltaMs, thresholds.maxPairingDeltaMs),
+    equalCheck("liveTargetStabilization", report?.liveTargetStabilization, expectations.liveTargetStabilization),
+    equalCheck("offlineTargetStabilization", report?.offlineTargetStabilization, expectations.offlineTargetStabilization),
+    equalCheck("labelsProvided", report?.labelsProvided, expectations.labelsProvided),
+    minCountCheck("labelFrameCount", report?.labelFrameCount, 1),
+    minCountCheck("labelWindowCount", report?.labelWindowCount, 1),
+    maxCheck("estimatedOffsetAbsMs", Math.abs(Number(report?.estimatedOffsetMs)), thresholds.maxEstimatedOffsetAbsMs),
+  ];
+
+  if (expectations.timestampSource !== "any") {
+    checks.push(equalCheck("timestampSource", report?.timestampSource, expectations.timestampSource));
+  }
+  if (expectations.interpolate !== "any") {
+    checks.push(equalCheck("interpolate", report?.interpolate, expectations.interpolate));
+  }
+  if (expectations.offsetMode !== "any") {
+    checks.push(equalCheck("offsetMs", report?.offsetMs, expectations.offsetMode));
+  }
+
+  return checks;
 }
 
 function minCountCheck(metric, actual, expected) {
@@ -211,6 +332,18 @@ function maxCheck(metric, actual, expected) {
     actual: Number.isFinite(value) ? round(value, 6) : null,
     operator: "<=",
     expected: threshold,
+    passed,
+  };
+}
+
+function equalCheck(metric, actual, expected) {
+  const passed = actual === expected;
+
+  return {
+    metric,
+    actual: actual ?? null,
+    operator: "===",
+    expected,
     passed,
   };
 }

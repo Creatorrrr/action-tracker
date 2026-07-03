@@ -109,7 +109,7 @@ Use `scripts/avatar-motion-agreement-check.mjs --recording-output output/reports
 For tracker-vs-SAM runs captured from the same source video, pair by `sourceMeta.videoTime` rather than runtime wall-clock timestamps:
 
 ```sh
-npm run compare:recordings -- --live output/reports/tracker-recording.jsonl --offline output/external/sam-3d-body/jujae-regression-0-16_5/recording.jsonl --timestamp-source sourceMeta.videoTime --max-timestamp-delta-ms 25 --interpolate offline --offset-ms auto --labels output/external/sam-3d-body/jujae-regression-0-16_5/labels.json --output output/reports/tracker-vs-sam-jujae-v2.json --html output/reports/tracker-vs-sam-jujae-v2.html
+npm run compare:recordings -- --live output/reports/tracker-recording.jsonl --offline output/external/sam-3d-body/jujae-regression-0-16_5/recording.jsonl --timestamp-source sourceMeta.videoTime --max-timestamp-delta-ms 25 --interpolate offline --offset-ms auto --max-bracket-gap-ms 250 --labels output/external/sam-3d-body/jujae-regression-0-16_5/labels.json --output output/reports/tracker-vs-sam-jujae-v3.json --html output/reports/tracker-vs-sam-jujae-v3.html
 ```
 
 Generate the SAM side labels and optional depth-calibration profile from the converted SAM recording:
@@ -121,10 +121,10 @@ npm run sam:profile -- --input output/external/sam-3d-body/jujae-regression-0-16
 
 ## SAM Regression Oracle
 
-`npm run sam:oracle` turns a generated tracker-vs-SAM comparison into a regression gate. The default thresholds are calibrated for the `jujae-regression-0-16_5` clip and require pairedRatio >= `0.95`, target p95 <= `50deg`, hinge p95 <= `55deg`, facing agreement >= `95%`, back/side facing agreement >= `90%`, yaw p95 <= `35deg`, and occlusion-window arm p95 <= `75deg`. Keep the SAM data offline; this oracle reads the comparison report only and does not add SAM-3D-Body to the browser runtime.
+`npm run sam:oracle` turns a generated tracker-vs-SAM comparison into a regression gate. The default thresholds are calibrated for the `jujae-regression-0-16_5` clip and require pairedRatio >= `0.95`, offlineUsageRatio >= `0.35`, target p95 <= `50deg`, hinge p95 <= `55deg`, facing agreement >= `95%`, stable facing >= `60%`, yaw-state facing >= `78%`, back/side facing agreement >= `90%`, yaw p95 <= `35deg`, interpolation bracket p95 <= `50ms`, and occlusion-window arm p95 <= `75deg`. It also verifies report provenance: `sourceMeta.videoTime`, offline interpolation, auto offset, labels, live stabilization on, and offline stabilization off. Keep the SAM data offline; this oracle reads the comparison report only and does not add SAM-3D-Body to the browser runtime.
 
 ```sh
-npm run sam:oracle -- --report output/reports/tracker-vs-sam-jujae-v2.json --output output/reports/tracker-vs-sam-jujae-v2-oracle.json
+npm run sam:oracle -- --report output/reports/tracker-vs-sam-jujae-v3.json --output output/reports/tracker-vs-sam-jujae-v3-oracle.json
 ```
 
 For depth-calibration experiments, inject the external profile into the browser validation run:

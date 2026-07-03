@@ -83,3 +83,24 @@ window p95 instead of improving it:
 Therefore P3 uses the conservative low-confidence hold/decay/re-acquire policy
 and records the high-confidence SAM behind-back rows as a measurement blocker
 for the requested 30% p95 improvement target on this clip.
+
+## Evidence Limit
+
+The blocker evidence is intentionally narrow. The final jujae oracle report has
+only `16` occlusion arm target rows, so p95 is effectively the same as the worst
+row for this sample. This is enough to reject the tested high-confidence
+behind-torso hold heuristics, because both variants made the measured rows
+worse, but it is not enough to claim general crossed-arms or behind-back
+robustness.
+
+Before raising the occlusion target, add a second labeled clip with:
+
+- at least two crossed-arms windows
+- at least three seconds of crossed-arms footage total
+- visible transitions into and out of the crossed pose
+- SAM MHR70 skeleton output converted to action-tracker recording JSONL
+- regenerated `labels.json`, tracker-vs-SAM comparison JSON/HTML, and oracle
+  output
+
+After that clip exists, raise `minOcclusionCount` and recalibrate
+`occlusionArmTargetAngle` thresholds from both clips together.

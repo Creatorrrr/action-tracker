@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   DEPTH_CALIBRATION_LENGTH_ERROR_THRESHOLD,
   DEPTH_CALIBRATION_MIN_CV_SEGMENT_SAMPLES,
+  DEPTH_CALIBRATION_MIN_OBSERVED_CV_SEGMENTS_WITH_PROFILE,
   DEPTH_CALIBRATION_MIN_FULL_BODY_SEGMENTS,
   DEPTH_CALIBRATION_MIN_RELIABLE_CV_SEGMENTS,
   DEPTH_CALIBRATION_MIN_UPPER_BODY_SEGMENTS,
@@ -11,6 +12,7 @@ import {
   DEPTH_CALIBRATION_SEGMENTS,
   bodyScale2D,
   depthCalibrationCoverage,
+  evaluateDepthCalibrationSegmentGate,
   estimateCalibrationPoseQuality,
   lengthConsistencyRow,
   normalizeDepthCalibrationMode,
@@ -223,5 +225,29 @@ assert.equal(reliableCvSummary.cvSparseSegmentCount, 0);
 assert.equal(reliableCvSummary.segmentCvs[0].reliable, true);
 assert.ok(reliableCvSummary.p95SegmentCv > 0);
 assert.ok(DEPTH_CALIBRATION_MIN_RELIABLE_CV_SEGMENTS > 0);
+
+const observedOnlySegmentGate = evaluateDepthCalibrationSegmentGate({
+  cvReliableSegmentCount: DEPTH_CALIBRATION_MIN_RELIABLE_CV_SEGMENTS,
+  externalReferenceSegmentCount: 0,
+});
+assert.equal(observedOnlySegmentGate.profileAssisted, false);
+assert.equal(observedOnlySegmentGate.reliableSegmentsPassed, true);
+
+const profileOnlySegmentGate = evaluateDepthCalibrationSegmentGate({
+  cvReliableSegmentCount: 0,
+  externalReferenceSegmentCount: 12,
+});
+assert.equal(profileOnlySegmentGate.profileAssisted, true);
+assert.equal(profileOnlySegmentGate.observableReliableSegmentCount, 12);
+assert.equal(profileOnlySegmentGate.observedRequirementMet, false);
+assert.equal(profileOnlySegmentGate.reliableSegmentsPassed, false);
+
+const profileObservedSegmentGate = evaluateDepthCalibrationSegmentGate({
+  cvReliableSegmentCount: DEPTH_CALIBRATION_MIN_OBSERVED_CV_SEGMENTS_WITH_PROFILE,
+  externalReferenceSegmentCount: 12,
+});
+assert.equal(profileObservedSegmentGate.profileAssisted, true);
+assert.equal(profileObservedSegmentGate.observedRequirementMet, true);
+assert.equal(profileObservedSegmentGate.reliableSegmentsPassed, true);
 
 console.log("Depth calibration check passed.");

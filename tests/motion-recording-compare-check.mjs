@@ -83,6 +83,31 @@ assert.equal(shiftedAutoOffsetReport.estimatedOffsetMs, 100);
 assert.equal(shiftedAutoOffsetReport.summary.pairedFrames, identityRecording.frames.length);
 assert.equal(shiftedAutoOffsetReport.summary.timestampDelta.max, 0);
 
+const labelShiftedLive = withTimestampOffset(identityRecording, 50);
+const labelShiftedReport = compareRecordings(labelShiftedLive, identityRecording, {
+  maxTimestampDeltaMs: 10,
+  offsetMs: "auto",
+  labels: {
+    ...labelsFromSyntheticRecording(identityRecording),
+    windows: [
+      {
+        kind: "left-behind-back",
+        startMs: identityRecording.frames[0].timestamp,
+        endMs: identityRecording.frames.at(-1).timestamp,
+      },
+    ],
+  },
+});
+assert.equal(labelShiftedReport.estimatedOffsetMs, 50);
+assert.equal(labelShiftedReport.labelsProvided, true);
+assert.equal(labelShiftedReport.appliedLabelOffsetMs, 50);
+assert.equal(labelShiftedReport.labelFrameCount, identityRecording.frames.length);
+assert.equal(labelShiftedReport.labelWindowCount, 1);
+assert.equal(labelShiftedReport.summary.facingAgreement.count, identityRecording.frames.length);
+assert.equal(labelShiftedReport.summary.facingAgreement.agreementRatio, 1);
+assert.equal(labelShiftedReport.summary.occlusionArmTargetAngle.count, 4 * identityRecording.frames.length);
+assert.equal(labelShiftedReport.byLabelWindowKind["left-behind-back"].armTargetAngle.count, 4 * identityRecording.frames.length);
+
 const denseFlex = createSyntheticRecording("left-elbow-flex", { frames: 9, fps: 30 });
 const sparseFlex = createSyntheticRecording("left-elbow-flex", { frames: 3, fps: 7.5 });
 const nearestSparseReport = compareRecordings(denseFlex, sparseFlex, {
@@ -98,6 +123,25 @@ assert.equal(interpolatedSparseReport.summary.pairedFrames, denseFlex.frames.len
 assert.equal(interpolatedSparseReport.summary.pairedRatio, 1);
 assert.equal(interpolatedSparseReport.summary.offlineUsedFrames, sparseFlex.frames.length);
 assert.ok(interpolatedSparseReport.summary.pairedRatio > nearestSparseReport.summary.pairedRatio);
+assert.ok(interpolatedSparseReport.summary.interpolationBracketGap.p95 > 100);
+
+const gappedOfflineFlex = pickRecordingFrames(denseFlex, [0, 1, 5, 6, 7, 8]);
+const gappedDefaultReport = compareRecordings(denseFlex, gappedOfflineFlex, {
+  maxTimestampDeltaMs: 10,
+  interpolate: "offline",
+});
+assert.equal(gappedDefaultReport.summary.pairedRatio, 1);
+assert.ok(gappedDefaultReport.summary.interpolationBracketGap.max > 100);
+assert.equal(gappedDefaultReport.summary.bracketGapSkippedFrames, 0);
+const gappedCappedReport = compareRecordings(denseFlex, gappedOfflineFlex, {
+  maxTimestampDeltaMs: 10,
+  maxBracketGapMs: 100,
+  interpolate: "offline",
+});
+assert.equal(gappedCappedReport.maxBracketGapMs, 100);
+assert.ok(gappedCappedReport.summary.pairedRatio < 1);
+assert.ok(gappedCappedReport.summary.bracketGapSkippedFrames > 0);
+assert.ok(gappedCappedReport.summary.interpolationBracketGap.max <= 100);
 
 const loopedLive = createMotionRecording({
   source: identityRecording.source,
@@ -191,6 +235,15 @@ function withTimestampOffset(recording, timestampOffsetMs) {
       ...frame,
       timestamp: frame.timestamp + timestampOffsetMs,
     })),
+  });
+}
+
+function pickRecordingFrames(recording, indices) {
+  return createMotionRecording({
+    source: recording.source,
+    createdAt: recording.createdAt,
+    droppedFrames: recording.droppedFrames,
+    frames: indices.map((index) => recording.frames[index]),
   });
 }
 

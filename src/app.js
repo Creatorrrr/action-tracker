@@ -31,6 +31,7 @@ import {
   DEPTH_CALIBRATION_SOLVE_STEPS,
   DEPTH_CALIBRATION_SMOOTHNESS_THRESHOLD,
   DEPTH_CALIBRATION_TARGET_SCORE,
+  evaluateDepthCalibrationSegmentGate,
   normalizeDepthCalibrationMode,
   summarizeLengthConsistency,
 } from "./depth-calibration.js?v=20260529-face-expression-1";
@@ -116,6 +117,8 @@ const BODY_MOTION_AGREEMENT_SCORE_WEIGHTS = {
   projection: 0,
 };
 const BODY_MOTION_AGREEMENT_EXCLUDED_SEGMENTS = new Set(["neck"]);
+const BODY_MOTION_AGREEMENT_FRONT_BACK_DEPTH_MIN_SAMPLES = 12;
+const BODY_MOTION_AGREEMENT_FRONT_BACK_VISUAL_FLOOR = 0.8;
 
 const BODY_STRICT_SEGMENTS = [
   { name: "shoulderWidth", group: "torso", from: "leftShoulder", to: "rightShoulder" },
@@ -3018,6 +3021,7 @@ function buildMotionAgreementReport({
   const depthFrontBack = depthFrontBackOverall?.count > 0 ? depthFrontBackOverall : null;
   const frontBackUsesDepth = Boolean(
     depthFrontBack &&
+    depthFrontBack.count >= BODY_MOTION_AGREEMENT_FRONT_BACK_DEPTH_MIN_SAMPLES &&
     depthFrontBack.matchRate >= 0.9 &&
     visualFrontBack.matchRate < 0.9,
   );
@@ -3035,7 +3039,9 @@ function buildMotionAgreementReport({
       mismatchRate: frontBack.mean,
       source: frontBackUsesDepth ? "mediapipe-relative-depth" : "visual-side-order",
       visualMatchRate: visualFrontBack.matchRate,
+      visualCount: visualFrontBack.count,
       depthMatchRate: depthFrontBack?.matchRate ?? null,
+      depthCount: depthFrontBack?.count ?? 0,
     },
     projection: {
       count: projectedSegmentOverall.count,
@@ -3053,7 +3059,7 @@ function buildMotionAgreementReport({
       "Uses bone direction as the primary motion signal so different humanoid proportions are not punished as motion failures.",
       "Projection uses 2D projected segment direction agreement, not same-proportion joint distance.",
       "The separate visualOverall report remains a stricter same-proportion joint-distance diagnostic.",
-      "Front/back orientation uses visual torso side-order unless MediaPipe relative depth front/back passes and visual side-order is ambiguous.",
+      "Front/back orientation uses visual torso side-order unless MediaPipe relative depth has enough samples, passes, and the visual side-order floor has not collapsed.",
       "Crossing wrists or ankles are not treated as model-front failures.",
     ],
     scoreWeights: BODY_MOTION_AGREEMENT_SCORE_WEIGHTS,
@@ -3100,9 +3106,24 @@ function buildMotionAgreementComponentGate(components) {
         },
       ]),
   );
+  const frontBack = components.frontBack;
+
+  if (
+    frontBack?.source === "mediapipe-relative-depth" &&
+    Number(frontBack.visualCount ?? 0) >= BODY_MOTION_AGREEMENT_FRONT_BACK_DEPTH_MIN_SAMPLES
+  ) {
+    results.frontBackVisual = {
+      count: frontBack.visualCount,
+      matchRate: frontBack.visualMatchRate,
+      minMatchRate: BODY_MOTION_AGREEMENT_FRONT_BACK_VISUAL_FLOOR,
+      passed: frontBack.visualMatchRate >= BODY_MOTION_AGREEMENT_FRONT_BACK_VISUAL_FLOOR,
+    };
+  }
 
   return {
     minMatchRate,
+    frontBackVisualFloor: BODY_MOTION_AGREEMENT_FRONT_BACK_VISUAL_FLOOR,
+    frontBackDepthMinSamples: BODY_MOTION_AGREEMENT_FRONT_BACK_DEPTH_MIN_SAMPLES,
     passed: Object.values(results).every((result) => result.passed),
     components: results,
   };
@@ -3203,11 +3224,12 @@ function buildDepthCalibrationReport(samples) {
   const summary = summarizeLengthConsistency(gateRows.length > 0 ? gateRows : rows);
   const ready = snapshots.some((snapshot) => snapshot.ready);
   const externalReferenceSegmentCount = latest?.externalReferenceSegmentCount ?? 0;
-  const profileAssisted = externalReferenceSegmentCount > 0;
-  const observableReliableSegmentCount = profileAssisted
-    ? Math.max(summary.cvReliableSegmentCount, externalReferenceSegmentCount)
-    : summary.cvReliableSegmentCount;
-  const reliableSegmentsPassed = observableReliableSegmentCount >= DEPTH_CALIBRATION_MIN_RELIABLE_CV_SEGMENTS;
+  const segmentGate = evaluateDepthCalibrationSegmentGate({
+    cvReliableSegmentCount: summary.cvReliableSegmentCount,
+    externalReferenceSegmentCount,
+  });
+  const profileAssisted = segmentGate.profileAssisted;
+  const reliableSegmentsPassed = segmentGate.reliableSegmentsPassed;
   const clampPassed = (summary.clampedRatio ?? 0) <= DEPTH_CALIBRATION_CLAMP_WARNING_RATIO;
   const clampGatePassed = profileAssisted ? clampPassed : true;
   const passed = ready &&
@@ -3241,8 +3263,12 @@ function buildDepthCalibrationReport(samples) {
     profileLocked: Boolean(latest?.profileLocked),
     observableSegmentRule: {
       mode: profileAssisted ? "external-profile-assisted" : "observed-cv-only",
-      observableReliableSegmentCount,
-      minReliableSegments: DEPTH_CALIBRATION_MIN_RELIABLE_CV_SEGMENTS,
+      observableReliableSegmentCount: segmentGate.observableReliableSegmentCount,
+      observedReliableSegmentCount: segmentGate.observedReliableSegmentCount,
+      externalReferenceSegmentCount: segmentGate.externalReferenceSegmentCount,
+      minReliableSegments: segmentGate.minReliableSegments,
+      minObservedWithProfile: segmentGate.minObservedWithProfile,
+      observedRequirementMet: segmentGate.observedRequirementMet,
       reliableSegmentsPassed,
       clampPassed,
       clampGatePassed,
@@ -3257,6 +3283,7 @@ function buildDepthCalibrationReport(samples) {
     warnings: buildDepthCalibrationWarnings(summary, ready, {
       profileAssisted,
       reliableSegmentsPassed,
+      observedRequirementMet: segmentGate.observedRequirementMet,
       clampPassed,
     }),
   };
@@ -3304,7 +3331,11 @@ function buildDepthCalibrationWarnings(summary, ready, options = {}) {
   if (!options.profileAssisted && (summary.cvReliableSegmentCount ?? 0) < DEPTH_CALIBRATION_MIN_RELIABLE_CV_SEGMENTS) {
     warnings.push(`only ${summary.cvReliableSegmentCount ?? 0} reliable CV segments collected; target is ${DEPTH_CALIBRATION_MIN_RELIABLE_CV_SEGMENTS}`);
   } else if (options.profileAssisted && !options.reliableSegmentsPassed) {
-    warnings.push(`external profile did not provide enough observable segments; target is ${DEPTH_CALIBRATION_MIN_RELIABLE_CV_SEGMENTS}`);
+    if (!options.observedRequirementMet) {
+      warnings.push("external profile is loaded but not enough observed reliable CV segments were collected");
+    } else {
+      warnings.push(`external profile did not provide enough observable segments; target is ${DEPTH_CALIBRATION_MIN_RELIABLE_CV_SEGMENTS}`);
+    }
   }
 
   return warnings;

@@ -11,6 +11,7 @@ import { solvePoseFrame } from "../src/solver/pose-solver.js";
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const scriptPath = fileURLToPath(import.meta.url);
 const FACING_YAW_MATCH_THRESHOLD_DEG = 30;
+const DEFAULT_MAX_INTERPOLATION_BRACKET_GAP_MS = 250;
 const ARM_OCCLUSION_WINDOW_KINDS = new Set([
   "crossed-arms",
   "left-behind-back",
@@ -39,6 +40,7 @@ async function main() {
     timestampWrap: args.timestampWrap,
     interpolate: args.interpolate,
     offsetMs: args.offsetMs,
+    maxBracketGapMs: args.maxBracketGapMs,
     labels,
   });
 
@@ -78,6 +80,7 @@ function parseArgs(rawArgs) {
     timestampWrap: "none",
     interpolate: "none",
     offsetMs: 0,
+    maxBracketGapMs: DEFAULT_MAX_INTERPOLATION_BRACKET_GAP_MS,
     help: false,
   };
 
@@ -104,6 +107,8 @@ function parseArgs(rawArgs) {
       parsed.interpolate = rawArgs[++index] ?? parsed.interpolate;
     } else if (arg === "--offset-ms") {
       parsed.offsetMs = rawArgs[++index] ?? parsed.offsetMs;
+    } else if (arg === "--max-bracket-gap-ms") {
+      parsed.maxBracketGapMs = Number(rawArgs[++index] ?? parsed.maxBracketGapMs);
     } else if (arg === "--help" || arg === "-h") {
       parsed.help = true;
     } else {
@@ -129,6 +134,9 @@ function parseArgs(rawArgs) {
       throw new Error("--offset-ms must be a number or auto.");
     }
   }
+  if (!Number.isFinite(parsed.maxBracketGapMs) || parsed.maxBracketGapMs < 0) {
+    throw new Error("--max-bracket-gap-ms must be a non-negative number.");
+  }
 
   return parsed;
 }
@@ -152,7 +160,11 @@ export function compareRecordings(live, offline, options = {}) {
   const maxTimestampDeltaMs = Number(options.maxTimestampDeltaMs ?? 50);
   const timestampSource = options.timestampSource ?? "timestamp";
   const interpolate = options.interpolate ?? "none";
+  const maxBracketGapMs = Number(options.maxBracketGapMs ?? DEFAULT_MAX_INTERPOLATION_BRACKET_GAP_MS);
   const timestampWrap = options.timestampWrap ?? "none";
+  const interpolationStats = {
+    bracketGapSkippedFrames: 0,
+  };
   const offlineDurationMs = timestampWrap === "offline-duration"
     ? estimateRecordingDurationMs(offline.frames, timestampSource)
     : 0;
@@ -170,8 +182,10 @@ export function compareRecordings(live, offline, options = {}) {
   const pairs = interpolate === "offline"
     ? pairLiveFramesWithInterpolatedOffline(liveSolved, offline.frames, {
       maxTimestampDeltaMs,
+      maxBracketGapMs,
       timestampSource,
       offlineTimestampOffsetMs: estimatedOffsetMs,
+      stats: interpolationStats,
     })
     : pairSolvedFrames(liveSolved, offlineSolved, {
       maxTimestampDeltaMs,
@@ -179,7 +193,9 @@ export function compareRecordings(live, offline, options = {}) {
     });
   const targetAngleRows = [];
   const hingeFlexRows = [];
-  const labels = normalizeReferenceLabels(options.labels);
+  const labels = normalizeReferenceLabels(options.labels, {
+    offsetMs: estimatedOffsetMs,
+  });
   const facingRows = [];
 
   for (const pair of pairs) {
@@ -196,10 +212,15 @@ export function compareRecordings(live, offline, options = {}) {
     timestampWrap,
     timestampWrapMs: round(offlineDurationMs, 3),
     interpolate,
+    maxBracketGapMs: round(maxBracketGapMs, 3),
     liveTargetStabilization: true,
     offlineTargetStabilization: false,
     offsetMs: options.offsetMs ?? 0,
     estimatedOffsetMs: round(estimatedOffsetMs, 3),
+    labelsProvided: Boolean(options.labels),
+    labelFrameCount: labels.frames.length,
+    labelWindowCount: labels.windows.length,
+    appliedLabelOffsetMs: round(estimatedOffsetMs, 3),
     live: summarizeRecordingSource(live),
     offline: summarizeRecordingSource(offline),
     summary: {
@@ -214,6 +235,13 @@ export function compareRecordings(live, offline, options = {}) {
         timestampDeltaMs: pair.timestampDeltaMs,
         confidenceWeight: 1,
       })), "timestampDeltaMs"),
+      interpolationBracketGap: interpolate === "offline"
+        ? summarizeRows(pairs.map((pair) => ({
+          bracketGapMs: pair.bracketGapMs,
+          confidenceWeight: 1,
+        })).filter((row) => Number.isFinite(row.bracketGapMs)), "bracketGapMs")
+        : null,
+      bracketGapSkippedFrames: interpolationStats.bracketGapSkippedFrames,
       targetAngle: summarizeRows(targetAngleRows, "angleDeltaDeg"),
       occlusionArmTargetAngle: summarizeRows(rowsInWindowKinds(
         targetAngleRows.filter((row) => row.group === "arms"),
@@ -472,6 +500,9 @@ function buildComparisonTimeline(pairs, targetAngleRows, hingeFlexRows) {
       offlineIndex: pair.offline.index,
       timestamp: Number(pair.live.timestamp),
       timestampDeltaMs: round(pair.timestampDeltaMs, 3),
+      interpolationBracketGapMs: Number.isFinite(Number(pair.bracketGapMs))
+        ? round(pair.bracketGapMs, 3)
+        : null,
       targetAngleMeanDeg: targetSummary.mean,
       targetAngleP95Deg: targetSummary.p95,
       targetAngleMaxDeg: targetSummary.max,
@@ -514,8 +545,10 @@ function pairSolvedFrames(liveSolved, offlineSolved, options = {}) {
 
 function pairLiveFramesWithInterpolatedOffline(liveSolved, offlineFrames, options = {}) {
   const maxTimestampDeltaMs = Number(options.maxTimestampDeltaMs ?? 50);
+  const maxBracketGapMs = Number(options.maxBracketGapMs ?? DEFAULT_MAX_INTERPOLATION_BRACKET_GAP_MS);
   const timestampSource = options.timestampSource ?? "timestamp";
   const offlineTimestampOffsetMs = Number(options.offlineTimestampOffsetMs ?? 0);
+  const stats = options.stats ?? {};
   const offlineTimedFrames = offlineFrames
     .map((frame, index) => ({
       index,
@@ -554,6 +587,18 @@ function pairLiveFramesWithInterpolatedOffline(liveSolved, offlineFrames, option
     }
 
     const span = right.effectiveTimestamp - left.effectiveTimestamp;
+    const bracketGapMs = Math.abs(span);
+    const endpointDeltaMs = Math.min(
+      Math.abs(liveFrame.timestamp - left.effectiveTimestamp),
+      Math.abs(liveFrame.timestamp - right.effectiveTimestamp),
+    );
+
+    if (bracketGapMs > maxBracketGapMs && endpointDeltaMs > maxTimestampDeltaMs) {
+      stats.bracketGapSkippedFrames = Number(stats.bracketGapSkippedFrames ?? 0) + 1;
+      continue;
+    }
+
+    const reportedBracketGapMs = endpointDeltaMs <= maxTimestampDeltaMs ? 0 : bracketGapMs;
     const interpolationRatio = Math.abs(span) <= 0.000001
       ? 0
       : clamp((liveFrame.timestamp - left.effectiveTimestamp) / span, 0, 1);
@@ -565,6 +610,7 @@ function pairLiveFramesWithInterpolatedOffline(liveSolved, offlineFrames, option
         sourceRightIndex: right.index,
         sourceLeftTimestamp: round(left.effectiveTimestamp, 3),
         sourceRightTimestamp: round(right.effectiveTimestamp, 3),
+        bracketGapMs: round(reportedBracketGapMs, 3),
         interpolationRatio: round(interpolationRatio, 6),
       },
     });
@@ -582,6 +628,7 @@ function pairLiveFramesWithInterpolatedOffline(liveSolved, offlineFrames, option
         solved,
       },
       timestampDeltaMs: round(outsideGap, 3),
+      bracketGapMs: round(reportedBracketGapMs, 3),
       offlineTimestamp: round(liveFrame.timestamp, 3),
       offlineSourceIndices: left.index === right.index ? [left.index] : [left.index, right.index],
       interpolation: "offline",
@@ -976,7 +1023,9 @@ function estimateTimestampOffsetMs(liveSolved, offlineSolved, maxTimestampDeltaM
   return best.offsetMs;
 }
 
-function normalizeReferenceLabels(labels) {
+function normalizeReferenceLabels(labels, options = {}) {
+  const offsetMs = Number(options.offsetMs ?? 0);
+
   if (!labels || !Array.isArray(labels.frames)) {
     return {
       frames: [],
@@ -988,21 +1037,23 @@ function normalizeReferenceLabels(labels) {
     .map((frame, fallbackIndex) => ({
       ...frame,
       index: Number.isFinite(Number(frame.index)) ? Number(frame.index) : fallbackIndex,
-      timestamp: Number.isFinite(Number(frame.timestamp))
+      timestamp: (Number.isFinite(Number(frame.timestamp))
         ? Number(frame.timestamp)
         : Number.isFinite(Number(frame.videoTime))
           ? Number(frame.videoTime) * 1000
-          : 0,
+          : 0) + offsetMs,
     }))
     .sort((a, b) => a.timestamp - b.timestamp);
 
   return {
     frames,
-    windows: normalizeReferenceWindows(labels.windows),
+    windows: normalizeReferenceWindows(labels.windows, { offsetMs }),
   };
 }
 
-function normalizeReferenceWindows(windows) {
+function normalizeReferenceWindows(windows, options = {}) {
+  const offsetMs = Number(options.offsetMs ?? 0);
+
   if (!Array.isArray(windows)) {
     return [];
   }
@@ -1011,8 +1062,8 @@ function normalizeReferenceWindows(windows) {
     .map((window) => ({
       ...window,
       kind: String(window.kind ?? "unknown"),
-      startMs: Number(window.startMs),
-      endMs: Number(window.endMs),
+      startMs: Number(window.startMs) + offsetMs,
+      endMs: Number(window.endMs) + offsetMs,
     }))
     .filter((window) =>
       window.kind &&
@@ -1377,7 +1428,8 @@ write a static HTML timeline report with --html. Use
 the same source video by different runtimes. Use --interpolate offline to align
 dense offline recordings to sparse live frames, and --offset-ms auto to estimate
 a constant live/offline timestamp offset before pairing. Use
---timestamp-wrap offline-duration for validation recordings that contain repeated
-plays of the same source video.
+--max-bracket-gap-ms to reject live frames that would be interpolated across a
+large offline dropout. Use --timestamp-wrap offline-duration for validation
+recordings that contain repeated plays of the same source video.
 `);
 }
