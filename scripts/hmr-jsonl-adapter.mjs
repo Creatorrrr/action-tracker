@@ -18,6 +18,7 @@ import {
   mapMhr70ToMediaPipe33,
   summarizeMhr70AxisAudit,
 } from "../src/skeleton/mhr70-mapping.js";
+import { mapMhr70ToMediaPipeHand } from "../src/skeleton/mhr70-hands.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const args = parseArgs(process.argv.slice(2));
@@ -49,6 +50,7 @@ if (!args.input || args.help) {
   const recording = parseInputRecording(sourceText, args.input, {
     jointFormat: args.jointFormat,
     personIndex: args.personIndex,
+    hands: args.hands,
   });
   const normalizedRecording = normalizeExternalMotionRecording(recording);
   const jsonl = serializeMotionRecordingJsonl(normalizedRecording);
@@ -74,6 +76,7 @@ function parseArgs(rawArgs) {
     input: "",
     output: "",
     jointFormat: "",
+    hands: "none",
     personIndex: 0,
     stdout: false,
     help: false,
@@ -88,6 +91,8 @@ function parseArgs(rawArgs) {
       parsed.output = rawArgs[++index] ?? "";
     } else if (arg === "--joint-format") {
       parsed.jointFormat = rawArgs[++index] ?? "";
+    } else if (arg === "--hands") {
+      parsed.hands = rawArgs[++index] ?? parsed.hands;
     } else if (arg === "--person" || arg === "--person-index") {
       parsed.personIndex = Number(rawArgs[++index] ?? parsed.personIndex);
     } else if (arg === "--stdout") {
@@ -103,6 +108,9 @@ function parseArgs(rawArgs) {
 
   if (!Number.isInteger(parsed.personIndex) || parsed.personIndex < 0) {
     throw new Error("--person-index must be a non-negative integer.");
+  }
+  if (!["none", "mhr70"].includes(parsed.hands)) {
+    throw new Error("--hands must be none or mhr70.");
   }
 
   return parsed;
@@ -123,6 +131,7 @@ function parseInputRecording(sourceText, inputPath, options = {}) {
     if (isSamMhr70Jsonl(trimmed, options)) {
       return convertSamMhr70JsonlRecording(sourceText, {
         personIndex: options.personIndex,
+        hands: options.hands,
       });
     }
 
@@ -206,7 +215,9 @@ function convertSamMhr70JsonlRecording(sourceText, options = {}) {
     }
 
     axisSamples.push(auditMhr70AxisFrame(person.keypoints_mhr70_3d));
-    frames.push(convertSamMhr70Frame(sourceFrame, person, frames.length));
+    frames.push(convertSamMhr70Frame(sourceFrame, person, frames.length, {
+      hands: options.hands,
+    }));
   });
 
   if (frames.length === 0) {
@@ -223,9 +234,13 @@ function convertSamMhr70JsonlRecording(sourceText, options = {}) {
       type: "external-hmr",
       extractor: "sam3d-body",
       jointFormat: "mhr70",
+      sourceFrameCount: lines.length,
+      totalPersonPredictions: lines.length - droppedFrames,
+      detectionMisses: droppedFrames,
       videoRef: typeof firstSourceFrame?.video === "string" ? firstSourceFrame.video : undefined,
       fps,
       mapping: "mhr70-to-mediapipe33",
+      hands: options.hands === "mhr70" ? "mhr70-to-mediapipe21" : "none",
       mappingNotes: [
         MHR70_MAPPING_NOTES.wrist,
         MHR70_MAPPING_NOTES.fingers,
@@ -267,7 +282,7 @@ function selectSamMhr70Person(frame, personIndex) {
   return null;
 }
 
-function convertSamMhr70Frame(sourceFrame, person, outputIndex) {
+function convertSamMhr70Frame(sourceFrame, person, outputIndex, options = {}) {
   const timestamp = Number.isFinite(Number(sourceFrame?.timestamp_sec))
     ? Number(sourceFrame.timestamp_sec) * 1000
     : Number.isFinite(Number(sourceFrame?.frame_index))
@@ -293,6 +308,35 @@ function convertSamMhr70Frame(sourceFrame, person, outputIndex) {
     visibilityCaps: worldVisibilityCaps,
   });
   const axisFrame = auditMhr70AxisFrame(person.keypoints_mhr70_3d);
+  const includeHands = options.hands === "mhr70";
+  const leftHandLandmarks = includeHands
+    ? mapMhr70ToMediaPipeHand(person.keypoints_mhr70_2d, "left", {
+      screenSpace: true,
+      imageWidth,
+      imageHeight,
+      visibility: detectorScore,
+    })
+    : null;
+  const rightHandLandmarks = includeHands
+    ? mapMhr70ToMediaPipeHand(person.keypoints_mhr70_2d, "right", {
+      screenSpace: true,
+      imageWidth,
+      imageHeight,
+      visibility: detectorScore,
+    })
+    : null;
+  const leftHandWorldLandmarks = includeHands
+    ? mapMhr70ToMediaPipeHand(person.keypoints_mhr70_3d, "left", {
+      screenSpace: false,
+      visibility: detectorScore,
+    })
+    : null;
+  const rightHandWorldLandmarks = includeHands
+    ? mapMhr70ToMediaPipeHand(person.keypoints_mhr70_3d, "right", {
+      screenSpace: false,
+      visibility: detectorScore,
+    })
+    : null;
 
   return {
     version: MOTION_FRAME_VERSION,
@@ -300,10 +344,10 @@ function convertSamMhr70Frame(sourceFrame, person, outputIndex) {
     mirrored: false,
     poseLandmarks,
     poseWorldLandmarks,
-    leftHandLandmarks: null,
-    leftHandWorldLandmarks: null,
-    rightHandLandmarks: null,
-    rightHandWorldLandmarks: null,
+    leftHandLandmarks,
+    leftHandWorldLandmarks,
+    rightHandLandmarks,
+    rightHandWorldLandmarks,
     sourceMeta: {
       extractor: "sam3d-body",
       jointFormat: "mhr70",
@@ -316,6 +360,7 @@ function convertSamMhr70Frame(sourceFrame, person, outputIndex) {
       imageWidth: Number.isFinite(imageWidth) ? imageWidth : null,
       imageHeight: Number.isFinite(imageHeight) ? imageHeight : null,
       mapping: "mhr70-to-mediapipe33",
+      hands: includeHands ? "mhr70-to-mediapipe21" : "none",
       mappedJointCount: Object.keys(MHR70_TO_MEDIAPIPE33).length,
       worldAxisX: "native",
       worldAxisY: "native",
@@ -595,7 +640,7 @@ function printUsage() {
   console.log(`Usage:
   node scripts/hmr-jsonl-adapter.mjs --input external-recording.json --output output/external-recording.jsonl
   node scripts/hmr-jsonl-adapter.mjs --input coco17-joints.json --joint-format coco17 --output output/external-recording.jsonl
-  node scripts/hmr-jsonl-adapter.mjs --input skeletons_mhr70.jsonl --joint-format mhr70 --output output/sam-recording.jsonl
+  node scripts/hmr-jsonl-adapter.mjs --input skeletons_mhr70.jsonl --joint-format mhr70 --hands mhr70 --output output/sam-recording.jsonl
   node scripts/hmr-jsonl-adapter.mjs external-recording.jsonl --stdout > normalized.jsonl
 
 Input may use the action-tracker recording shape with source.type "external-hmr"

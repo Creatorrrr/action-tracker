@@ -70,6 +70,7 @@ async function main() {
           minPoseFrames: args.minPoseFrames ?? defaults.minPoseFrames,
           warmupPoseFrames: args.warmupPoseFrames ?? defaults.warmupPoseFrames,
           timeoutMs: args.timeoutMs ?? defaults.timeoutMs,
+          playbackRate: args.playbackRate ?? 1,
           measurementOnly: Boolean(args.measurementOnly),
           keyframeLabels,
           recordingOutputPath: resolveRecordingOutputPath(args, video, model, videos.length, models.length),
@@ -178,6 +179,8 @@ function parseArgs(rawArgs) {
       parsed.warmupPoseFrames = Number(rawArgs[++index]);
     } else if (arg === "--timeout-ms") {
       parsed.timeoutMs = Number(rawArgs[++index]);
+    } else if (arg === "--playback-rate") {
+      parsed.playbackRate = Number(rawArgs[++index]);
     } else if (arg === "--depth-scale") {
       parsed.depthScale = Number(rawArgs[++index]);
     } else if (arg === "--depth-calibration") {
@@ -314,6 +317,7 @@ Options:
   --warmup-pose-frames <n>   Pose frames to ignore before measurement.
   --min-pose-frames <count>  Frames with pose required before collecting the report.
   --timeout-ms <ms>          Per-model browser timeout.
+  --playback-rate <n>        Set video playbackRate after load. Use <1 for dense CPU recordings.
   --depth-scale <n>          Set ?depth-scale for baseline measurements.
   --depth-calibration <mode> Set ?depth-calibration=dynamic|static.
   --calibration-profile <p>  Set ?calibration-profile to an external segment-ratio JSON.
@@ -612,6 +616,7 @@ async function runModelCheck({
   minPoseFrames,
   warmupPoseFrames,
   timeoutMs,
+  playbackRate = 1,
   measurementOnly,
   keyframeLabels = [],
   recordingOutputPath = "",
@@ -645,6 +650,14 @@ async function runModelCheck({
       })()`,
       timeoutMs,
     );
+    if (Number.isFinite(Number(playbackRate)) && Number(playbackRate) > 0) {
+      await evaluate(client, `(() => {
+        const video = document.querySelector("#camera-video");
+        if (video) {
+          video.playbackRate = ${JSON.stringify(Number(playbackRate))};
+        }
+      })()`);
+    }
     await waitForExpression(
       client,
       `window.motionTrackerDebug?.getBodyValidationReport?.()?.framesWithPose >= ${warmupPoseFrames}`,
@@ -654,7 +667,8 @@ async function runModelCheck({
     await evaluate(client, "window.motionTrackerDebug?.clearAvatarPerformanceSamples?.()");
     await evaluate(client, "window.motionTrackerDebug?.clearBodyValidation?.()");
     const shouldCheckRecordingReplay = keyframeLabels.length === 0 && !measurementOnly;
-    if (shouldCheckRecordingReplay) {
+    const shouldRecordMotion = keyframeLabels.length === 0 && (shouldCheckRecordingReplay || Boolean(recordingOutputPath));
+    if (shouldRecordMotion) {
       await evaluate(client, "window.motionTrackerDebug?.startMotionRecording?.()");
     }
     if (keyframeLabels.length > 0) {
@@ -674,15 +688,23 @@ async function runModelCheck({
         const video = document.querySelector("#camera-video");
         return frames >= ${minPoseFrames} || (frames > 0 && Boolean(video?.ended));
       })()`;
+    let measurementCompletionError = null;
     if (keyframeLabels.length === 0) {
-      await waitForExpression(
-        client,
-        completionExpression,
-        timeoutMs,
-      );
+      try {
+        await waitForExpression(
+          client,
+          completionExpression,
+          timeoutMs,
+        );
+      } catch (error) {
+        if (!measurementOnly) {
+          throw error;
+        }
+        measurementCompletionError = error;
+      }
     }
 
-    const recording = shouldCheckRecordingReplay
+    const recording = shouldRecordMotion
       ? await evaluate(client, "window.motionTrackerDebug?.stopMotionRecording?.()")
       : null;
     const recordingJsonl = recording
@@ -709,7 +731,7 @@ async function runModelCheck({
     const labelValidation = keyframeLabels.length > 0
       ? buildKeyframeLabelValidation(model, keyframeLabels, bodySamples)
       : null;
-    const recordingReplay = recording
+    const recordingReplay = shouldCheckRecordingReplay && recording
       ? await runRecordingReplayCheck(client, recording, recordingJsonl, payload.body, minPoseFrames, timeoutMs)
       : null;
     const summary = buildResultSummary(model, payload, {
@@ -717,10 +739,14 @@ async function runModelCheck({
       labelValidation,
       recordingReplay,
     });
+    if (measurementCompletionError) {
+      summary.warnings.push(`${model.label}: measurement completion timed out; saved partial recording when available (${measurementCompletionError.message})`);
+    }
 
     return {
       label: model.label,
       modelPath: model.path,
+      playbackRate,
       ...summary,
       labelValidation,
       recordingReplay,

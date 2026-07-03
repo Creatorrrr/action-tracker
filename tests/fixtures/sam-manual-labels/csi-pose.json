@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "clip": "csi-pose",
+  "video": "output/test-videos/csi-pose.mp4",
+  "fps": 30,
+  "frameCount": 2849,
+  "durationSec": 94.974,
+  "guardBandSec": 0.25,
+  "globalConditions": {
+    "occlusionChanges": [
+      { "fromSec": 0, "occlusion": "table-knee" },
+      { "fromSec": 81, "occlusion": "table-waist" }
+    ]
+  },
+  "segments": [
+    { "t0": 0, "t1": 5, "phase": "hold", "presence": "present", "facing": "front", "arms": "down", "fingers": "idle", "note": "shooting-prep" },
+    { "t0": 5, "t1": 9, "phase": "hold", "presence": "present", "facing": "front", "arms": "crossed", "fingers": "idle" },
+    { "t0": 9, "t1": 13, "phase": "hold", "presence": "present", "facing": "front", "arms": "down", "fingers": "idle" },
+    { "t0": 13, "t1": 19, "phase": "hold", "presence": "present", "facing": "front", "arms": "crossed", "fingers": "idle" },
+    { "t0": 19, "t1": 21, "phase": "hold", "presence": "present", "facing": "front", "arms": "down", "fingers": "idle" },
+    { "t0": 21, "t1": 30, "phase": "hold", "presence": "present", "facing": "front", "arms": "chest-raised", "fingers": "moving" },
+    { "t0": 30, "t1": 34, "phase": "transition", "presence": "present", "facing": "turning", "direction": "to-back", "arms": "down", "fingers": "unobservable" },
+    { "t0": 34, "t1": 37, "phase": "hold", "presence": "present", "facing": "back", "arms": "down", "fingers": "moving", "fingersObservable": false },
+    { "t0": 37, "t1": 42, "phase": "hold", "presence": "present", "facing": "back", "arms": "crossed", "fingers": "unobservable" },
+    { "t0": 42, "t1": 46, "phase": "transition", "presence": "present", "facing": "turning", "direction": "to-front", "arms": "crossed", "fingers": "unobservable" },
+    { "t0": 46, "t1": 49, "phase": "hold", "presence": "present", "facing": "front", "arms": "crossed", "fingers": "idle" },
+    { "t0": 49, "t1": 50, "phase": "transition", "presence": "present", "facing": "front", "arms": "raising-to-palms-near-head", "fingers": "idle" },
+    { "t0": 50, "t1": 55, "phase": "hold", "presence": "present", "facing": "front", "arms": "palms-near-head", "fingers": "moving" },
+    { "t0": 55, "t1": 57, "phase": "transition", "presence": "present", "facing": "front", "arms": "lowering", "fingers": "idle" },
+    { "t0": 57, "t1": 59, "phase": "hold", "presence": "present", "facing": "front", "arms": "forward", "fingers": "idle" },
+    { "t0": 59, "t1": 60, "phase": "hold", "presence": "present", "facing": "front", "arms": "half-forward", "fingers": "idle" },
+    { "t0": 60, "t1": 65, "phase": "transition", "presence": "present", "facing": "turning", "direction": "left-right-front", "arms": "half-forward", "fingers": "idle" },
+    { "t0": 65, "t1": 70, "phase": "transition", "presence": "exiting", "facing": "front", "arms": "down", "fingers": "idle", "exitSide": "screen-left" },
+    { "t0": 70, "t1": 72, "phase": "hold", "presence": "absent", "arms": "none", "fingers": "none" },
+    { "t0": 72, "t1": 78, "phase": "transition", "presence": "present", "facing": "moving", "arms": "unknown", "fingers": "unknown", "crossDirection": "left-to-right", "segmentGuardBandSec": 0.5 },
+    { "t0": 78, "t1": 79, "phase": "hold", "presence": "absent", "arms": "none", "fingers": "none" },
+    { "t0": 79, "t1": 81, "phase": "transition", "presence": "entering", "facing": "front", "arms": "lowering-posture", "fingers": "unknown", "enterSide": "screen-right" },
+    { "t0": 81, "t1": 82, "phase": "transition", "presence": "present", "facing": "front", "arms": "raising-to-palms-near-head", "fingers": "idle" },
+    { "t0": 82, "t1": 84, "phase": "hold", "presence": "present", "facing": "front", "arms": "palms-near-head", "fingers": "moving", "handsOutOfFrame": true },
+    { "t0": 84, "t1": 86, "phase": "transition", "presence": "present", "facing": "front", "arms": "moving-to-behind-back", "fingers": "unobservable" },
+    { "t0": 86, "t1": 88, "phase": "hold", "presence": "present", "facing": "front", "arms": "behind-back", "fingers": "unobservable" },
+    { "t0": 88, "t1": 90, "phase": "transition", "presence": "present", "facing": "front", "arms": "moving-to-crossed", "fingers": "idle" },
+    { "t0": 90, "t1": 92, "phase": "hold", "presence": "present", "facing": "front", "arms": "crossed", "fingers": "idle" },
+    { "t0": 92, "t1": 94.974, "phase": "transition", "presence": "present", "facing": "front", "arms": "camera-reach", "fingers": "unknown" }
+  ]
+}

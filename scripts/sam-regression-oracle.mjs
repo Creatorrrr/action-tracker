@@ -61,12 +61,16 @@ async function main() {
 
   const reportPath = path.resolve(projectRoot, args.report);
   const report = JSON.parse(await readFile(reportPath, "utf8"));
+  const profile = args.profile
+    ? JSON.parse(await readFile(path.resolve(projectRoot, args.profile), "utf8"))
+    : null;
   const oracle = evaluateSamRegressionOracle(report, {
     thresholds: args.thresholds,
     expectations: args.expectations,
     skipProvenance: args.skipProvenance,
     allowMissingFacing: args.allowMissingFacing,
     allowMissingOcclusion: args.allowMissingOcclusion,
+    profile,
   });
 
   const output = {
@@ -91,8 +95,9 @@ function parseArgs(rawArgs) {
   const parsed = {
     report: "",
     output: "",
-    thresholds: { ...DEFAULT_SAM_ORACLE_THRESHOLDS },
-    expectations: { ...DEFAULT_SAM_ORACLE_EXPECTATIONS },
+    profile: "",
+    thresholds: {},
+    expectations: {},
     skipProvenance: false,
     allowMissingFacing: false,
     allowMissingOcclusion: false,
@@ -104,6 +109,8 @@ function parseArgs(rawArgs) {
 
     if (arg === "--report") {
       parsed.report = rawArgs[++index] ?? "";
+    } else if (arg === "--profile") {
+      parsed.profile = rawArgs[++index] ?? "";
     } else if (arg === "--output") {
       parsed.output = rawArgs[++index] ?? "";
     } else if (arg === "--min-paired-ratio") {
@@ -187,12 +194,15 @@ function numberArg(value, flag) {
 }
 
 function evaluateSamRegressionOracle(report, options = {}) {
+  const profile = normalizeOracleProfile(options.profile);
   const thresholds = {
     ...DEFAULT_SAM_ORACLE_THRESHOLDS,
+    ...(profile.thresholds ?? {}),
     ...(options.thresholds ?? {}),
   };
   const expectations = {
     ...DEFAULT_SAM_ORACLE_EXPECTATIONS,
+    ...(profile.expectations ?? {}),
     ...(options.expectations ?? {}),
   };
   const summary = report?.summary ?? {};
@@ -215,11 +225,11 @@ function evaluateSamRegressionOracle(report, options = {}) {
   const facing = summary.facingAgreement ?? {};
   const occlusion = summary.occlusionArmTargetAngle ?? {};
 
-  if (!options.skipProvenance) {
+  if (!Boolean(options.skipProvenance || profile.skipProvenance)) {
     checks.push(...buildProvenanceChecks(report, thresholds, expectations));
   }
 
-  if (Number(facing.count ?? 0) > 0 || !options.allowMissingFacing) {
+  if (Number(facing.count ?? 0) > 0 || !Boolean(options.allowMissingFacing || profile.allowMissingFacing)) {
     checks.push(
       minCountCheck("facingAgreement.count", facing.count, 1),
       minCheck("facingAgreement.agreementRatio", facing.agreementRatio, thresholds.minFacingAgreement),
@@ -258,7 +268,7 @@ function evaluateSamRegressionOracle(report, options = {}) {
     );
   }
 
-  if (Number(occlusion.count ?? 0) > 0 || !options.allowMissingOcclusion) {
+  if (Number(occlusion.count ?? 0) > 0 || !Boolean(options.allowMissingOcclusion || profile.allowMissingOcclusion)) {
     checks.push(
       minCountCheck("occlusionArmTargetAngle.count", occlusion.count, thresholds.minOcclusionCount),
       maxCheck("occlusionArmTargetAngle.p95", occlusion.p95, thresholds.maxOcclusionArmP95Deg),
@@ -266,17 +276,116 @@ function evaluateSamRegressionOracle(report, options = {}) {
     );
   }
 
+  const profileChecks = evaluateProfileChecks(report, profile.checks);
+  checks.push(...profileChecks.filter((check) => check.grade !== "watch"));
+  const warnings = profileChecks.filter((check) => check.grade === "watch" && !check.passed);
   const failedChecks = checks.filter((check) => !check.passed);
 
   return {
     status: failedChecks.length === 0 ? "passed" : "failed",
     generatedAt: new Date().toISOString(),
     oracleType: "sam-3d-body-regression",
+    profile: profile.name,
     thresholds,
     checks,
+    warnings,
+    warningCount: warnings.length,
     failureCount: failedChecks.length,
     failures: failedChecks,
   };
+}
+
+function normalizeOracleProfile(profile) {
+  if (!profile) {
+    return {
+      name: "",
+      thresholds: {},
+      expectations: {},
+      checks: [],
+      allowMissingFacing: false,
+      allowMissingOcclusion: false,
+      skipProvenance: false,
+    };
+  }
+
+  return {
+    name: String(profile.name ?? profile.clip ?? ""),
+    thresholds: profile.thresholds ?? {},
+    expectations: profile.expectations ?? {},
+    checks: Array.isArray(profile.checks) ? profile.checks : [],
+    allowMissingFacing: Boolean(profile.allowMissingFacing),
+    allowMissingOcclusion: Boolean(profile.allowMissingOcclusion),
+    skipProvenance: Boolean(profile.skipProvenance),
+  };
+}
+
+function evaluateProfileChecks(report, checks) {
+  return (checks ?? []).map((check) => {
+    const metric = String(check.metric ?? check.path ?? "");
+    const actual = readPath(report, metric);
+    const expected = check.expected;
+    const operator = check.operator ?? ">=";
+    const passed = compareValues(actual, expected, operator);
+
+    return {
+      metric,
+      actual: formatCheckActual(actual),
+      operator,
+      expected,
+      grade: check.grade === "watch" ? "watch" : "gate",
+      passed,
+      note: check.note ?? "",
+    };
+  });
+}
+
+function readPath(value, pathExpression) {
+  if (!pathExpression) {
+    return undefined;
+  }
+
+  return String(pathExpression)
+    .split(".")
+    .reduce((current, key) => current?.[key], value);
+}
+
+function compareValues(actual, expected, operator) {
+  if (operator === "exists") {
+    return actual !== undefined && actual !== null;
+  }
+  if (operator === "===") {
+    return actual === expected;
+  }
+
+  const actualNumber = Number(actual);
+  const expectedNumber = Number(expected);
+
+  if (!Number.isFinite(actualNumber) || !Number.isFinite(expectedNumber)) {
+    return false;
+  }
+
+  if (operator === ">=") {
+    return actualNumber >= expectedNumber;
+  }
+  if (operator === ">") {
+    return actualNumber > expectedNumber;
+  }
+  if (operator === "<=") {
+    return actualNumber <= expectedNumber;
+  }
+  if (operator === "<") {
+    return actualNumber < expectedNumber;
+  }
+
+  throw new Error(`Unsupported oracle profile operator: ${operator}`);
+}
+
+function formatCheckActual(actual) {
+  if (typeof actual === "boolean" || typeof actual === "string") {
+    return actual;
+  }
+
+  return Number.isFinite(Number(actual)) ? round(Number(actual), 6) : actual ?? null;
 }
 
 function buildProvenanceChecks(report, thresholds, expectations = {}) {
@@ -356,6 +465,7 @@ function round(value, digits = 6) {
 function printUsage() {
   console.log(`Usage:
   node scripts/sam-regression-oracle.mjs --report output/reports/tracker-vs-sam-jujae-v2.json
+  node scripts/sam-regression-oracle.mjs --profile tests/fixtures/sam-oracle-profiles/csi-pose.json --report output/reports/tracker-vs-sam-csi-pose-v1.json
 
 Validates a SAM-3D-Body tracker comparison report produced by
 scripts/motion-recording-compare.mjs. Defaults target the jujae regression

@@ -20,6 +20,10 @@ import {
 } from "./motion-frame.js?v=20260702-recording-jsonl-1";
 import { createMotionForwarder } from "./motion-forwarding.js?v=20260529-face-expression-1";
 import {
+  createPresenceState,
+  updatePresenceState,
+} from "./presence-state.js?v=20260703-csi-presence-1";
+import {
   DEPTH_CALIBRATION_CLAMP_WARNING_RATIO,
   DEPTH_CALIBRATION_LENGTH_ERROR_THRESHOLD,
   DEPTH_CALIBRATION_MIN_CV_SEGMENT_SAMPLES,
@@ -372,6 +376,7 @@ const state = {
     lastUpdatedAt: 0,
     lastSnapshot: null,
   },
+  presenceTracking: createPresenceState(),
   avatarRenderer: null,
   avatarInitPromise: null,
   avatarLoadToken: 0,
@@ -663,6 +668,7 @@ async function startCamera() {
     state.smoothedFps = 0;
     resetAppPerformance();
     resetBodyValidation();
+    resetPresenceTracking();
     state.avatarRenderer?.resetDepthCalibration?.();
     setText("cameraStatus", "Running");
     setText("modelStatus", "Ready");
@@ -756,6 +762,7 @@ async function startVideoFile(file) {
     state.smoothedFps = 0;
     resetAppPerformance();
     resetBodyValidation();
+    resetPresenceTracking();
     state.avatarRenderer?.resetDepthCalibration?.();
     setText("cameraStatus", `Video running: ${file.name}`);
     setText("modelStatus", "Ready");
@@ -820,6 +827,7 @@ function stopCamera(options = {}) {
   state.lastVideoTime = -1;
   state.lastFrameTimestamp = 0;
   state.smoothedFps = 0;
+  resetPresenceTracking();
   clearCanvas();
   resetAvatarPose();
   resetMetrics();
@@ -1568,22 +1576,36 @@ function processMotionFrame(motionFrame, options = {}) {
   const normalizedFrame = isMotionFrame(motionFrame)
     ? motionFrame
     : createMotionFrame({ sourceMeta: getCurrentMotionSourceMeta() });
-  state.latestMotionFrame = normalizedFrame;
-  const poseResults = motionFrameToPoseResults(normalizedFrame);
-  const handResults = motionFrameToHandResults(normalizedFrame);
+  const presence = updatePresenceState(state.presenceTracking, normalizedFrame);
+  const processedFrame = {
+    ...normalizedFrame,
+    sourceMeta: {
+      ...normalizedFrame.sourceMeta,
+      presenceStatus: presence.status,
+      presenceConfidence: presence.confidence,
+      presenceShouldUpdateAvatar: presence.shouldUpdateAvatar,
+      presenceFrames: presence.frames,
+      presenceTransitions: presence.transitions,
+    },
+  };
+  state.latestMotionFrame = processedFrame;
+  const poseResults = motionFrameToPoseResults(processedFrame);
+  const handResults = motionFrameToHandResults(processedFrame);
 
-  updateAvatarRendererFromMotionFrame(normalizedFrame);
+  if (presence.shouldUpdateAvatar) {
+    updateAvatarRendererFromMotionFrame(processedFrame);
+  }
 
   if (state.bodyValidation.enabled) {
-    recordBodyValidation(normalizedFrame);
+    recordBodyValidation(processedFrame);
   }
 
   if (record) {
-    appendMotionRecordingFrame(normalizedFrame);
+    appendMotionRecordingFrame(processedFrame);
   }
 
   if (forward) {
-    state.motionForwarder.sendFrame(normalizedFrame);
+    state.motionForwarder.sendFrame(processedFrame);
   }
 
   if (draw) {
@@ -1593,7 +1615,7 @@ function processMotionFrame(motionFrame, options = {}) {
   }
 
   if (metrics) {
-    updateDetectionMetrics(poseResults, handResults, normalizedFrame.timestamp);
+    updateDetectionMetrics(poseResults, handResults, processedFrame.timestamp);
   }
 }
 
@@ -1961,6 +1983,10 @@ function resetMetrics() {
   updateMotionStatusHud({ force: true });
 }
 
+function resetPresenceTracking() {
+  state.presenceTracking = createPresenceState();
+}
+
 function resetDepthCalibrationFromUi() {
   try {
     const snapshot = state.avatarRenderer?.resetDepthCalibration?.() ?? null;
@@ -2030,9 +2056,12 @@ function buildMotionStatusHudSnapshot() {
   const frameAgeP95Ms = appReport.samples?.frameAge?.p95Ms ?? 0;
   const poseSolverP95Ms = avatarPerformance?.samples?.poseSolver?.p95Ms ?? 0;
   const active = state.active || state.motionReplay.active;
+  const presence = state.presenceTracking ?? createPresenceState();
 
   return {
     active,
+    presence: presence.status,
+    presenceConfidence: presence.confidence,
     facing,
     mode,
     quality: resolveMotionQuality({
@@ -2051,6 +2080,7 @@ function buildMotionStatusHudSnapshot() {
     droppedFrameWork,
     processedFrames,
     facingLabel: formatStatusToken(facing),
+    presenceLabel: formatStatusToken(presence.status),
     modeLabel: formatStatusToken(mode),
     qualityLabel: resolveMotionQualityLabel({
       active,
@@ -2158,6 +2188,10 @@ function resolveMotionQuality({
     return "no-pose";
   }
 
+  if (state.presenceTracking?.status === "absent") {
+    return "absent";
+  }
+
   const mode = poseSolver?.mode ?? poseSolverMetrics?.currentMode ?? "lost";
 
   if (mode === "lost") {
@@ -2192,6 +2226,7 @@ function resolveMotionQualityLabel(input) {
   const labels = {
     idle: "Idle",
     "no-pose": "No pose",
+    absent: "Absent",
     lost: "Lost",
     "hinge-fail": "Hinge fail",
     lagging: "Lagging",
@@ -2444,6 +2479,14 @@ function getAppPerformanceReport() {
       detection: elapsedSeconds > 0 ? state.detectionPump.processedFrames / elapsedSeconds : 0,
     },
     faceTracking: getFaceTrackingStatus(),
+    presenceTracking: {
+      status: state.presenceTracking.status,
+      confidence: state.presenceTracking.confidence,
+      presentFrames: state.presenceTracking.presentFrames,
+      absentFrames: state.presenceTracking.absentFrames,
+      transitions: state.presenceTracking.transitions,
+      frames: state.presenceTracking.frames,
+    },
     samples: {
       callbackInterval: summarizeAppPerformanceSamples(state.appPerformance.callbackIntervalsMs),
       detectionInterval: summarizeAppPerformanceSamples(state.appPerformance.detectIntervalsMs),
@@ -2599,6 +2642,12 @@ function getTrackedChannelReport() {
     timestamp: Number(frame?.timestamp ?? 0),
     mirrored: Boolean(frame?.mirrored),
     sourceMeta: frame?.sourceMeta ?? {},
+    presence: {
+      status: state.presenceTracking.status,
+      confidence: state.presenceTracking.confidence,
+      shouldUpdateAvatar: frame?.sourceMeta?.presenceShouldUpdateAvatar ?? null,
+      transitions: state.presenceTracking.transitions,
+    },
     body: {
       poseLandmarkCount: landmarkCount(frame?.poseLandmarks),
       poseWorldLandmarkCount: landmarkCount(frame?.poseWorldLandmarks),

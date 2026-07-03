@@ -24,6 +24,7 @@ coverage/
 .implementation-orchestrator-runs/
 .codex-analysis/
 output/
+sam-3d-body-skeletons/
 avatar-*.png
 avatar-page.png
 

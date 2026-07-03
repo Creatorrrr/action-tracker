@@ -13,9 +13,11 @@ import {
 } from "../src/skeleton/mhr70-mapping.js";
 
 assert.equal(MHR70_JOINT_NAMES.length, MHR70_JOINT_COUNT);
-assert.ok(MHR70_MAPPING_NOTES.wrist.includes("proxy"));
-assert.equal(MHR70_JOINT_NAMES[3], "left_ear_proxy");
-assert.equal(MHR70_JOINT_NAMES[4], "right_ear_proxy");
+assert.ok(MHR70_MAPPING_NOTES.wrist.includes("left_wrist"));
+assert.equal(MHR70_JOINT_NAMES[3], "left_ear");
+assert.equal(MHR70_JOINT_NAMES[4], "right_ear");
+assert.equal(MHR70_JOINT_NAMES[41], "right_wrist");
+assert.equal(MHR70_JOINT_NAMES[62], "left_wrist");
 
 for (const [mediaPipeIndex, mhrIndex] of Object.entries(MHR70_TO_MEDIAPIPE33)) {
   assert.ok(Number(mediaPipeIndex) >= 0 && Number(mediaPipeIndex) < MEDIAPIPE_POSE_LANDMARK_COUNT);

@@ -15,6 +15,34 @@ const passingOracle = evaluateSamRegressionOracle(passingReport);
 assert.equal(passingOracle.status, "passed");
 assert.equal(passingOracle.failureCount, 0);
 
+const profiledOracle = evaluateSamRegressionOracle(passingReport, {
+  profile: {
+    name: "profiled-unit",
+    thresholds: {
+      minOfflineUsageRatio: 0.45,
+    },
+    checks: [
+      { metric: "manualLabelsProvided", operator: "===", expected: true, grade: "gate" },
+      { metric: "summary.validPairedRatio", operator: ">=", expected: 0.9, grade: "gate" },
+      { metric: "summary.presenceAgreement.absentSuppressionRatio", operator: ">=", expected: 0.9, grade: "watch" },
+    ],
+  },
+});
+assert.equal(profiledOracle.status, "passed");
+assert.equal(profiledOracle.profile, "profiled-unit");
+assert.equal(profiledOracle.warningCount, 1);
+assert.ok(profiledOracle.warnings.some((check) => check.metric === "summary.presenceAgreement.absentSuppressionRatio"));
+
+const profiledGateFailure = evaluateSamRegressionOracle(passingReport, {
+  profile: {
+    checks: [
+      { metric: "summary.validPairedRatio", operator: ">=", expected: 1.1, grade: "gate" },
+    ],
+  },
+});
+assert.equal(profiledGateFailure.status, "failed");
+assert.ok(profiledGateFailure.failures.some((check) => check.metric === "summary.validPairedRatio"));
+
 const degradedTargetReport = createReport({
   summary: {
     targetAngle: {
@@ -111,14 +139,23 @@ assert.equal(
 
 const passPath = path.join(tempDir, "pass.json");
 const failPath = path.join(tempDir, "fail.json");
+const profilePath = path.join(tempDir, "profile.json");
 const outputPath = path.join(tempDir, "oracle-output.json");
 await writeFile(passPath, `${JSON.stringify(passingReport, null, 2)}\n`);
 await writeFile(failPath, `${JSON.stringify(degradedTargetReport, null, 2)}\n`);
+await writeFile(profilePath, `${JSON.stringify({
+  name: "cli-profile",
+  checks: [
+    { metric: "manualLabelsProvided", operator: "===", expected: true, grade: "gate" },
+  ],
+}, null, 2)}\n`);
 
 const passResult = spawnSync(process.execPath, [
   path.join(projectRoot, "scripts/sam-regression-oracle.mjs"),
   "--report",
   passPath,
+  "--profile",
+  profilePath,
   "--output",
   outputPath,
 ], {
@@ -127,6 +164,7 @@ const passResult = spawnSync(process.execPath, [
 });
 assert.equal(passResult.status, 0, passResult.stderr || passResult.stdout);
 assert.equal(JSON.parse(await readFile(outputPath, "utf8")).status, "passed");
+assert.equal(JSON.parse(await readFile(outputPath, "utf8")).profile, "cli-profile");
 
 const failResult = spawnSync(process.execPath, [
   path.join(projectRoot, "scripts/sam-regression-oracle.mjs"),
@@ -155,11 +193,16 @@ function createReport(overrides = {}) {
     labelsProvided: true,
     labelFrameCount: 120,
     labelWindowCount: 4,
+    manualLabelsProvided: true,
+    manualLabelFrameCount: 120,
+    manualLabelWindowCount: 8,
     summary: {
       liveFrames: 120,
       offlineFrames: 120,
       pairedFrames: 120,
       pairedRatio: 1,
+      validPairedRatio: 0.95,
+      excludedPairs: 12,
       offlineUsageRatio: 0.5,
       timestampDelta: {
         count: 120,
@@ -211,6 +254,15 @@ function createReport(overrides = {}) {
           p95: 27,
           max: 45,
         },
+      },
+      presenceAgreement: {
+        expectedAbsentFrames: 12,
+        absentSuppressionRatio: 0.5,
+      },
+      gestureAgreement: {
+        samVsManualRatio: 0.8,
+        trackerVsManualRatio: 0.8,
+        trackerVsSamRatio: 1,
       },
     },
   };

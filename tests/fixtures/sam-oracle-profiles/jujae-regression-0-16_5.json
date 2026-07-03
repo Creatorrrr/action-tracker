@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "name": "jujae-regression-0-16_5",
+  "expectations": {
+    "comparisonType": "live-vs-offline-motion-recording",
+    "timestampSource": "sourceMeta.videoTime",
+    "interpolate": "offline",
+    "offsetMode": "auto",
+    "liveTargetStabilization": true,
+    "offlineTargetStabilization": false,
+    "labelsProvided": true
+  },
+  "thresholds": {
+    "minPairedRatio": 0.95,
+    "maxTimestampP95Ms": 25,
+    "maxTargetP95Deg": 50,
+    "maxTargetWeightedP95Deg": 50,
+    "maxTargetMaxDeg": 180,
+    "maxHingeP95Deg": 55,
+    "minOfflineUsageRatio": 0.35,
+    "maxBracketGapP95Ms": 50,
+    "maxBracketGapMaxMs": 250,
+    "minTargetWeightSum": 1,
+    "minFacingAgreement": 0.95,
+    "minStableFacingAgreement": 0.6,
+    "minYawStateFacingAgreement": 0.78,
+    "minYawToleranceFacingAgreement": 0.93,
+    "minBackSideFacingAgreement": 0.9,
+    "minStableBackSideFacingAgreement": 0.4,
+    "minYawBackSideFacingAgreement": 0.7,
+    "maxYawP95Deg": 35,
+    "minOcclusionCount": 16,
+    "maxOcclusionArmP95Deg": 75,
+    "maxOcclusionArmMaxDeg": 120,
+    "maxPairingDeltaMs": 25,
+    "maxEstimatedOffsetAbsMs": 500
+  },
+  "checks": []
+}

@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { createMotionRecording, serializeMotionRecordingJsonl } from "../src/motion-frame.js";
 import { compareRecordings, loadRecording, renderComparisonHtml } from "../scripts/motion-recording-compare.mjs";
 import { createSyntheticSequence } from "../scripts/generate-synthetic-landmarks.mjs";
+import { compileManualLabels } from "../src/labels/manual-labels.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const tempDir = await mkdtemp(path.join(os.tmpdir(), "action-tracker-compare-"));
@@ -46,6 +47,69 @@ assert.equal(windowedIdentityReport.byLabelWindowKind["left-behind-back"].armTar
 assert.equal(windowedIdentityReport.summary.occlusionArmTargetAngle.count, 4 * identityRecording.frames.length);
 assert.equal(windowedIdentityReport.summary.occlusionArmTargetAngle.max, 0);
 
+const absentManualLabels = compileManualLabels({
+  version: 1,
+  clip: "manual-absent-unit",
+  fps: 30,
+  frameCount: identityRecording.frames.length,
+  durationSec: identityRecording.frames.length / 30,
+  guardBandSec: 0,
+  segments: [
+    {
+      t0: 0,
+      t1: identityRecording.frames.length / 30,
+      phase: "hold",
+      presence: "absent",
+      arms: "none",
+      fingers: "none",
+    },
+  ],
+});
+const manualExcludedReport = compareRecordings(identityRecording, identityRecording, {
+  manualLabels: absentManualLabels,
+});
+assert.equal(manualExcludedReport.manualLabelsProvided, true);
+assert.equal(manualExcludedReport.summary.excludedPairs, identityRecording.frames.length);
+assert.equal(manualExcludedReport.summary.validPairedFrames, 0);
+assert.equal(manualExcludedReport.summary.targetAngle.count, 0);
+assert.equal(manualExcludedReport.summary.presenceAgreement.expectedAbsentFrames, identityRecording.frames.length);
+assert.equal(manualExcludedReport.summary.presenceAgreement.ghostFrames, identityRecording.frames.length);
+assert.equal(manualExcludedReport.byManualWindow["manual:reference-invalid:absent"].targetAngle.count, 0);
+
+const handRecording = withSyntheticHands(identityRecording);
+const handManualLabels = compileManualLabels({
+  version: 1,
+  clip: "manual-fingers-unit",
+  fps: 30,
+  frameCount: handRecording.frames.length,
+  durationSec: handRecording.frames.length / 30,
+  guardBandSec: 0,
+  segments: [
+    {
+      t0: 0,
+      t1: handRecording.frames.length / 30,
+      phase: "hold",
+      presence: "present",
+      facing: "front",
+      arms: "palms-near-head",
+      fingers: "moving",
+    },
+  ],
+});
+const handReport = compareRecordings(handRecording, handRecording, {
+  manualLabels: handManualLabels,
+});
+assert.equal(handReport.summary.fingerMotion.count, handRecording.frames.length - 1);
+assert.equal(handReport.summary.fingerMotion.energyDelta.max, 0);
+assert.ok(handReport.byManualFingerMotion.moving.offlineEnergy.mean > 0);
+assert.equal(handReport.byManualFingerMotion.idle.windowCount, 0);
+const handHtml = renderComparisonHtml(handReport);
+assert.ok(handHtml.includes("Manual Window Gates"));
+assert.ok(handHtml.includes("Gesture Agreement"));
+assert.ok(handHtml.includes("Finger Motion"));
+assert.ok(handHtml.includes("palms-near-head"));
+assert.ok(handHtml.includes("Pass"));
+
 const differentReport = compareRecordings(identityRecording, turnRecording);
 assert.equal(differentReport.summary.pairedFrames, identityRecording.frames.length);
 assert.ok(
@@ -56,6 +120,7 @@ const differentHtml = renderComparisonHtml(differentReport);
 assert.ok(differentHtml.includes("Live vs Offline Motion Comparison"));
 assert.ok(differentHtml.includes("Target Angle Delta Timeline"));
 assert.ok(differentHtml.includes("<polyline"));
+assert.ok(differentHtml.includes("Time"));
 
 const sourceTimedLive = withVideoTime(identityRecording, 10_000);
 const sourceTimedOffline = withVideoTime(identityRecording, 0);
@@ -260,6 +325,31 @@ function repeatRecordingWithTimestampOffset(recording, timestampOffsetMs) {
       })),
     ],
   });
+}
+
+function withSyntheticHands(recording) {
+  return createMotionRecording({
+    source: recording.source,
+    createdAt: recording.createdAt,
+    droppedFrames: recording.droppedFrames,
+    frames: recording.frames.map((frame, frameIndex) => ({
+      ...frame,
+      leftHandLandmarks: createHand(frameIndex, 0.35),
+      rightHandLandmarks: createHand(frameIndex, 0.65),
+      leftHandWorldLandmarks: createHand(frameIndex, 0),
+      rightHandWorldLandmarks: createHand(frameIndex, 0.1),
+    })),
+  });
+}
+
+function createHand(frameIndex, baseX) {
+  return Array.from({ length: 21 }, (_, index) => ({
+    x: baseX + index * 0.001 + frameIndex * 0.002,
+    y: 0.4 + index * 0.001,
+    z: index * 0.0005,
+    visibility: 1,
+    presence: 1,
+  }));
 }
 
 function withVideoTime(recording, timestampOffsetMs) {

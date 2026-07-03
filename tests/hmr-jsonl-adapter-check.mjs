@@ -58,6 +58,8 @@ const mhr70Result = spawnSync(process.execPath, [
   mhr70InputPath,
   "--joint-format",
   "mhr70",
+  "--hands",
+  "mhr70",
   "--output",
   mhr70OutputPath,
 ], {
@@ -74,12 +76,15 @@ assert.equal(mhr70Summary.extractor, "sam3d-body");
 assert.equal(mhr70Summary.frameCount, 2);
 assert.equal(mhr70Summary.poseLandmarksPerFrame, 33);
 assert.equal(mhr70Summary.poseWorldLandmarksPerFrame, 33);
+assert.equal(mhr70Summary.framesWithLeftHand, 2);
+assert.equal(mhr70Summary.framesWithRightHand, 2);
 
 const mhr70Recording = parseMotionRecordingJsonl(await readFile(mhr70OutputPath, "utf8"));
 assert.equal(mhr70Recording.source.type, "external-hmr");
 assert.equal(mhr70Recording.source.extractor, "sam3d-body");
 assert.equal(mhr70Recording.source.jointFormat, "mhr70");
 assert.equal(mhr70Recording.source.mapping, "mhr70-to-mediapipe33");
+assert.equal(mhr70Recording.source.hands, "mhr70-to-mediapipe21");
 assert.equal(mhr70Recording.source.axisAuditSamples, 2);
 assert.equal(mhr70Recording.source.worldAxisZ, "native");
 assert.equal(mhr70Recording.frames.length, 2);
@@ -90,10 +95,15 @@ assert.equal(mhr70Recording.frames[0].poseWorldLandmarks[12].x, -0.4);
 assert.equal(mhr70Recording.frames[0].poseWorldLandmarks[11].y, -0.5);
 assert.equal(mhr70Recording.frames[0].poseWorldLandmarks[23].x, 0.2);
 assert.equal(mhr70Recording.frames[0].sourceMeta.mapping, "mhr70-to-mediapipe33");
+assert.equal(mhr70Recording.frames[0].sourceMeta.hands, "mhr70-to-mediapipe21");
 assert.equal(mhr70Recording.frames[0].sourceMeta.worldAxisZ, "native");
 assert.equal(mhr70Recording.frames[0].sourceMeta.axisAuditYDown, true);
 assert.equal(mhr70Recording.frames[0].sourceMeta.axisAuditZCameraNegative, true);
 assert.equal(mhr70Recording.frames[0].sourceMeta.sourceFrameIndex, 0);
+assert.equal(mhr70Recording.frames[0].leftHandLandmarks.length, 21);
+assert.equal(mhr70Recording.frames[0].rightHandLandmarks.length, 21);
+assert.equal(mhr70Recording.frames[0].leftHandWorldLandmarks.length, 21);
+assert.equal(mhr70Recording.frames[0].rightHandWorldLandmarks.length, 21);
 assert.equal(mhr70Recording.frames[1].timestamp, 16.666666666666668);
 
 console.log("HMR JSONL adapter check passed.");

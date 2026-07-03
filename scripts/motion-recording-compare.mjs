@@ -7,6 +7,11 @@ import {
   parseMotionRecordingJsonl,
 } from "../src/motion-frame.js";
 import { solvePoseFrame } from "../src/solver/pose-solver.js";
+import {
+  findManualFrameForTimestamp,
+  isInvalidReferenceKind,
+} from "../src/labels/manual-labels.js";
+import { classifyArmGesture } from "../src/labels/gesture-classifier.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const scriptPath = fileURLToPath(import.meta.url);
@@ -34,6 +39,7 @@ async function main() {
   const live = await loadRecording(args.live);
   const offline = await loadRecording(args.offline);
   const labels = args.labels ? await loadLabels(args.labels) : null;
+  const manualLabels = args.manualLabels ? await loadLabels(args.manualLabels) : null;
   const report = compareRecordings(live, offline, {
     maxTimestampDeltaMs: args.maxTimestampDeltaMs,
     timestampSource: args.timestampSource,
@@ -42,6 +48,7 @@ async function main() {
     offsetMs: args.offsetMs,
     maxBracketGapMs: args.maxBracketGapMs,
     labels,
+    manualLabels,
   });
 
   if (args.output) {
@@ -75,6 +82,7 @@ function parseArgs(rawArgs) {
     output: "",
     html: "",
     labels: "",
+    manualLabels: "",
     maxTimestampDeltaMs: 50,
     timestampSource: "timestamp",
     timestampWrap: "none",
@@ -97,6 +105,8 @@ function parseArgs(rawArgs) {
       parsed.html = rawArgs[++index] ?? "";
     } else if (arg === "--labels") {
       parsed.labels = rawArgs[++index] ?? "";
+    } else if (arg === "--manual-labels") {
+      parsed.manualLabels = rawArgs[++index] ?? "";
     } else if (arg === "--max-timestamp-delta-ms") {
       parsed.maxTimestampDeltaMs = Number(rawArgs[++index] ?? parsed.maxTimestampDeltaMs);
     } else if (arg === "--timestamp-source") {
@@ -193,9 +203,18 @@ export function compareRecordings(live, offline, options = {}) {
     });
   const targetAngleRows = [];
   const hingeFlexRows = [];
+  const fingerMotionRows = collectFingerMotionRows(pairs);
   const labels = normalizeReferenceLabels(options.labels, {
     offsetMs: estimatedOffsetMs,
   });
+  const manualLabels = normalizeReferenceLabels(options.manualLabels, {
+    offsetMs: estimatedOffsetMs,
+  });
+  const invalidReferenceWindows = manualLabels.windows.filter((window) =>
+    isInvalidReferenceKind(window.kind) ||
+    (window.kind === "manual:presence:absent:hold") ||
+    window.presence === "absent"
+  );
   const facingRows = [];
 
   for (const pair of pairs) {
@@ -203,6 +222,13 @@ export function compareRecordings(live, offline, options = {}) {
     collectHingeFlexRows(hingeFlexRows, pair);
     collectFacingRows(facingRows, pair, findReferenceLabelForPair(pair, labels, maxTimestampDeltaMs));
   }
+
+  const validTargetAngleRows = rowsOutsideWindows(targetAngleRows, invalidReferenceWindows);
+  const validHingeFlexRows = rowsOutsideWindows(hingeFlexRows, invalidReferenceWindows);
+  const validFacingRows = rowsOutsideWindows(facingRows, invalidReferenceWindows);
+  const presenceRows = collectPresenceRows(pairs, manualLabels);
+  const gestureRows = collectGestureRows(pairs, manualLabels);
+  const excludedPosePairCount = countPairsInWindows(pairs, invalidReferenceWindows);
 
   return {
     generatedAt: new Date().toISOString(),
@@ -220,6 +246,9 @@ export function compareRecordings(live, offline, options = {}) {
     labelsProvided: Boolean(options.labels),
     labelFrameCount: labels.frames.length,
     labelWindowCount: labels.windows.length,
+    manualLabelsProvided: Boolean(options.manualLabels),
+    manualLabelFrameCount: manualLabels.frames.length,
+    manualLabelWindowCount: manualLabels.windows.length,
     appliedLabelOffsetMs: round(estimatedOffsetMs, 3),
     live: summarizeRecordingSource(live),
     offline: summarizeRecordingSource(offline),
@@ -231,6 +260,9 @@ export function compareRecordings(live, offline, options = {}) {
       pairedRatio: round(ratio(pairs.length, live.frames.length), 6),
       offlineUsedFrames: countUniqueOfflineFrames(pairs),
       offlineUsageRatio: round(ratio(countUniqueOfflineFrames(pairs), offline.frames.length), 6),
+      validPairedFrames: pairs.length - excludedPosePairCount,
+      excludedPairs: excludedPosePairCount,
+      validPairedRatio: round(ratio(pairs.length - excludedPosePairCount, live.frames.length), 6),
       timestampDelta: summarizeRows(pairs.map((pair) => ({
         timestampDeltaMs: pair.timestampDeltaMs,
         confidenceWeight: 1,
@@ -242,26 +274,34 @@ export function compareRecordings(live, offline, options = {}) {
         })).filter((row) => Number.isFinite(row.bracketGapMs)), "bracketGapMs")
         : null,
       bracketGapSkippedFrames: interpolationStats.bracketGapSkippedFrames,
-      targetAngle: summarizeRows(targetAngleRows, "angleDeltaDeg"),
+      targetAngle: summarizeRows(validTargetAngleRows, "angleDeltaDeg"),
       occlusionArmTargetAngle: summarizeRows(rowsInWindowKinds(
-        targetAngleRows.filter((row) => row.group === "arms"),
+        validTargetAngleRows.filter((row) => row.group === "arms"),
         labels.windows,
         ARM_OCCLUSION_WINDOW_KINDS,
       ), "angleDeltaDeg"),
-      hingeFlex: summarizeRows(hingeFlexRows, "flexDeltaDeg"),
-      facingAgreement: summarizeFacingRows(facingRows),
+      hingeFlex: summarizeRows(validHingeFlexRows, "flexDeltaDeg"),
+      facingAgreement: summarizeFacingRows(validFacingRows),
+      presenceAgreement: summarizePresenceRows(presenceRows),
+      fingerMotion: summarizeFingerMotionRows(rowsOutsideWindows(fingerMotionRows, invalidReferenceWindows)),
+      gestureAgreement: summarizeGestureRows(gestureRows),
     },
-    timeline: buildComparisonTimeline(pairs, targetAngleRows, hingeFlexRows),
-    byTarget: summarizeRowsByKey(targetAngleRows, "bone", "angleDeltaDeg"),
-    byHinge: summarizeRowsByKey(hingeFlexRows, "name", "flexDeltaDeg"),
-    byLabelWindowKind: summarizeRowsByLabelWindowKind(labels.windows, targetAngleRows, hingeFlexRows, facingRows),
-    byReferenceFacing: summarizeFacingRowsByState(facingRows),
+    timeline: buildComparisonTimeline(pairs, validTargetAngleRows, validHingeFlexRows),
+    byTarget: summarizeRowsByKey(validTargetAngleRows, "bone", "angleDeltaDeg"),
+    byHinge: summarizeRowsByKey(validHingeFlexRows, "name", "flexDeltaDeg"),
+    byLabelWindowKind: summarizeRowsByLabelWindowKind(labels.windows, validTargetAngleRows, validHingeFlexRows, validFacingRows, fingerMotionRows),
+    byManualWindow: summarizeRowsByLabelWindowKind(manualLabels.windows, validTargetAngleRows, validHingeFlexRows, validFacingRows, fingerMotionRows),
+    byManualFingerMotion: summarizeFingerMotionByManualFingers(manualLabels.windows, fingerMotionRows),
+    byManualGesture: summarizeGestureRowsByManualArms(manualLabels.windows, gestureRows),
+    byReferenceFacing: summarizeFacingRowsByState(validFacingRows),
+    presenceRows,
+    gestureRows,
     facingRows,
-    worstTargets: targetAngleRows
+    worstTargets: validTargetAngleRows
       .slice()
       .sort((a, b) => b.angleDeltaDeg - a.angleDeltaDeg)
       .slice(0, 20),
-    worstHinges: hingeFlexRows
+    worstHinges: validHingeFlexRows
       .slice()
       .sort((a, b) => b.flexDeltaDeg - a.flexDeltaDeg)
       .slice(0, 20),
@@ -290,6 +330,12 @@ export function renderComparisonHtml(report) {
       --accent: #0f766e;
       --warn: #b45309;
       --danger: #b91c1c;
+      --ok-bg: #dcfce7;
+      --ok-text: #166534;
+      --warn-bg: #fef3c7;
+      --warn-text: #92400e;
+      --fail-bg: #fee2e2;
+      --fail-text: #991b1b;
     }
     * { box-sizing: border-box; }
     body {
@@ -353,6 +399,18 @@ export function renderComparisonHtml(report) {
       vertical-align: top;
     }
     th { color: var(--muted); font-weight: 600; }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .badge.pass { background: var(--ok-bg); color: var(--ok-text); }
+    .badge.warn { background: var(--warn-bg); color: var(--warn-text); }
+    .badge.fail { background: var(--fail-bg); color: var(--fail-text); }
     .empty {
       padding: 20px;
       border: 1px dashed var(--border);
@@ -383,6 +441,11 @@ export function renderComparisonHtml(report) {
       ${renderMetricCard("Hinge P95", `${formatNumber(summary.hingeFlex?.p95)} deg`)}
       ${renderMetricCard("Facing Agreement", `${formatNumber((summary.facingAgreement?.agreementRatio ?? 0) * 100, 1)}%`)}
       ${renderMetricCard("Back/Side Facing", `${formatNumber((summary.facingAgreement?.backSideAgreementRatio ?? 0) * 100, 1)}%`)}
+      ${renderMetricCard("Valid Paired Ratio", `${formatNumber((summary.validPairedRatio ?? summary.pairedRatio ?? 0) * 100, 1)}%`)}
+      ${renderMetricCard("Excluded Pairs", summary.excludedPairs ?? 0)}
+      ${renderMetricCard("Absent Suppression", `${formatNumber((summary.presenceAgreement?.absentSuppressionRatio ?? 0) * 100, 1)}%`)}
+      ${renderMetricCard("Tracker/Manual Gesture", `${formatNumber((summary.gestureAgreement?.trackerVsManualRatio ?? 0) * 100, 1)}%`)}
+      ${renderMetricCard("SAM/Manual Gesture", `${formatNumber((summary.gestureAgreement?.samVsManualRatio ?? 0) * 100, 1)}%`)}
     </div>
     <div class="grid">
       <section>
@@ -403,6 +466,26 @@ export function renderComparisonHtml(report) {
     <section>
       <h2>Hinges By Joint</h2>
       ${renderSummaryTable(report?.byHinge, "Joint")}
+    </section>
+    <section>
+      <h2>Manual Window Gates</h2>
+      <div class="muted">Hold windows use the default oracle limits where applicable: target p95 <= 50deg, arm p95 <= 75deg, hinge p95 <= 55deg, facing agreement >= 90%. Reference-invalid windows pass only when pose rows are excluded.</div>
+      ${renderManualWindowGateTable(report?.byManualWindow)}
+    </section>
+    <div class="grid">
+      <section>
+        <h2>Gesture Agreement</h2>
+        ${renderGestureAgreementTable(report?.byManualGesture)}
+      </section>
+      <section>
+        <h2>Presence</h2>
+        ${renderPresenceAgreementTable(summary.presenceAgreement)}
+      </section>
+    </div>
+    <section>
+      <h2>Finger Motion</h2>
+      <div class="muted">Finger rows are watch metrics unless both live tracker and offline SAM hand landmarks are available.</div>
+      ${renderFingerMotionTable(report?.byManualFingerMotion)}
     </section>
     <div class="grid">
       <section>
@@ -839,7 +922,7 @@ function summarizeFacingRowsByState(rows) {
   );
 }
 
-function summarizeRowsByLabelWindowKind(windows, targetAngleRows, hingeFlexRows, facingRows) {
+function summarizeRowsByLabelWindowKind(windows, targetAngleRows, hingeFlexRows, facingRows, fingerMotionRows = []) {
   const groupedWindows = groupRowsByKey(normalizeReferenceWindows(windows), "kind");
 
   return Object.fromEntries(Object.entries(groupedWindows).map(([kind, kindWindows]) => {
@@ -848,6 +931,7 @@ function summarizeRowsByLabelWindowKind(windows, targetAngleRows, hingeFlexRows,
     const hinges = rowsInWindows(hingeFlexRows, kindWindows);
     const armHinges = hinges.filter((row) => row.group === "arms");
     const facing = rowsInWindows(facingRows, kindWindows);
+    const fingers = rowsInWindows(fingerMotionRows, kindWindows);
 
     return [kind, {
       windowCount: kindWindows.length,
@@ -861,6 +945,8 @@ function summarizeRowsByLabelWindowKind(windows, targetAngleRows, hingeFlexRows,
       hingeFlex: summarizeRows(hinges, "flexDeltaDeg"),
       armHingeFlex: summarizeRows(armHinges, "flexDeltaDeg"),
       facingAgreement: summarizeFacingRows(facing),
+      fingerMotion: summarizeFingerMotionRows(fingers),
+      phase: kindWindows[0]?.phase ?? null,
     }];
   }));
 }
@@ -886,6 +972,357 @@ function rowsInWindows(rows, windows) {
       timestamp >= window.startMs && timestamp <= window.endMs
     );
   });
+}
+
+function rowsOutsideWindows(rows, windows) {
+  const normalizedWindows = normalizeReferenceWindows(windows);
+
+  if (!Array.isArray(rows) || rows.length === 0 || normalizedWindows.length === 0) {
+    return Array.isArray(rows) ? rows : [];
+  }
+
+  return rows.filter((row) => {
+    const timestamp = Number(row.timestamp);
+    return Number.isFinite(timestamp) && !normalizedWindows.some((window) =>
+      timestamp >= window.startMs && timestamp <= window.endMs
+    );
+  });
+}
+
+function countPairsInWindows(pairs, windows) {
+  const normalizedWindows = normalizeReferenceWindows(windows);
+
+  if (!Array.isArray(pairs) || pairs.length === 0 || normalizedWindows.length === 0) {
+    return 0;
+  }
+
+  return pairs.filter((pair) => {
+    const timestamp = Number(pair.live?.timestamp);
+    return Number.isFinite(timestamp) && normalizedWindows.some((window) =>
+      timestamp >= window.startMs && timestamp <= window.endMs
+    );
+  }).length;
+}
+
+function collectPresenceRows(pairs, manualLabels) {
+  if (!manualLabels || !Array.isArray(manualLabels.frames) || manualLabels.frames.length === 0) {
+    return [];
+  }
+
+  return pairs.map((pair) => {
+    const manual = findManualFrameForTimestamp(manualLabels, pair.live.timestamp);
+    const liveConfidence = estimateFramePresenceConfidence(pair.live.frame);
+    const expectedPresence = manual?.presence ?? "unknown";
+    const livePresent = liveConfidence > 0.2;
+    const expectedPresent = expectedPresence !== "absent";
+
+    return {
+      liveIndex: pair.live.index,
+      offlineIndex: pair.offline.index,
+      timestamp: Number(pair.live.timestamp),
+      videoTime: Number(pair.live.timestamp) / 1000,
+      expectedPresence,
+      expectedPresent,
+      liveConfidence: round(liveConfidence, 6),
+      livePresent,
+      matches: expectedPresence === "unknown" ? null : livePresent === expectedPresent,
+      confidenceWeight: 1,
+    };
+  });
+}
+
+function collectGestureRows(pairs, manualLabels) {
+  if (!manualLabels || !Array.isArray(manualLabels.frames) || manualLabels.frames.length === 0) {
+    return [];
+  }
+
+  return pairs.map((pair) => {
+    const manual = findManualFrameForTimestamp(manualLabels, pair.live.timestamp);
+    const manualArms = normalizeManualArmsForAgreement(manual?.arms);
+    const liveGesture = classifyArmGesture(pair.live.frame);
+    const offlineGesture = classifyArmGesture(pair.offline.frame);
+    const liveArms = normalizeGestureArms(liveGesture.arms);
+    const offlineArms = normalizeGestureArms(offlineGesture.arms);
+    const hasManual = manualArms !== "unknown" && manualArms !== "none" && !manualArms.startsWith("moving-to-") &&
+      !manualArms.startsWith("raising-to-") && manualArms !== "lowering" && manualArms !== "camera-reach";
+
+    return {
+      liveIndex: pair.live.index,
+      offlineIndex: pair.offline.index,
+      timestamp: Number(pair.live.timestamp),
+      manualArms,
+      liveArms,
+      offlineArms,
+      trackerVsManual: hasManual ? liveArms === manualArms : null,
+      samVsManual: hasManual ? offlineArms === manualArms : null,
+      trackerVsSam: liveArms === offlineArms,
+      liveConfidence: round(liveGesture.confidence ?? 0, 6),
+      offlineConfidence: round(offlineGesture.confidence ?? 0, 6),
+      confidenceWeight: Math.min(liveGesture.confidence ?? 0, offlineGesture.confidence ?? 0),
+    };
+  });
+}
+
+function summarizeGestureRows(rows) {
+  const comparableToManual = rows.filter((row) => row.trackerVsManual !== null && row.samVsManual !== null);
+  const trackerManualMatched = comparableToManual.filter((row) => row.trackerVsManual).length;
+  const samManualMatched = comparableToManual.filter((row) => row.samVsManual).length;
+  const trackerSamMatched = rows.filter((row) => row.trackerVsSam).length;
+
+  return {
+    count: rows.length,
+    manualComparableCount: comparableToManual.length,
+    trackerVsManualMatched: trackerManualMatched,
+    trackerVsManualRatio: round(ratio(trackerManualMatched, comparableToManual.length), 6),
+    samVsManualMatched: samManualMatched,
+    samVsManualRatio: round(ratio(samManualMatched, comparableToManual.length), 6),
+    trackerVsSamMatched: trackerSamMatched,
+    trackerVsSamRatio: round(ratio(trackerSamMatched, rows.length), 6),
+    byManualArms: summarizeGestureRowsByKey(comparableToManual, "manualArms"),
+    byLiveArms: countByValue(rows, "liveArms"),
+    byOfflineArms: countByValue(rows, "offlineArms"),
+  };
+}
+
+function summarizeGestureRowsByManualArms(windows, gestureRows) {
+  const normalizedWindows = normalizeReferenceWindows(windows);
+  const result = {};
+  const arms = [...new Set(normalizedWindows
+    .map((window) => String(window.arms ?? ""))
+    .filter((value) => value && value !== "unknown" && value !== "none"))];
+
+  for (const arm of arms) {
+    const armWindows = normalizedWindows.filter((window) => window.kind === `manual:arms:${arm}:hold`);
+    result[arm] = {
+      windowCount: armWindows.length,
+      ...summarizeGestureRows(rowsInWindows(gestureRows, armWindows)),
+    };
+  }
+
+  return result;
+}
+
+function summarizeGestureRowsByKey(rows, key) {
+  const grouped = groupRowsByKey(rows, key);
+  return Object.fromEntries(Object.entries(grouped).map(([value, valueRows]) => [value, {
+    count: valueRows.length,
+    trackerVsManualRatio: round(ratio(valueRows.filter((row) => row.trackerVsManual).length, valueRows.length), 6),
+    samVsManualRatio: round(ratio(valueRows.filter((row) => row.samVsManual).length, valueRows.length), 6),
+    trackerVsSamRatio: round(ratio(valueRows.filter((row) => row.trackerVsSam).length, valueRows.length), 6),
+  }]));
+}
+
+function countByValue(rows, key) {
+  return rows.reduce((result, row) => {
+    const value = row[key] ?? "unknown";
+    result[value] = (result[value] ?? 0) + 1;
+    return result;
+  }, {});
+}
+
+function normalizeManualArmsForAgreement(value) {
+  const arms = String(value ?? "unknown").trim().toLowerCase();
+
+  if (arms === "forward-arms") {
+    return "forward";
+  }
+  if (arms === "half-forward-arms") {
+    return "half-forward";
+  }
+  return arms;
+}
+
+function normalizeGestureArms(value) {
+  const arms = String(value ?? "unknown").trim().toLowerCase();
+  return arms || "unknown";
+}
+
+function collectFingerMotionRows(pairs) {
+  if (!Array.isArray(pairs) || pairs.length < 2) {
+    return [];
+  }
+
+  const rows = [];
+
+  for (let index = 1; index < pairs.length; index += 1) {
+    const previous = pairs[index - 1];
+    const current = pairs[index];
+    const liveEnergy = handMotionEnergy(previous.live.frame, current.live.frame);
+    const offlineEnergy = handMotionEnergy(previous.offline.frame, current.offline.frame);
+
+    if (!Number.isFinite(liveEnergy) && !Number.isFinite(offlineEnergy)) {
+      continue;
+    }
+
+    rows.push({
+      liveIndex: current.live.index,
+      offlineIndex: current.offline.index,
+      timestamp: Number(current.live.timestamp),
+      timestampDeltaMs: current.timestampDeltaMs,
+      liveEnergy: Number.isFinite(liveEnergy) ? round(liveEnergy, 6) : null,
+      offlineEnergy: Number.isFinite(offlineEnergy) ? round(offlineEnergy, 6) : null,
+      energyDelta: Number.isFinite(liveEnergy) && Number.isFinite(offlineEnergy)
+        ? round(Math.abs(liveEnergy - offlineEnergy), 6)
+        : null,
+      confidenceWeight: 1,
+    });
+  }
+
+  return rows;
+}
+
+function summarizeFingerMotionRows(rows) {
+  return {
+    count: Array.isArray(rows) ? rows.length : 0,
+    liveEnergy: summarizeRows((rows ?? []).filter((row) => Number.isFinite(row.liveEnergy)), "liveEnergy"),
+    offlineEnergy: summarizeRows((rows ?? []).filter((row) => Number.isFinite(row.offlineEnergy)), "offlineEnergy"),
+    energyDelta: summarizeRows((rows ?? []).filter((row) => Number.isFinite(row.energyDelta)), "energyDelta"),
+  };
+}
+
+function summarizeFingerMotionByManualFingers(windows, fingerMotionRows) {
+  const normalizedWindows = normalizeReferenceWindows(windows);
+  const result = {};
+
+  for (const state of ["moving", "idle", "unobservable"]) {
+    const stateWindows = normalizedWindows.filter((window) => window.kind === `manual:fingers:${state}:hold`);
+    const rows = rowsInWindows(fingerMotionRows, stateWindows);
+    result[state] = {
+      windowCount: stateWindows.length,
+      ...summarizeFingerMotionRows(rows),
+    };
+  }
+
+  const movingMean = Number(result.moving?.offlineEnergy?.mean);
+  const idleMean = Number(result.idle?.offlineEnergy?.mean);
+  result.movingToIdleOfflineRatio = idleMean > 0 ? round(movingMean / idleMean, 6) : 0;
+
+  return result;
+}
+
+function handMotionEnergy(previousFrame, currentFrame) {
+  const energies = [];
+
+  for (const side of ["left", "right"]) {
+    const previous = previousFrame?.[`${side}HandLandmarks`];
+    const current = currentFrame?.[`${side}HandLandmarks`];
+    const energy = handLandmarkMotionEnergy(previous, current);
+
+    if (Number.isFinite(energy)) {
+      energies.push(energy);
+    }
+  }
+
+  return energies.length > 0
+    ? energies.reduce((sum, value) => sum + value, 0) / energies.length
+    : Number.NaN;
+}
+
+function handLandmarkMotionEnergy(previous, current) {
+  if (!Array.isArray(previous) || !Array.isArray(current) || previous.length < 21 || current.length < 21) {
+    return Number.NaN;
+  }
+
+  const tipIndices = [4, 8, 12, 16, 20];
+  const distances = [];
+
+  for (const index of tipIndices) {
+    const before = previous[index];
+    const after = current[index];
+
+    if (!before || !after) {
+      continue;
+    }
+
+    const confidence = Math.min(
+      Number.isFinite(Number(before.visibility)) ? Number(before.visibility) : 1,
+      Number.isFinite(Number(after.visibility)) ? Number(after.visibility) : 1,
+    );
+
+    if (confidence <= 0.05) {
+      continue;
+    }
+
+    distances.push(Math.hypot(
+      Number(after.x) - Number(before.x),
+      Number(after.y) - Number(before.y),
+      Number(after.z ?? 0) - Number(before.z ?? 0),
+    ));
+  }
+
+  return distances.length > 0
+    ? distances.reduce((sum, value) => sum + value, 0) / distances.length
+    : Number.NaN;
+}
+
+function summarizePresenceRows(rows) {
+  const absentRows = rows.filter((row) => row.expectedPresence === "absent");
+  const enteringRows = rows.filter((row) => row.expectedPresence === "entering");
+  const presentRows = rows.filter((row) => row.expectedPresence !== "absent" && row.expectedPresence !== "unknown");
+  const matched = rows.filter((row) => row.matches === true).length;
+  const ghostFrames = absentRows.filter((row) => row.livePresent).length;
+  const suppressedFrames = absentRows.filter((row) => !row.livePresent).length;
+
+  return {
+    count: rows.length,
+    matched,
+    agreementRatio: round(ratio(matched, rows.filter((row) => row.matches !== null).length), 6),
+    expectedPresentFrames: presentRows.length,
+    expectedAbsentFrames: absentRows.length,
+    absentSuppressedFrames: suppressedFrames,
+    absentSuppressionRatio: round(ratio(suppressedFrames, absentRows.length), 6),
+    ghostFrames,
+    reacquireLatencyMs: estimateReacquireLatencyMs(enteringRows),
+    confidence: summarizeRows(rows.map((row) => ({
+      confidence: row.liveConfidence,
+      confidenceWeight: 1,
+    })), "confidence"),
+  };
+}
+
+function estimateReacquireLatencyMs(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return 0;
+  }
+
+  const firstTimestamp = Number(rows[0].timestamp);
+  const reacquired = rows.find((row) => row.liveConfidence > 0.2);
+
+  if (!reacquired) {
+    return null;
+  }
+
+  return round(Number(reacquired.timestamp) - firstTimestamp, 3);
+}
+
+function estimateFramePresenceConfidence(frame) {
+  const landmarks = Array.isArray(frame?.poseLandmarks) ? frame.poseLandmarks : [];
+  const world = Array.isArray(frame?.poseWorldLandmarks) ? frame.poseWorldLandmarks : [];
+  const sourceScore = Number(frame?.sourceMeta?.detectorScore);
+  const landmarkConfidence = averageLandmarkConfidence(landmarks.length > 0 ? landmarks : world);
+
+  if (Number.isFinite(sourceScore)) {
+    return Math.max(0, Math.min(1, Math.min(sourceScore, landmarkConfidence || sourceScore)));
+  }
+
+  return landmarkConfidence;
+}
+
+function averageLandmarkConfidence(landmarks) {
+  if (!Array.isArray(landmarks) || landmarks.length === 0) {
+    return 0;
+  }
+
+  const values = landmarks
+    .map((landmark) => Math.min(
+      Number.isFinite(Number(landmark?.visibility)) ? Number(landmark.visibility) : 1,
+      Number.isFinite(Number(landmark?.presence)) ? Number(landmark.presence) : 1,
+    ))
+    .filter(Number.isFinite);
+
+  return values.length > 0
+    ? Math.max(0, Math.min(1, values.reduce((sum, value) => sum + value, 0) / values.length))
+    : 0;
 }
 
 function groupRowsByKey(rows, key) {
@@ -950,6 +1387,207 @@ function renderSummaryTable(summaryByKey, label) {
   </table>`;
 }
 
+function renderManualWindowGateTable(summaryByKind) {
+  const entries = Object.entries(summaryByKind ?? {})
+    .sort(([leftKind, leftSummary], [rightKind, rightSummary]) => {
+      const leftStatus = classifyManualWindowGate(leftKind, leftSummary);
+      const rightStatus = classifyManualWindowGate(rightKind, rightSummary);
+      return statusSortWeight(leftStatus) - statusSortWeight(rightStatus) || leftKind.localeCompare(rightKind);
+    });
+
+  if (entries.length === 0) {
+    return '<div class="empty">No manual label windows provided.</div>';
+  }
+
+  return `<table>
+    <thead><tr><th>Window</th><th>Windows</th><th>Phase</th><th>Target P95</th><th>Arm P95</th><th>Hinge P95</th><th>Facing</th><th>Finger Offline Mean</th><th>Status</th></tr></thead>
+    <tbody>${entries.map(([kind, summary]) => {
+      const status = classifyManualWindowGate(kind, summary);
+      return `<tr>
+        <td>${escapeHtml(kind)}</td>
+        <td>${formatNumber(summary?.windowCount, 0)}</td>
+        <td>${escapeHtml(summary?.phase ?? "")}</td>
+        <td>${formatDegrees(summary?.targetAngle?.p95)}</td>
+        <td>${formatDegrees(summary?.armTargetAngle?.p95)}</td>
+        <td>${formatDegrees(summary?.hingeFlex?.p95)}</td>
+        <td>${formatPercent(summary?.facingAgreement?.agreementRatio)}</td>
+        <td>${formatNumber(summary?.fingerMotion?.offlineEnergy?.mean, 3)}</td>
+        <td>${renderStatusBadge(status)}</td>
+      </tr>`;
+    }).join("")}</tbody>
+  </table>`;
+}
+
+function classifyManualWindowGate(kind, summary) {
+  const windowCount = Number(summary?.windowCount ?? 0);
+  const targetCount = Number(summary?.targetAngle?.count ?? 0);
+  const hingeCount = Number(summary?.hingeFlex?.count ?? 0);
+  const facingCount = Number(summary?.facingAgreement?.count ?? 0);
+  const fingerCount = Number(summary?.fingerMotion?.count ?? 0);
+  const hasCoverage = targetCount + hingeCount + facingCount + fingerCount > 0;
+
+  if (String(kind).startsWith("manual:reference-invalid")) {
+    return { label: "Excluded", className: "pass" };
+  }
+
+  if (windowCount > 0 && !hasCoverage) {
+    return { label: "No coverage", className: "warn" };
+  }
+
+  const failures = [];
+  if (targetCount > 0 && Number(summary?.targetAngle?.p95) > 50) {
+    failures.push("target");
+  }
+  if (targetCount > 0 && Number(summary?.armTargetAngle?.p95) > 75) {
+    failures.push("arm");
+  }
+  if (hingeCount > 0 && Number(summary?.hingeFlex?.p95) > 55) {
+    failures.push("hinge");
+  }
+  if (facingCount > 0 && Number(summary?.facingAgreement?.agreementRatio) < 0.9) {
+    failures.push("facing");
+  }
+
+  if (failures.length > 0) {
+    return { label: `Fail: ${failures.join(", ")}`, className: "fail" };
+  }
+
+  return { label: "Pass", className: "pass" };
+}
+
+function renderGestureAgreementTable(summaryByGesture) {
+  const entries = Object.entries(summaryByGesture ?? {})
+    .filter(([, summary]) => Number(summary?.windowCount ?? 0) > 0 || Number(summary?.count ?? 0) > 0)
+    .sort(([leftGesture, leftSummary], [rightGesture, rightSummary]) => {
+      const leftStatus = classifyGestureGate(leftSummary);
+      const rightStatus = classifyGestureGate(rightSummary);
+      return statusSortWeight(leftStatus) - statusSortWeight(rightStatus) || leftGesture.localeCompare(rightGesture);
+    });
+
+  if (entries.length === 0) {
+    return '<div class="empty">No gesture rows available.</div>';
+  }
+
+  return `<table>
+    <thead><tr><th>Gesture</th><th>Windows</th><th>Rows</th><th>Tracker/Manual</th><th>SAM/Manual</th><th>Tracker/SAM</th><th>Status</th></tr></thead>
+    <tbody>${entries.map(([gesture, summary]) => {
+      const status = classifyGestureGate(summary);
+      return `<tr>
+        <td>${escapeHtml(gesture)}</td>
+        <td>${formatNumber(summary?.windowCount, 0)}</td>
+        <td>${formatNumber(summary?.manualComparableCount ?? summary?.count, 0)}</td>
+        <td>${formatPercent(summary?.trackerVsManualRatio)}</td>
+        <td>${formatPercent(summary?.samVsManualRatio)}</td>
+        <td>${formatPercent(summary?.trackerVsSamRatio)}</td>
+        <td>${renderStatusBadge(status)}</td>
+      </tr>`;
+    }).join("")}</tbody>
+  </table>`;
+}
+
+function classifyGestureGate(summary) {
+  const windowCount = Number(summary?.windowCount ?? 0);
+  const comparableCount = Number(summary?.manualComparableCount ?? 0);
+
+  if (windowCount > 0 && comparableCount === 0) {
+    return { label: "No coverage", className: "warn" };
+  }
+  if (comparableCount === 0) {
+    return { label: "No rows", className: "warn" };
+  }
+  if (Number(summary?.trackerVsManualRatio ?? 0) >= 0.85) {
+    return { label: "Pass", className: "pass" };
+  }
+  return { label: "Fail", className: "fail" };
+}
+
+function renderPresenceAgreementTable(summary) {
+  if (!summary || Number(summary.count ?? 0) === 0) {
+    return '<div class="empty">No presence rows available.</div>';
+  }
+
+  const absentStatus = Number(summary.expectedAbsentFrames ?? 0) === 0
+    ? { label: "No absent coverage", className: "warn" }
+    : Number(summary.absentSuppressionRatio ?? 0) >= 0.9
+      ? { label: "Pass", className: "pass" }
+      : { label: "Fail", className: "fail" };
+
+  return `<table>
+    <thead><tr><th>Metric</th><th>Value</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td>Presence agreement</td><td>${formatPercent(summary.agreementRatio)}</td><td>${renderStatusBadge(Number(summary.agreementRatio ?? 0) >= 0.9 ? { label: "Pass", className: "pass" } : { label: "Fail", className: "fail" })}</td></tr>
+      <tr><td>Expected present frames</td><td>${formatNumber(summary.expectedPresentFrames, 0)}</td><td></td></tr>
+      <tr><td>Expected absent frames</td><td>${formatNumber(summary.expectedAbsentFrames, 0)}</td><td>${renderStatusBadge(absentStatus)}</td></tr>
+      <tr><td>Ghost frames</td><td>${formatNumber(summary.ghostFrames, 0)}</td><td></td></tr>
+      <tr><td>Absent suppression</td><td>${formatPercent(summary.absentSuppressionRatio)}</td><td>${renderStatusBadge(absentStatus)}</td></tr>
+      <tr><td>Reacquire latency</td><td>${formatNumber(summary.reacquireLatencyMs, 0)} ms</td><td></td></tr>
+    </tbody>
+  </table>`;
+}
+
+function renderFingerMotionTable(summaryByState) {
+  const entries = Object.entries(summaryByState ?? {})
+    .filter(([state, summary]) => state !== "movingToIdleOfflineRatio" && typeof summary === "object" && summary !== null);
+
+  if (entries.length === 0) {
+    return '<div class="empty">No finger motion rows available.</div>';
+  }
+
+  const ratioValue = Number(summaryByState?.movingToIdleOfflineRatio ?? 0);
+  const rows = entries.map(([state, summary]) => {
+    const status = classifyFingerMotionState(summary);
+    return `<tr>
+      <td>${escapeHtml(state)}</td>
+      <td>${formatNumber(summary?.windowCount, 0)}</td>
+      <td>${formatNumber(summary?.count, 0)}</td>
+      <td>${formatNumber(summary?.liveEnergy?.mean, 3)}</td>
+      <td>${formatNumber(summary?.offlineEnergy?.mean, 3)}</td>
+      <td>${formatNumber(summary?.energyDelta?.mean, 3)}</td>
+      <td>${renderStatusBadge(status)}</td>
+    </tr>`;
+  }).join("");
+  const ratioStatus = ratioValue >= 1.1
+    ? { label: "Pass", className: "pass" }
+    : { label: "Watch", className: "warn" };
+
+  return `<table>
+    <thead><tr><th>Manual fingers</th><th>Windows</th><th>Rows</th><th>Live mean</th><th>SAM mean</th><th>Delta mean</th><th>Status</th></tr></thead>
+    <tbody>${rows}
+      <tr><td>moving/idle SAM ratio</td><td></td><td></td><td></td><td>${formatNumber(ratioValue, 3)}</td><td></td><td>${renderStatusBadge(ratioStatus)}</td></tr>
+    </tbody>
+  </table>`;
+}
+
+function classifyFingerMotionState(summary) {
+  const count = Number(summary?.count ?? 0);
+  const liveCount = Number(summary?.liveEnergy?.count ?? 0);
+  const offlineCount = Number(summary?.offlineEnergy?.count ?? 0);
+
+  if (count === 0) {
+    return { label: "No coverage", className: "warn" };
+  }
+  if (liveCount === 0 && offlineCount > 0) {
+    return { label: "No live hands", className: "warn" };
+  }
+  return { label: "Watch", className: "warn" };
+}
+
+function renderStatusBadge(status) {
+  const label = status?.label ?? "Watch";
+  const className = status?.className ?? "warn";
+  return `<span class="badge ${escapeHtml(className)}">${escapeHtml(label)}</span>`;
+}
+
+function statusSortWeight(status) {
+  if (status?.className === "fail") {
+    return 0;
+  }
+  if (status?.className === "warn") {
+    return 1;
+  }
+  return 2;
+}
+
 function renderWorstTargets(rows) {
   const values = Array.isArray(rows) ? rows : [];
 
@@ -958,8 +1596,9 @@ function renderWorstTargets(rows) {
   }
 
   return `<table>
-    <thead><tr><th>Live</th><th>Offline</th><th>Bone</th><th>Group</th><th>Delta</th></tr></thead>
+    <thead><tr><th>Time</th><th>Live</th><th>Offline</th><th>Bone</th><th>Group</th><th>Delta</th></tr></thead>
     <tbody>${values.map((row) => `<tr>
+      <td>${formatSeconds(row.timestamp)}</td>
       <td>${formatNumber(row.liveIndex, 0)}</td>
       <td>${formatNumber(row.offlineIndex, 0)}</td>
       <td>${escapeHtml(row.bone)}</td>
@@ -977,8 +1616,9 @@ function renderWorstHinges(rows) {
   }
 
   return `<table>
-    <thead><tr><th>Live</th><th>Offline</th><th>Joint</th><th>Group</th><th>Delta</th></tr></thead>
+    <thead><tr><th>Time</th><th>Live</th><th>Offline</th><th>Joint</th><th>Group</th><th>Delta</th></tr></thead>
     <tbody>${values.map((row) => `<tr>
+      <td>${formatSeconds(row.timestamp)}</td>
       <td>${formatNumber(row.liveIndex, 0)}</td>
       <td>${formatNumber(row.offlineIndex, 0)}</td>
       <td>${escapeHtml(row.name)}</td>
@@ -1334,6 +1974,18 @@ function formatNumber(value, digits = 2) {
   return Number.isFinite(Number(value)) ? Number(value).toFixed(digits) : "0";
 }
 
+function formatDegrees(value) {
+  return Number.isFinite(Number(value)) ? `${formatNumber(value)} deg` : "n/a";
+}
+
+function formatPercent(value) {
+  return Number.isFinite(Number(value)) ? `${formatNumber(Number(value) * 100, 1)}%` : "n/a";
+}
+
+function formatSeconds(valueMs) {
+  return Number.isFinite(Number(valueMs)) ? `${formatNumber(Number(valueMs) / 1000, 3)}s` : "n/a";
+}
+
 function directionAngleDeg(a, b) {
   if (!a || !b) {
     return 0;
@@ -1429,7 +2081,9 @@ the same source video by different runtimes. Use --interpolate offline to align
 dense offline recordings to sparse live frames, and --offset-ms auto to estimate
 a constant live/offline timestamp offset before pairing. Use
 --max-bracket-gap-ms to reject live frames that would be interpolated across a
-large offline dropout. Use --timestamp-wrap offline-duration for validation
-recordings that contain repeated plays of the same source video.
+large offline dropout. Use --manual-labels compiled-labels.json to exclude
+manual reference-invalid windows from pose metrics and report presence
+agreement. Use --timestamp-wrap offline-duration for validation recordings
+that contain repeated plays of the same source video.
 `);
 }

@@ -6,12 +6,11 @@ import {
   normalizeMotionRecording,
   parseMotionRecordingJsonl,
 } from "../src/motion-frame.js";
+import { classifyArmGesture } from "../src/labels/gesture-classifier.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const scriptPath = fileURLToPath(import.meta.url);
 const VISIBILITY_THRESHOLD = 0.35;
-const BEHIND_BACK_EPSILON = 0.08;
-const CROSSED_ARM_EPSILON = 0.05;
 const POSE = {
   nose: 0,
   leftShoulder: 11,
@@ -126,7 +125,10 @@ function labelSamReferenceFrame(frame, index = 0) {
   const lowConf2dCount = image.filter((landmark) => !isVisible(landmark)).length;
   const lowConf2d = image.length > 0 && lowConf2dCount / image.length >= 0.25;
   const bodyCoverage = classifyBodyCoverage(world);
-  const armLabels = classifyArms(world, bodyBasis);
+  const armLabels = classifyArmGesture({
+    poseWorldLandmarks: world,
+    poseLandmarks: image,
+  });
 
   return {
     index,
@@ -137,9 +139,11 @@ function labelSamReferenceFrame(frame, index = 0) {
     facingYawDeg: round(facingYawDeg, 3),
     facingState,
     facingConfidence: round(bodyBasis?.confidence ?? 0, 3),
+    arms: armLabels.arms,
     leftArm: armLabels.leftArm,
     rightArm: armLabels.rightArm,
     crossedArms: armLabels.crossedArms,
+    behindBack: armLabels.behindBack,
     bodyCoverage,
     lowConf2d,
     lowConf2dCount,
@@ -197,35 +201,6 @@ function classifyFacingYaw(yawDeg, confidence) {
   return yawDeg >= 0 ? "side-left" : "side-right";
 }
 
-function classifyArms(world, bodyBasis) {
-  const leftWrist = point(world[POSE.leftWrist]);
-  const rightWrist = point(world[POSE.rightWrist]);
-
-  if (!bodyBasis || !leftWrist || !rightWrist) {
-    return {
-      leftArm: "unknown",
-      rightArm: "unknown",
-      crossedArms: false,
-    };
-  }
-
-  const leftDepth = dot(subtract(leftWrist, bodyBasis.shoulderMid), bodyBasis.forward);
-  const rightDepth = dot(subtract(rightWrist, bodyBasis.shoulderMid), bodyBasis.forward);
-  const leftLateral = dot(subtract(leftWrist, bodyBasis.shoulderMid), bodyBasis.across);
-  const rightLateral = dot(subtract(rightWrist, bodyBasis.shoulderMid), bodyBasis.across);
-  const leftBehind = leftDepth > BEHIND_BACK_EPSILON;
-  const rightBehind = rightDepth > BEHIND_BACK_EPSILON;
-  const leftCrossed = leftLateral < -CROSSED_ARM_EPSILON;
-  const rightCrossed = rightLateral > CROSSED_ARM_EPSILON;
-  const crossedArms = leftCrossed && rightCrossed;
-
-  return {
-    leftArm: leftBehind ? "behind-back" : leftCrossed ? "crossed" : "visible",
-    rightArm: rightBehind ? "behind-back" : rightCrossed ? "crossed" : "visible",
-    crossedArms,
-  };
-}
-
 function classifyBodyCoverage(world) {
   const upperVisible = [
     world[POSE.leftShoulder],
@@ -260,6 +235,11 @@ function buildWindows(frames) {
     ["crossed-arms", (frame) => frame.crossedArms],
     ["left-behind-back", (frame) => frame.leftArm === "behind-back"],
     ["right-behind-back", (frame) => frame.rightArm === "behind-back"],
+    ["behind-back", (frame) => frame.behindBack],
+    ["palms-near-head", (frame) => frame.arms === "palms-near-head"],
+    ["forward-arms", (frame) => frame.arms === "forward"],
+    ["half-forward-arms", (frame) => frame.arms === "half-forward"],
+    ["chest-raised-arms", (frame) => frame.arms === "chest-raised"],
     ["low-conf-2d", (frame) => frame.lowConf2d],
     ["upper-body", (frame) => frame.bodyCoverage === "upper-body"],
   ];
@@ -306,6 +286,7 @@ function summarizeLabels(frames, windows) {
     behindBackFrames: frames.filter((frame) =>
       frame.leftArm === "behind-back" || frame.rightArm === "behind-back"
     ).length,
+    arms: countBy(frames, "arms"),
     windowsByKind: countBy(windows, "kind"),
   };
 }

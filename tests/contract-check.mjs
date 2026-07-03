@@ -18,9 +18,13 @@ const files = {
   motionFrame: "src/motion-frame.js",
   motionWorker: "src/motion-worker.js",
   motionForwarding: "src/motion-forwarding.js",
+  presenceState: "src/presence-state.js",
+  manualLabels: "src/labels/manual-labels.js",
+  gestureClassifier: "src/labels/gesture-classifier.js",
   poseSolver: "src/solver/pose-solver.js",
   vrmHumanoidMapping: "src/vrm-humanoid-mapping.js",
   vrmExpressionMapping: "src/vrm-expression-mapping.js",
+  mhr70Hands: "src/skeleton/mhr70-hands.js",
   avatarModel: "assets/models/Xbot.glb",
   claudeSettings: ".claude/settings.json",
   claudeCodexCommand: ".claude/commands/codex-consult.md",
@@ -32,6 +36,7 @@ const files = {
   validationCliScript: "scripts/validation-cli.mjs",
   hmrJsonlAdapterScript: "scripts/hmr-jsonl-adapter.mjs",
   motionRecordingCompareScript: "scripts/motion-recording-compare.mjs",
+  samManualLabelsScript: "scripts/sam-manual-labels.mjs",
   samReferenceLabelerScript: "scripts/sam-reference-labeler.mjs",
   samRegressionOracleScript: "scripts/sam-regression-oracle.mjs",
   motionStatusHudSmokeScript: "scripts/motion-status-hud-smoke.mjs",
@@ -42,10 +47,14 @@ const files = {
   depthCalibrationCheck: "tests/depth-calibration-check.mjs",
   motionFrameCheck: "tests/motion-frame-check.mjs",
   motionForwardingCheck: "tests/motion-forwarding-check.mjs",
+  presenceStateCheck: "tests/presence-state-check.mjs",
   facingEstimatorCheck: "tests/facing-estimator-check.mjs",
   solverSyntheticCheck: "tests/solver-synthetic-check.mjs",
+  samManualLabelsCheck: "tests/sam-manual-labels-check.mjs",
   motionRecordingCompareCheck: "tests/motion-recording-compare-check.mjs",
   mhr70MappingCheck: "tests/mhr70-mapping-check.mjs",
+  mhr70HandsCheck: "tests/mhr70-hands-check.mjs",
+  gestureClassifierCheck: "tests/gesture-classifier-check.mjs",
   samReferenceLabelerCheck: "tests/sam-reference-labeler-check.mjs",
   samRegressionOracleCheck: "tests/sam-regression-oracle-check.mjs",
   hmrJsonlAdapterCheck: "tests/hmr-jsonl-adapter-check.mjs",
@@ -266,8 +275,8 @@ function checkSyntax(relativePath) {
 
 function checkPackageContract(packageJson) {
   check(
-    packageJson?.scripts?.check === "node tests/contract-check.mjs && node tests/avatar-vrm-humanoid-check.mjs && node tests/avatar-vrm-expression-check.mjs && node tests/depth-calibration-check.mjs && node tests/motion-frame-check.mjs && node tests/motion-forwarding-check.mjs && node tests/facing-estimator-check.mjs && node tests/solver-synthetic-check.mjs && node tests/motion-recording-compare-check.mjs && node tests/mhr70-mapping-check.mjs && node tests/sam-reference-labeler-check.mjs && node tests/sam-calibration-profile-check.mjs && node tests/sam-regression-oracle-check.mjs && node tests/hmr-jsonl-adapter-check.mjs && node tests/clip-manifest-check.mjs",
-    "package.json: check script must run the contract, VRM humanoid, VRM expression, depth calibration, motion frame, forwarding, facing estimator, solver synthetic, recording compare, MHR70 mapping, SAM labeler, SAM profile, SAM oracle, HMR adapter, and clip manifest checks",
+    packageJson?.scripts?.check === "node tests/contract-check.mjs && node tests/avatar-vrm-humanoid-check.mjs && node tests/avatar-vrm-expression-check.mjs && node tests/depth-calibration-check.mjs && node tests/motion-frame-check.mjs && node tests/motion-forwarding-check.mjs && node tests/presence-state-check.mjs && node tests/facing-estimator-check.mjs && node tests/solver-synthetic-check.mjs && node tests/sam-manual-labels-check.mjs && node tests/motion-recording-compare-check.mjs && node tests/mhr70-mapping-check.mjs && node tests/mhr70-hands-check.mjs && node tests/gesture-classifier-check.mjs && node tests/sam-reference-labeler-check.mjs && node tests/sam-calibration-profile-check.mjs && node tests/sam-regression-oracle-check.mjs && node tests/hmr-jsonl-adapter-check.mjs && node tests/clip-manifest-check.mjs",
+    "package.json: check script must run the contract, VRM humanoid, VRM expression, depth calibration, motion frame, forwarding, presence state, facing estimator, solver synthetic, manual labels, recording compare, MHR70 mapping/hands, gesture classifier, SAM labeler/profile/oracle, HMR adapter, and clip manifest checks",
   );
   check(
     packageJson?.scripts?.start === "python3 -m http.server 8000 --bind 127.0.0.1",
@@ -302,12 +311,20 @@ function checkPackageContract(packageJson) {
     "package.json: sam:labels script must run the SAM reference labeler",
   );
   check(
+    packageJson?.scripts?.["sam:manual"] === "node scripts/sam-manual-labels.mjs",
+    "package.json: sam:manual script must run the manual label compiler",
+  );
+  check(
     packageJson?.scripts?.["sam:profile"] === "node scripts/sam-calibration-profile.mjs",
     "package.json: sam:profile script must run the SAM calibration profile generator",
   );
   check(
     packageJson?.scripts?.["sam:oracle"] === "node scripts/sam-regression-oracle.mjs",
     "package.json: sam:oracle script must run the SAM regression oracle",
+  );
+  check(
+    packageJson?.scripts?.["sam:oracle:csi"] === "node scripts/sam-regression-oracle.mjs --profile tests/fixtures/sam-oracle-profiles/csi-pose.json --report output/reports/tracker-vs-sam-csi-pose-v1.json --output output/reports/tracker-vs-sam-csi-pose-v1-oracle.json",
+    "package.json: sam:oracle:csi script must run the csi-pose SAM oracle profile",
   );
   check(
     packageJson?.scripts?.["smoke:hud"] === "node scripts/motion-status-hud-smoke.mjs",
@@ -577,7 +594,7 @@ function checkAvatarAppContract(app) {
       /state\.avatarRenderer\.update\s*\(\s*\{[\s\S]*?motionFrame[\s\S]*?mirrored\s*:\s*motionFrame\.mirrored[\s\S]*?timestamp\s*:\s*motionFrame\.timestamp[\s\S]*?\}\s*\)/,
     ],
     ["syncs avatar skeleton debug option", /function\s+syncAvatarDebugOptions\s*\(\s*\)[\s\S]*?setSkeletonVisible/],
-    ["records body validation after avatar update", /function\s+processMotionFrame\s*\([^)]*\)[\s\S]*?updateAvatarRendererFromMotionFrame\s*\(\s*normalizedFrame\s*\)[\s\S]*?recordBodyValidation\s*\(\s*normalizedFrame\s*\)/],
+    ["records body validation after avatar update", /function\s+processMotionFrame\s*\([^)]*\)[\s\S]*?const\s+processedFrame\s*=\s*\{[\s\S]*?updateAvatarRendererFromMotionFrame\s*\(\s*processedFrame\s*\)[\s\S]*?recordBodyValidation\s*\(\s*processedFrame\s*\)/],
     ["wires avatar view reset button", /avatarViewReset[\s\S]*?addEventListener\(\s*["']click["'][\s\S]*?resetView/],
     ["wires motion status calibration button", /motionStatusCalibrateButton\?\.\s*addEventListener\(\s*["']click["'][\s\S]*?resetDepthCalibrationFromUi\s*\(\s*\)/],
     ["reports body match rate against fixed threshold", /const\s+BODY_MATCH_THRESHOLD_DEG\s*=\s*30[\s\S]*matchRate/],
@@ -956,13 +973,18 @@ checkSyntax(files.depthCalibration);
 checkSyntax(files.motionFrame);
 checkSyntax(files.motionWorker);
 checkSyntax(files.motionForwarding);
+checkSyntax(files.presenceState);
+checkSyntax(files.manualLabels);
+checkSyntax(files.gestureClassifier);
 checkSyntax(files.poseSolver);
+checkSyntax(files.mhr70Hands);
 checkSyntax(files.avatarMotionAgreementScript);
 checkSyntax(files.framePumpPerformanceScript);
 checkSyntax(files.syntheticGeneratorScript);
 checkSyntax(files.validationCliScript);
 checkSyntax(files.hmrJsonlAdapterScript);
 checkSyntax(files.motionRecordingCompareScript);
+checkSyntax(files.samManualLabelsScript);
 checkSyntax(files.samReferenceLabelerScript);
 checkSyntax(files.samRegressionOracleScript);
 checkSyntax(files.motionStatusHudSmokeScript);
@@ -976,10 +998,14 @@ checkSyntax(files.avatarVrmExpressionCheck);
 checkSyntax(files.depthCalibrationCheck);
 checkSyntax(files.motionFrameCheck);
 checkSyntax(files.motionForwardingCheck);
+checkSyntax(files.presenceStateCheck);
 checkSyntax(files.facingEstimatorCheck);
 checkSyntax(files.solverSyntheticCheck);
+checkSyntax(files.samManualLabelsCheck);
 checkSyntax(files.motionRecordingCompareCheck);
 checkSyntax(files.mhr70MappingCheck);
+checkSyntax(files.mhr70HandsCheck);
+checkSyntax(files.gestureClassifierCheck);
 checkSyntax(files.samReferenceLabelerCheck);
 checkSyntax(files.samRegressionOracleCheck);
 checkSyntax(files.hmrJsonlAdapterCheck);

@@ -244,12 +244,13 @@ h2 {
 
 #camera-video {
   z-index: 1;
-  object-fit: cover;
+  object-fit: contain;
   background: #030507;
 }
 
 #overlay-canvas {
   z-index: 2;
+  object-fit: contain;
   pointer-events: none;
 }
 

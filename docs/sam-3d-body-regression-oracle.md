@@ -53,6 +53,67 @@ Measure the profile-assisted depth-calibration path:
 node scripts/avatar-motion-agreement-check.mjs --video output/test-videos/jujae-regression-0-16_5.mp4 --only-models --model Xbot=assets/models/Xbot.glb --output output/reports/avatar-motion-jujae-regression-xbot-p4-profile-depth.json --smoothing retarget --pump rvfc --debug-overlay off --calibration-profile output/external/sam-3d-body/jujae-regression-0-16_5/calibration-profile.json --measurement-only
 ```
 
+## csi-pose Manual-Label Oracle
+
+`csi-pose` is the stronger regression clip for crossed arms, behind-back,
+palms-near-head, finger motion, front/back turns, screen-out/screen-in, and
+table occlusion. Unlike the jujae clip, it must be evaluated as a
+tracker-vs-SAM-vs-manual comparison because SAM can output a stale person even
+when the user-authored label says the person is absent.
+
+Inputs:
+
+- video: `output/test-videos/csi-pose.mp4`
+- SAM MHR70 JSONL: `sam-3d-body-skeletons/csi-pose/skeletons_mhr70.jsonl`
+- manual labels: `tests/fixtures/sam-manual-labels/csi-pose.json`
+- SAM recording: `output/external/sam-3d-body/csi-pose/recording.jsonl`
+- compiled manual labels:
+  `output/external/sam-3d-body/csi-pose/compiled-labels.json`
+- tracker recording: `output/reports/csi-pose-tracker-recording-v1.jsonl`
+- comparison JSON/HTML:
+  `output/reports/tracker-vs-sam-csi-pose-v1.{json,html}`
+- oracle result:
+  `output/reports/tracker-vs-sam-csi-pose-v1-oracle.json`
+
+Generate the SAM-side artifacts:
+
+```sh
+npm run hmr:jsonl -- --input sam-3d-body-skeletons/csi-pose/skeletons_mhr70.jsonl --joint-format mhr70 --hands mhr70 --output output/external/sam-3d-body/csi-pose/recording.jsonl
+npm run sam:labels -- --input output/external/sam-3d-body/csi-pose/recording.jsonl --output output/external/sam-3d-body/csi-pose/labels.json
+npm run sam:manual -- --input tests/fixtures/sam-manual-labels/csi-pose.json --auto output/external/sam-3d-body/csi-pose/labels.json --output output/external/sam-3d-body/csi-pose/compiled-labels.json --report output/reports/csi-pose-label-cross-check.json
+npm run sam:profile -- --input output/external/sam-3d-body/csi-pose/recording.jsonl --output output/external/sam-3d-body/csi-pose/calibration-profile.json
+```
+
+Capture the browser tracker recording. `--measurement-only` disables numeric
+pass/fail gates; when `--recording-output` is supplied it still saves the JSONL
+recording, including partial recordings when the measurement completion wait
+times out.
+
+```sh
+node scripts/avatar-motion-agreement-check.mjs --video output/test-videos/csi-pose.mp4 --only-models --model Xbot=assets/models/Xbot.glb --recording-output output/reports/csi-pose-tracker-recording-v1.jsonl --output output/reports/csi-pose-avatar-motion-recording-v1.json --calibration-profile output/external/sam-3d-body/csi-pose/calibration-profile.json --min-pose-frames 2840 --warmup-pose-frames 0 --timeout-ms 900000 --playback-rate 0.15 --pump rvfc --debug-overlay off --smoothing retarget --measurement-only
+```
+
+Compare tracker, SAM, and manual labels:
+
+```sh
+npm run compare:recordings -- --live output/reports/csi-pose-tracker-recording-v1.jsonl --offline output/external/sam-3d-body/csi-pose/recording.jsonl --timestamp-source sourceMeta.videoTime --max-timestamp-delta-ms 25 --interpolate offline --offset-ms auto --labels output/external/sam-3d-body/csi-pose/labels.json --manual-labels output/external/sam-3d-body/csi-pose/compiled-labels.json --output output/reports/tracker-vs-sam-csi-pose-v1.json --html output/reports/tracker-vs-sam-csi-pose-v1.html
+npm run sam:oracle:csi
+```
+
+The csi HTML report includes:
+
+- manual window gate rows with pass/fail/no-coverage status,
+- gesture agreement by manual arm state,
+- presence agreement and absent suppression,
+- finger motion watch rows,
+- worst target/hinge rows with timecodes.
+
+Current local evidence as of 2026-07-03: the available tracker recording covers
+241 paired frames from about 4.75s to 62.61s. The comparison path works, but the
+strict csi oracle correctly fails coverage gates: `offlineUsageRatio=0.169182`,
+`excludedPairs=51`, and `expectedAbsentFrames=0`. This is blocker evidence for
+the browser recording capture, not a reason to weaken the oracle profile.
+
 ## Default Oracle Thresholds
 
 `scripts/sam-regression-oracle.mjs` defaults to the current jujae baseline:
