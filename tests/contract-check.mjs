@@ -33,6 +33,7 @@ const files = {
   hmrJsonlAdapterScript: "scripts/hmr-jsonl-adapter.mjs",
   motionRecordingCompareScript: "scripts/motion-recording-compare.mjs",
   samReferenceLabelerScript: "scripts/sam-reference-labeler.mjs",
+  samRegressionOracleScript: "scripts/sam-regression-oracle.mjs",
   motionStatusHudSmokeScript: "scripts/motion-status-hud-smoke.mjs",
   motionGoalAuditScript: "scripts/motion-goal-audit.mjs",
   avatarVrmPerformanceScript: "scripts/avatar-vrm-performance-check.mjs",
@@ -46,6 +47,7 @@ const files = {
   motionRecordingCompareCheck: "tests/motion-recording-compare-check.mjs",
   mhr70MappingCheck: "tests/mhr70-mapping-check.mjs",
   samReferenceLabelerCheck: "tests/sam-reference-labeler-check.mjs",
+  samRegressionOracleCheck: "tests/sam-regression-oracle-check.mjs",
   hmrJsonlAdapterCheck: "tests/hmr-jsonl-adapter-check.mjs",
   clipManifestCheck: "tests/clip-manifest-check.mjs",
   clipFamilyManifest: "tests/fixtures/clip-family/manifest.json",
@@ -264,8 +266,8 @@ function checkSyntax(relativePath) {
 
 function checkPackageContract(packageJson) {
   check(
-    packageJson?.scripts?.check === "node tests/contract-check.mjs && node tests/avatar-vrm-humanoid-check.mjs && node tests/avatar-vrm-expression-check.mjs && node tests/depth-calibration-check.mjs && node tests/motion-frame-check.mjs && node tests/motion-forwarding-check.mjs && node tests/facing-estimator-check.mjs && node tests/solver-synthetic-check.mjs && node tests/motion-recording-compare-check.mjs && node tests/mhr70-mapping-check.mjs && node tests/sam-reference-labeler-check.mjs && node tests/sam-calibration-profile-check.mjs && node tests/hmr-jsonl-adapter-check.mjs && node tests/clip-manifest-check.mjs",
-    "package.json: check script must run the contract, VRM humanoid, VRM expression, depth calibration, motion frame, forwarding, facing estimator, solver synthetic, recording compare, MHR70 mapping, SAM labeler, SAM profile, HMR adapter, and clip manifest checks",
+    packageJson?.scripts?.check === "node tests/contract-check.mjs && node tests/avatar-vrm-humanoid-check.mjs && node tests/avatar-vrm-expression-check.mjs && node tests/depth-calibration-check.mjs && node tests/motion-frame-check.mjs && node tests/motion-forwarding-check.mjs && node tests/facing-estimator-check.mjs && node tests/solver-synthetic-check.mjs && node tests/motion-recording-compare-check.mjs && node tests/mhr70-mapping-check.mjs && node tests/sam-reference-labeler-check.mjs && node tests/sam-calibration-profile-check.mjs && node tests/sam-regression-oracle-check.mjs && node tests/hmr-jsonl-adapter-check.mjs && node tests/clip-manifest-check.mjs",
+    "package.json: check script must run the contract, VRM humanoid, VRM expression, depth calibration, motion frame, forwarding, facing estimator, solver synthetic, recording compare, MHR70 mapping, SAM labeler, SAM profile, SAM oracle, HMR adapter, and clip manifest checks",
   );
   check(
     packageJson?.scripts?.start === "python3 -m http.server 8000 --bind 127.0.0.1",
@@ -302,6 +304,10 @@ function checkPackageContract(packageJson) {
   check(
     packageJson?.scripts?.["sam:profile"] === "node scripts/sam-calibration-profile.mjs",
     "package.json: sam:profile script must run the SAM calibration profile generator",
+  );
+  check(
+    packageJson?.scripts?.["sam:oracle"] === "node scripts/sam-regression-oracle.mjs",
+    "package.json: sam:oracle script must run the SAM regression oracle",
   );
   check(
     packageJson?.scripts?.["smoke:hud"] === "node scripts/motion-status-hud-smoke.mjs",
@@ -344,6 +350,7 @@ function checkReadmeContract(readme) {
     ["visual skeleton match documentation", /Visual skeleton match[\s\S]*projected/i],
     ["strict validation documentation", /Strict validation[\s\S]*95%/i],
     ["depth validation documentation", /Depth validation[\s\S]*depth-scale/i],
+    ["SAM regression oracle documentation", /SAM Regression Oracle[\s\S]*sam:oracle/i],
     ["avatar orbit inspection documentation", /orbit inspection[\s\S]*Reset/i],
     ["approximate retargeting limitation", /approximate[\s\S]*retarget/i],
     ["not production mocap", /not[\s\S]*production[\s\S]*(motion-capture|mocap)[\s\S]*solver/i],
@@ -796,6 +803,7 @@ const [
   validationCliScript,
   hmrJsonlAdapterScript,
   motionRecordingCompareScript,
+  samRegressionOracleScript,
   motionStatusHudSmokeScript,
   motionGoalAuditScript,
   vrmHumanoidMapping,
@@ -823,6 +831,7 @@ const [
     readProjectFile(files.validationCliScript),
     readProjectFile(files.hmrJsonlAdapterScript),
     readProjectFile(files.motionRecordingCompareScript),
+    readProjectFile(files.samRegressionOracleScript),
     readProjectFile(files.motionStatusHudSmokeScript),
     readProjectFile(files.motionGoalAuditScript),
     readProjectFile(files.vrmHumanoidMapping),
@@ -919,6 +928,10 @@ check(motionRecordingCompareScript.includes("targetAngle"), `${files.motionRecor
 check(motionRecordingCompareScript.includes("hingeFlex"), `${files.motionRecordingCompareScript}: expected hinge flexion delta summary`);
 check(motionRecordingCompareScript.includes("renderComparisonHtml"), `${files.motionRecordingCompareScript}: expected static HTML comparison report renderer`);
 check(motionRecordingCompareScript.includes("--html"), `${files.motionRecordingCompareScript}: expected HTML output option`);
+check(samRegressionOracleScript.includes("evaluateSamRegressionOracle"), `${files.samRegressionOracleScript}: expected SAM oracle evaluator`);
+check(samRegressionOracleScript.includes("minPairedRatio"), `${files.samRegressionOracleScript}: expected paired-ratio regression threshold`);
+check(samRegressionOracleScript.includes("maxOcclusionArmP95Deg"), `${files.samRegressionOracleScript}: expected occlusion-window arm threshold`);
+check(samRegressionOracleScript.includes("--max-target-p95-deg"), `${files.samRegressionOracleScript}: expected configurable target p95 threshold`);
 check(motionStatusHudSmokeScript.includes("getMotionStatusHudSnapshot"), `${files.motionStatusHudSmokeScript}: expected Motion State HUD snapshot validation`);
 check(motionStatusHudSmokeScript.includes("#motion-status-calibration-guide"), `${files.motionStatusHudSmokeScript}: expected calibration guide DOM validation`);
 check(motionStatusHudSmokeScript.includes("#motion-status-calibrate"), `${files.motionStatusHudSmokeScript}: expected calibration action DOM validation`);
@@ -951,6 +964,7 @@ checkSyntax(files.validationCliScript);
 checkSyntax(files.hmrJsonlAdapterScript);
 checkSyntax(files.motionRecordingCompareScript);
 checkSyntax(files.samReferenceLabelerScript);
+checkSyntax(files.samRegressionOracleScript);
 checkSyntax(files.motionStatusHudSmokeScript);
 checkSyntax(files.motionGoalAuditScript);
 checkSyntax(files.vrmHumanoidMapping);
@@ -967,6 +981,7 @@ checkSyntax(files.solverSyntheticCheck);
 checkSyntax(files.motionRecordingCompareCheck);
 checkSyntax(files.mhr70MappingCheck);
 checkSyntax(files.samReferenceLabelerCheck);
+checkSyntax(files.samRegressionOracleCheck);
 checkSyntax(files.hmrJsonlAdapterCheck);
 checkSyntax(files.clipManifestCheck);
 

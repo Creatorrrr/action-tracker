@@ -109,7 +109,28 @@ Use `scripts/avatar-motion-agreement-check.mjs --recording-output output/reports
 For tracker-vs-SAM runs captured from the same source video, pair by `sourceMeta.videoTime` rather than runtime wall-clock timestamps:
 
 ```sh
-npm run compare:recordings -- --live output/reports/tracker-recording.jsonl --offline output/external/sam-3d-body/jujae-regression-0-16_5/recording.jsonl --timestamp-source sourceMeta.videoTime --max-timestamp-delta-ms 25 --output output/reports/tracker-vs-sam-jujae.json --html output/reports/tracker-vs-sam-jujae.html
+npm run compare:recordings -- --live output/reports/tracker-recording.jsonl --offline output/external/sam-3d-body/jujae-regression-0-16_5/recording.jsonl --timestamp-source sourceMeta.videoTime --max-timestamp-delta-ms 25 --interpolate offline --offset-ms auto --labels output/external/sam-3d-body/jujae-regression-0-16_5/labels.json --output output/reports/tracker-vs-sam-jujae-v2.json --html output/reports/tracker-vs-sam-jujae-v2.html
+```
+
+Generate the SAM side labels and optional depth-calibration profile from the converted SAM recording:
+
+```sh
+npm run sam:labels -- --input output/external/sam-3d-body/jujae-regression-0-16_5/recording.jsonl --output output/external/sam-3d-body/jujae-regression-0-16_5/labels.json
+npm run sam:profile -- --input output/external/sam-3d-body/jujae-regression-0-16_5/recording.jsonl --output output/external/sam-3d-body/jujae-regression-0-16_5/calibration-profile.json --ratio-scale 1.3
+```
+
+## SAM Regression Oracle
+
+`npm run sam:oracle` turns a generated tracker-vs-SAM comparison into a regression gate. The default thresholds are calibrated for the `jujae-regression-0-16_5` clip and require pairedRatio >= `0.95`, target p95 <= `50deg`, hinge p95 <= `55deg`, facing agreement >= `95%`, back/side facing agreement >= `90%`, yaw p95 <= `35deg`, and occlusion-window arm p95 <= `75deg`. Keep the SAM data offline; this oracle reads the comparison report only and does not add SAM-3D-Body to the browser runtime.
+
+```sh
+npm run sam:oracle -- --report output/reports/tracker-vs-sam-jujae-v2.json --output output/reports/tracker-vs-sam-jujae-v2-oracle.json
+```
+
+For depth-calibration experiments, inject the external profile into the browser validation run:
+
+```sh
+npm run motion:avatar -- --video output/test-videos/jujae-regression-0-16_5.mp4 --only-models --model Xbot=assets/models/Xbot.glb --smoothing retarget --pump rvfc --debug-overlay off --calibration-profile output/external/sam-3d-body/jujae-regression-0-16_5/calibration-profile.json --measurement-only
 ```
 
 Forwarding is an optional browser WebSocket client, not a local server:
