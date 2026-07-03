@@ -29,6 +29,8 @@ async function main() {
   const report = compareRecordings(live, offline, {
     maxTimestampDeltaMs: args.maxTimestampDeltaMs,
     timestampSource: args.timestampSource,
+    interpolate: args.interpolate,
+    offsetMs: args.offsetMs,
   });
 
   if (args.output) {
@@ -63,6 +65,8 @@ function parseArgs(rawArgs) {
     html: "",
     maxTimestampDeltaMs: 50,
     timestampSource: "timestamp",
+    interpolate: "none",
+    offsetMs: 0,
     help: false,
   };
 
@@ -81,6 +85,10 @@ function parseArgs(rawArgs) {
       parsed.maxTimestampDeltaMs = Number(rawArgs[++index] ?? parsed.maxTimestampDeltaMs);
     } else if (arg === "--timestamp-source") {
       parsed.timestampSource = rawArgs[++index] ?? parsed.timestampSource;
+    } else if (arg === "--interpolate") {
+      parsed.interpolate = rawArgs[++index] ?? parsed.interpolate;
+    } else if (arg === "--offset-ms") {
+      parsed.offsetMs = rawArgs[++index] ?? parsed.offsetMs;
     } else if (arg === "--help" || arg === "-h") {
       parsed.help = true;
     } else {
@@ -93,6 +101,15 @@ function parseArgs(rawArgs) {
   }
   if (!["timestamp", "sourceMeta.videoTime"].includes(parsed.timestampSource)) {
     throw new Error("--timestamp-source must be timestamp or sourceMeta.videoTime.");
+  }
+  if (!["none", "offline"].includes(parsed.interpolate)) {
+    throw new Error("--interpolate must be none or offline.");
+  }
+  if (parsed.offsetMs !== "auto") {
+    parsed.offsetMs = Number(parsed.offsetMs);
+    if (!Number.isFinite(parsed.offsetMs)) {
+      throw new Error("--offset-ms must be a number or auto.");
+    }
   }
 
   return parsed;
@@ -111,9 +128,22 @@ export async function loadRecording(inputPath) {
 export function compareRecordings(live, offline, options = {}) {
   const maxTimestampDeltaMs = Number(options.maxTimestampDeltaMs ?? 50);
   const timestampSource = options.timestampSource ?? "timestamp";
+  const interpolate = options.interpolate ?? "none";
   const liveSolved = solveRecordingFrames(live.frames, { timestampSource });
   const offlineSolved = solveRecordingFrames(offline.frames, { timestampSource });
-  const pairs = pairSolvedFrames(liveSolved, offlineSolved, maxTimestampDeltaMs);
+  const estimatedOffsetMs = options.offsetMs === "auto"
+    ? estimateTimestampOffsetMs(liveSolved, offlineSolved, maxTimestampDeltaMs)
+    : Number(options.offsetMs ?? 0);
+  const pairs = interpolate === "offline"
+    ? pairLiveFramesWithInterpolatedOffline(liveSolved, offline.frames, {
+      maxTimestampDeltaMs,
+      timestampSource,
+      offlineTimestampOffsetMs: estimatedOffsetMs,
+    })
+    : pairSolvedFrames(liveSolved, offlineSolved, {
+      maxTimestampDeltaMs,
+      offlineTimestampOffsetMs: estimatedOffsetMs,
+    });
   const targetAngleRows = [];
   const hingeFlexRows = [];
 
@@ -127,6 +157,9 @@ export function compareRecordings(live, offline, options = {}) {
     comparisonType: "live-vs-offline-motion-recording",
     maxTimestampDeltaMs,
     timestampSource,
+    interpolate,
+    offsetMs: options.offsetMs ?? 0,
+    estimatedOffsetMs: round(estimatedOffsetMs, 3),
     live: summarizeRecordingSource(live),
     offline: summarizeRecordingSource(offline),
     summary: {
@@ -134,6 +167,13 @@ export function compareRecordings(live, offline, options = {}) {
       offlineFrames: offline.frames.length,
       pairedFrames: pairs.length,
       unpairedLiveFrames: live.frames.length - pairs.length,
+      pairedRatio: round(ratio(pairs.length, live.frames.length), 6),
+      offlineUsedFrames: countUniqueOfflineFrames(pairs),
+      offlineUsageRatio: round(ratio(countUniqueOfflineFrames(pairs), offline.frames.length), 6),
+      timestampDelta: summarizeRows(pairs.map((pair) => ({
+        timestampDeltaMs: pair.timestampDeltaMs,
+        confidenceWeight: 1,
+      })), "timestampDeltaMs"),
       targetAngle: summarizeRows(targetAngleRows, "angleDeltaDeg"),
       hingeFlex: summarizeRows(hingeFlexRows, "flexDeltaDeg"),
     },
@@ -254,12 +294,14 @@ export function renderComparisonHtml(report) {
   <main>
     <header>
       <h1>${escapeHtml(title)}</h1>
-      <div class="muted">Generated ${escapeHtml(report?.generatedAt ?? "")} · timestamp ${escapeHtml(report?.timestampSource ?? "timestamp")} · max delta ${formatNumber(report?.maxTimestampDeltaMs)}ms</div>
+      <div class="muted">Generated ${escapeHtml(report?.generatedAt ?? "")} · timestamp ${escapeHtml(report?.timestampSource ?? "timestamp")} · max delta ${formatNumber(report?.maxTimestampDeltaMs)}ms · interpolation ${escapeHtml(report?.interpolate ?? "none")} · offset ${formatNumber(report?.estimatedOffsetMs)}ms</div>
     </header>
     <div class="summary">
       ${renderMetricCard("Paired Frames", summary.pairedFrames)}
+      ${renderMetricCard("Paired Ratio", `${formatNumber((summary.pairedRatio ?? 0) * 100, 1)}%`)}
       ${renderMetricCard("Target Max", `${formatNumber(summary.targetAngle?.max)} deg`)}
       ${renderMetricCard("Target P95", `${formatNumber(summary.targetAngle?.p95)} deg`)}
+      ${renderMetricCard("Target Weighted Mean", `${formatNumber(summary.targetAngle?.weightedMean)} deg`)}
       ${renderMetricCard("Hinge Max", `${formatNumber(summary.hingeFlex?.max)} deg`)}
       ${renderMetricCard("Hinge P95", `${formatNumber(summary.hingeFlex?.p95)} deg`)}
     </div>
@@ -353,34 +395,108 @@ function buildComparisonTimeline(pairs, targetAngleRows, hingeFlexRows) {
   });
 }
 
-function pairSolvedFrames(liveSolved, offlineSolved, maxTimestampDeltaMs) {
+function pairSolvedFrames(liveSolved, offlineSolved, options = {}) {
+  const maxTimestampDeltaMs = Number(options.maxTimestampDeltaMs ?? 50);
+  const offlineTimestampOffsetMs = Number(options.offlineTimestampOffsetMs ?? 0);
   const pairs = [];
-  let offlineCursor = 0;
+  const offlineTimedFrames = offlineSolved
+    .map((frame) => ({
+      ...frame,
+      effectiveTimestamp: frame.timestamp + offlineTimestampOffsetMs,
+    }))
+    .filter((frame) => Number.isFinite(frame.effectiveTimestamp))
+    .sort((a, b) => a.effectiveTimestamp - b.effectiveTimestamp);
 
   for (const liveFrame of liveSolved) {
-    let best = null;
-
-    for (let index = offlineCursor; index < offlineSolved.length; index += 1) {
-      const offlineFrame = offlineSolved[index];
-      const timestampDeltaMs = Math.abs(offlineFrame.timestamp - liveFrame.timestamp);
-
-      if (timestampDeltaMs <= maxTimestampDeltaMs && (!best || timestampDeltaMs < best.timestampDeltaMs)) {
-        best = { offlineIndex: index, offlineFrame, timestampDeltaMs };
-      }
-
-      if (offlineFrame.timestamp - liveFrame.timestamp > maxTimestampDeltaMs) {
-        break;
-      }
-    }
+    const best = findNearestTimedFrame(offlineTimedFrames, liveFrame.timestamp, maxTimestampDeltaMs);
 
     if (best) {
-      offlineCursor = best.offlineIndex + 1;
       pairs.push({
         live: liveFrame,
-        offline: best.offlineFrame,
+        offline: best.frame,
         timestampDeltaMs: best.timestampDeltaMs,
+        offlineTimestamp: round(best.effectiveOfflineTimestamp, 3),
+        offlineSourceIndices: [best.frame.index],
+        interpolation: "none",
       });
     }
+  }
+
+  return pairs;
+}
+
+function pairLiveFramesWithInterpolatedOffline(liveSolved, offlineFrames, options = {}) {
+  const maxTimestampDeltaMs = Number(options.maxTimestampDeltaMs ?? 50);
+  const timestampSource = options.timestampSource ?? "timestamp";
+  const offlineTimestampOffsetMs = Number(options.offlineTimestampOffsetMs ?? 0);
+  const offlineTimedFrames = offlineFrames
+    .map((frame, index) => ({
+      index,
+      timestamp: readFrameTimestampMs(frame, timestampSource),
+      effectiveTimestamp: readFrameTimestampMs(frame, timestampSource) + offlineTimestampOffsetMs,
+      frame,
+    }))
+    .filter((frame) => Number.isFinite(frame.effectiveTimestamp))
+    .sort((a, b) => a.effectiveTimestamp - b.effectiveTimestamp);
+  const pairs = [];
+  let previousState = {};
+
+  if (offlineTimedFrames.length === 0) {
+    return pairs;
+  }
+
+  for (const liveFrame of liveSolved) {
+    const bracket = findInterpolationBracket(offlineTimedFrames, liveFrame.timestamp);
+    const left = bracket?.left;
+    const right = bracket?.right;
+
+    if (!left || !right) {
+      continue;
+    }
+
+    const bracketStart = Math.min(left.effectiveTimestamp, right.effectiveTimestamp);
+    const bracketEnd = Math.max(left.effectiveTimestamp, right.effectiveTimestamp);
+    const outsideGap = liveFrame.timestamp < bracketStart
+      ? bracketStart - liveFrame.timestamp
+      : liveFrame.timestamp > bracketEnd
+        ? liveFrame.timestamp - bracketEnd
+        : 0;
+
+    if (outsideGap > maxTimestampDeltaMs) {
+      continue;
+    }
+
+    const span = right.effectiveTimestamp - left.effectiveTimestamp;
+    const interpolationRatio = Math.abs(span) <= 0.000001
+      ? 0
+      : clamp((liveFrame.timestamp - left.effectiveTimestamp) / span, 0, 1);
+    const interpolatedFrame = interpolateMotionFrame(left.frame, right.frame, interpolationRatio, {
+      timestamp: liveFrame.timestamp,
+      sourceMeta: {
+        interpolation: "offline-linear",
+        sourceLeftIndex: left.index,
+        sourceRightIndex: right.index,
+        sourceLeftTimestamp: round(left.effectiveTimestamp, 3),
+        sourceRightTimestamp: round(right.effectiveTimestamp, 3),
+        interpolationRatio: round(interpolationRatio, 6),
+      },
+    });
+    const solved = solvePoseFrame(interpolatedFrame, previousState);
+    previousState = solved.state;
+
+    pairs.push({
+      live: liveFrame,
+      offline: {
+        index: round(left.index + (right.index - left.index) * interpolationRatio, 6),
+        timestamp: liveFrame.timestamp,
+        frame: interpolatedFrame,
+        solved,
+      },
+      timestampDeltaMs: round(outsideGap, 3),
+      offlineTimestamp: round(liveFrame.timestamp, 3),
+      offlineSourceIndices: left.index === right.index ? [left.index] : [left.index, right.index],
+      interpolation: "offline",
+    });
   }
 
   return pairs;
@@ -405,6 +521,7 @@ function collectTargetAngleRows(rows, pair) {
       angleDeltaDeg: round(directionAngleDeg(liveTarget.direction, offlineTarget.direction), 3),
       liveConfidence: liveTarget.confidence,
       offlineConfidence: offlineTarget.confidence,
+      confidenceWeight: confidenceWeight(liveTarget.confidence, offlineTarget.confidence),
     });
   }
 }
@@ -428,6 +545,7 @@ function collectHingeFlexRows(rows, pair) {
       flexDeltaDeg: round(Math.abs(liveHinge.flexDeg - offlineHinge.flexDeg), 3),
       liveConfidence: liveHinge.confidence,
       offlineConfidence: offlineHinge.confidence,
+      confidenceWeight: confidenceWeight(liveHinge.confidence, offlineHinge.confidence),
     });
   }
 }
@@ -443,9 +561,16 @@ function summarizeRecordingSource(recording) {
 
 function summarizeRows(rows, valueKey) {
   const values = rows
-    .map((row) => row[valueKey])
+    .map((row) => Number(row[valueKey]))
     .filter(Number.isFinite)
     .sort((a, b) => a - b);
+  const weightedValues = rows
+    .map((row) => ({
+      value: Number(row[valueKey]),
+      weight: Number.isFinite(Number(row.confidenceWeight)) ? Math.max(0, Number(row.confidenceWeight)) : 1,
+    }))
+    .filter((row) => Number.isFinite(row.value) && row.weight > 0)
+    .sort((a, b) => a.value - b.value);
 
   if (values.length === 0) {
     return {
@@ -453,14 +578,25 @@ function summarizeRows(rows, valueKey) {
       mean: 0,
       p95: 0,
       max: 0,
+      weightedMean: 0,
+      weightedP95: 0,
+      weightSum: 0,
     };
   }
+
+  const weightSum = weightedValues.reduce((sum, row) => sum + row.weight, 0);
+  const weightedMean = weightSum > 0
+    ? weightedValues.reduce((sum, row) => sum + row.value * row.weight, 0) / weightSum
+    : 0;
 
   return {
     count: values.length,
     mean: round(values.reduce((sum, value) => sum + value, 0) / values.length, 3),
     p95: round(percentile(values, 0.95), 3),
     max: round(values[values.length - 1], 3),
+    weightedMean: round(weightedMean, 3),
+    weightedP95: round(weightedPercentile(weightedValues, 0.95), 3),
+    weightSum: round(weightSum, 3),
   };
 }
 
@@ -576,6 +712,203 @@ function renderWorstHinges(rows) {
   </table>`;
 }
 
+function estimateTimestampOffsetMs(liveSolved, offlineSolved, maxTimestampDeltaMs) {
+  const candidateStepMs = 5;
+  const searchWindowMs = 500;
+  let best = {
+    offsetMs: 0,
+    pairCount: -1,
+    meanDeltaMs: Number.POSITIVE_INFINITY,
+  };
+
+  for (let offsetMs = -searchWindowMs; offsetMs <= searchWindowMs; offsetMs += candidateStepMs) {
+    const pairs = pairSolvedFrames(liveSolved, offlineSolved, {
+      maxTimestampDeltaMs,
+      offlineTimestampOffsetMs: offsetMs,
+    });
+    const meanDeltaMs = pairs.length > 0
+      ? pairs.reduce((sum, pair) => sum + pair.timestampDeltaMs, 0) / pairs.length
+      : Number.POSITIVE_INFINITY;
+    const betterPairCount = pairs.length > best.pairCount;
+    const equalCountBetterDelta = pairs.length === best.pairCount && meanDeltaMs < best.meanDeltaMs;
+    const equalDeltaCloserToZero = pairs.length === best.pairCount &&
+      Math.abs(meanDeltaMs - best.meanDeltaMs) <= 0.000001 &&
+      Math.abs(offsetMs) < Math.abs(best.offsetMs);
+
+    if (betterPairCount || equalCountBetterDelta || equalDeltaCloserToZero) {
+      best = {
+        offsetMs,
+        pairCount: pairs.length,
+        meanDeltaMs,
+      };
+    }
+  }
+
+  return best.offsetMs;
+}
+
+function findNearestTimedFrame(timedFrames, timestamp, maxTimestampDeltaMs) {
+  if (timedFrames.length === 0 || !Number.isFinite(timestamp)) {
+    return null;
+  }
+
+  const insertionIndex = lowerBoundTimedFrames(timedFrames, timestamp);
+  const candidates = [
+    timedFrames[insertionIndex - 1],
+    timedFrames[insertionIndex],
+    timedFrames[insertionIndex + 1],
+  ].filter(Boolean);
+  let best = null;
+
+  for (const candidate of candidates) {
+    const timestampDeltaMs = Math.abs(candidate.effectiveTimestamp - timestamp);
+
+    if (timestampDeltaMs <= maxTimestampDeltaMs && (!best || timestampDeltaMs < best.timestampDeltaMs)) {
+      best = {
+        frame: candidate,
+        timestampDeltaMs,
+        effectiveOfflineTimestamp: candidate.effectiveTimestamp,
+      };
+    }
+  }
+
+  return best;
+}
+
+function findInterpolationBracket(timedFrames, timestamp) {
+  if (timedFrames.length === 0 || !Number.isFinite(timestamp)) {
+    return null;
+  }
+
+  const insertionIndex = lowerBoundTimedFrames(timedFrames, timestamp);
+
+  if (insertionIndex <= 0) {
+    const first = timedFrames[0];
+    const second = timedFrames[1] ?? first;
+    return { left: first, right: second };
+  }
+
+  if (insertionIndex >= timedFrames.length) {
+    const last = timedFrames.at(-1);
+    const previous = timedFrames.at(-2) ?? last;
+    return { left: previous, right: last };
+  }
+
+  return {
+    left: timedFrames[insertionIndex - 1],
+    right: timedFrames[insertionIndex],
+  };
+}
+
+function lowerBoundTimedFrames(timedFrames, timestamp) {
+  let low = 0;
+  let high = timedFrames.length;
+
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+
+    if (timedFrames[mid].effectiveTimestamp < timestamp) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+
+  return low;
+}
+
+function interpolateMotionFrame(leftFrame, rightFrame, ratioValue, options = {}) {
+  const ratioValueClamped = clamp(Number(ratioValue), 0, 1);
+
+  return {
+    ...leftFrame,
+    timestamp: Number.isFinite(Number(options.timestamp)) ? Number(options.timestamp) : interpolateNumber(leftFrame.timestamp, rightFrame.timestamp, ratioValueClamped),
+    poseLandmarks: interpolateLandmarkList(leftFrame.poseLandmarks, rightFrame.poseLandmarks, ratioValueClamped),
+    poseWorldLandmarks: interpolateLandmarkList(leftFrame.poseWorldLandmarks, rightFrame.poseWorldLandmarks, ratioValueClamped),
+    leftHandLandmarks: interpolateLandmarkList(leftFrame.leftHandLandmarks, rightFrame.leftHandLandmarks, ratioValueClamped),
+    rightHandLandmarks: interpolateLandmarkList(leftFrame.rightHandLandmarks, rightFrame.rightHandLandmarks, ratioValueClamped),
+    leftHandWorldLandmarks: interpolateLandmarkList(leftFrame.leftHandWorldLandmarks, rightFrame.leftHandWorldLandmarks, ratioValueClamped),
+    rightHandWorldLandmarks: interpolateLandmarkList(leftFrame.rightHandWorldLandmarks, rightFrame.rightHandWorldLandmarks, ratioValueClamped),
+    sourceMeta: {
+      ...leftFrame.sourceMeta,
+      ...options.sourceMeta,
+    },
+  };
+}
+
+function interpolateLandmarkList(leftLandmarks, rightLandmarks, ratioValue) {
+  if (!Array.isArray(leftLandmarks) || !Array.isArray(rightLandmarks) || leftLandmarks.length !== rightLandmarks.length) {
+    return Array.isArray(leftLandmarks)
+      ? leftLandmarks.map((landmark) => ({ ...landmark }))
+      : null;
+  }
+
+  return leftLandmarks.map((leftLandmark, index) => {
+    const rightLandmark = rightLandmarks[index];
+
+    if (!leftLandmark || !rightLandmark) {
+      return leftLandmark ? { ...leftLandmark } : rightLandmark ? { ...rightLandmark } : null;
+    }
+
+    return {
+      x: interpolateNumber(leftLandmark.x, rightLandmark.x, ratioValue),
+      y: interpolateNumber(leftLandmark.y, rightLandmark.y, ratioValue),
+      z: interpolateNumber(leftLandmark.z, rightLandmark.z, ratioValue),
+      visibility: interpolateNumber(leftLandmark.visibility, rightLandmark.visibility, ratioValue),
+      presence: interpolateNumber(leftLandmark.presence, rightLandmark.presence, ratioValue),
+    };
+  });
+}
+
+function interpolateNumber(leftValue, rightValue, ratioValue) {
+  const left = Number(leftValue);
+  const right = Number(rightValue);
+
+  if (!Number.isFinite(left) && !Number.isFinite(right)) {
+    return 0;
+  }
+  if (!Number.isFinite(left)) {
+    return right;
+  }
+  if (!Number.isFinite(right)) {
+    return left;
+  }
+
+  return left + (right - left) * ratioValue;
+}
+
+function countUniqueOfflineFrames(pairs) {
+  const indices = new Set();
+
+  for (const pair of pairs) {
+    const sourceIndices = Array.isArray(pair.offlineSourceIndices)
+      ? pair.offlineSourceIndices
+      : [pair.offline?.index];
+
+    for (const index of sourceIndices) {
+      if (Number.isFinite(Number(index))) {
+        indices.add(Number(index));
+      }
+    }
+  }
+
+  return indices.size;
+}
+
+function ratio(numerator, denominator) {
+  const denominatorValue = Number(denominator);
+  return denominatorValue > 0 ? Number(numerator) / denominatorValue : 0;
+}
+
+function confidenceWeight(...values) {
+  const finiteValues = values
+    .map((value) => Number(value))
+    .filter(Number.isFinite)
+    .map((value) => clamp(value, 0, 1));
+
+  return finiteValues.length > 0 ? round(Math.min(...finiteValues), 6) : 0;
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -619,9 +952,33 @@ function percentile(sortedValues, percentileValue) {
   return sortedValues[index];
 }
 
+function weightedPercentile(sortedWeightedValues, percentileValue) {
+  if (sortedWeightedValues.length === 0) {
+    return 0;
+  }
+
+  const totalWeight = sortedWeightedValues.reduce((sum, row) => sum + row.weight, 0);
+  const threshold = totalWeight * percentileValue;
+  let cumulative = 0;
+
+  for (const row of sortedWeightedValues) {
+    cumulative += row.weight;
+
+    if (cumulative >= threshold) {
+      return row.value;
+    }
+  }
+
+  return sortedWeightedValues.at(-1)?.value ?? 0;
+}
+
 function round(value, digits = 6) {
   const scale = 10 ** digits;
   return Math.round(value * scale) / scale;
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
 }
 
 function printUsage() {
@@ -633,6 +990,8 @@ The report pairs frames by timestamp, solves both recordings through the pure
 pose solver, summarizes target direction and hinge flexion differences, and can
 write a static HTML timeline report with --html. Use
 --timestamp-source sourceMeta.videoTime when comparing recordings captured from
-the same source video by different runtimes.
+the same source video by different runtimes. Use --interpolate offline to align
+dense offline recordings to sparse live frames, and --offset-ms auto to estimate
+a constant live/offline timestamp offset before pairing.
 `);
 }

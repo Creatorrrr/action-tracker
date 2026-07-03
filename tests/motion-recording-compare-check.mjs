@@ -44,6 +44,51 @@ const sourceTimeReport = compareRecordings(sourceTimedLive, sourceTimedOffline, 
 assert.equal(sourceTimeReport.timestampSource, "sourceMeta.videoTime");
 assert.equal(sourceTimeReport.summary.pairedFrames, identityRecording.frames.length);
 assert.equal(sourceTimeReport.summary.targetAngle.max, 0);
+assert.equal(sourceTimeReport.summary.pairedRatio, 1);
+assert.equal(sourceTimeReport.summary.targetAngle.weightedMean, 0);
+
+const shiftedLive = withTimestampOffset(identityRecording, 100);
+const shiftedNoOffsetReport = compareRecordings(shiftedLive, identityRecording, {
+  maxTimestampDeltaMs: 10,
+});
+assert.ok(shiftedNoOffsetReport.summary.pairedFrames < identityRecording.frames.length);
+const shiftedAutoOffsetReport = compareRecordings(shiftedLive, identityRecording, {
+  maxTimestampDeltaMs: 10,
+  offsetMs: "auto",
+});
+assert.equal(shiftedAutoOffsetReport.estimatedOffsetMs, 100);
+assert.equal(shiftedAutoOffsetReport.summary.pairedFrames, identityRecording.frames.length);
+assert.equal(shiftedAutoOffsetReport.summary.timestampDelta.max, 0);
+
+const denseFlex = createSyntheticRecording("left-elbow-flex", { frames: 9, fps: 30 });
+const sparseFlex = createSyntheticRecording("left-elbow-flex", { frames: 3, fps: 7.5 });
+const nearestSparseReport = compareRecordings(denseFlex, sparseFlex, {
+  maxTimestampDeltaMs: 10,
+});
+assert.ok(nearestSparseReport.summary.pairedFrames < denseFlex.frames.length);
+const interpolatedSparseReport = compareRecordings(denseFlex, sparseFlex, {
+  maxTimestampDeltaMs: 10,
+  interpolate: "offline",
+});
+assert.equal(interpolatedSparseReport.interpolate, "offline");
+assert.equal(interpolatedSparseReport.summary.pairedFrames, denseFlex.frames.length);
+assert.equal(interpolatedSparseReport.summary.pairedRatio, 1);
+assert.equal(interpolatedSparseReport.summary.offlineUsedFrames, sparseFlex.frames.length);
+assert.ok(interpolatedSparseReport.summary.pairedRatio > nearestSparseReport.summary.pairedRatio);
+
+const loopedLive = createMotionRecording({
+  source: identityRecording.source,
+  createdAt: identityRecording.createdAt,
+  frames: [
+    ...identityRecording.frames.slice(4),
+    ...identityRecording.frames.slice(0, 4),
+  ],
+});
+const loopedReport = compareRecordings(loopedLive, identityRecording, {
+  maxTimestampDeltaMs: 1,
+});
+assert.equal(loopedReport.summary.pairedFrames, identityRecording.frames.length);
+assert.equal(loopedReport.summary.pairedRatio, 1);
 
 const livePath = path.join(tempDir, "live.jsonl");
 const offlinePath = path.join(tempDir, "offline.jsonl");
@@ -84,8 +129,12 @@ assert.ok(cliHtml.includes("Targets By Bone"));
 
 console.log("Motion recording compare check passed.");
 
-function createSyntheticRecording(scenario) {
-  const sequence = createSyntheticSequence({ scenario, frames: 9, fps: 30 });
+function createSyntheticRecording(scenario, options = {}) {
+  const sequence = createSyntheticSequence({
+    scenario,
+    frames: options.frames ?? 9,
+    fps: options.fps ?? 30,
+  });
 
   return createMotionRecording({
     source: {
@@ -94,6 +143,18 @@ function createSyntheticRecording(scenario) {
     },
     frames: sequence.frames,
     createdAt: "2026-07-02T00:00:00.000Z",
+  });
+}
+
+function withTimestampOffset(recording, timestampOffsetMs) {
+  return createMotionRecording({
+    source: recording.source,
+    createdAt: recording.createdAt,
+    droppedFrames: recording.droppedFrames,
+    frames: recording.frames.map((frame) => ({
+      ...frame,
+      timestamp: frame.timestamp + timestampOffsetMs,
+    })),
   });
 }
 
