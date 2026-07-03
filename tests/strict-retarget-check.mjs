@@ -10,7 +10,9 @@ import {
 
 assert.equal(normalizeAvatarRetargetMode("strict"), RETARGET_MODE_STRICT);
 assert.equal(normalizeAvatarRetargetMode("skeleton-direct"), RETARGET_MODE_STRICT);
-assert.equal(normalizeAvatarRetargetMode("unknown"), RETARGET_MODE_LEGACY);
+assert.equal(normalizeAvatarRetargetMode("default"), RETARGET_MODE_STRICT);
+assert.equal(normalizeAvatarRetargetMode("unknown"), RETARGET_MODE_STRICT);
+assert.equal(normalizeAvatarRetargetMode("legacy"), RETARGET_MODE_LEGACY);
 
 const identityPose = solvedPose([
   target("LeftArm", "arms", { x: 1, y: 0, z: 0 }),

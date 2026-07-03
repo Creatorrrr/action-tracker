@@ -2,7 +2,7 @@ const RETARGET_MODE_LEGACY = "legacy";
 const RETARGET_MODE_STRICT = "strict";
 const RETARGET_MODE_ALIASES = Object.freeze({
   legacy: RETARGET_MODE_LEGACY,
-  default: RETARGET_MODE_LEGACY,
+  default: RETARGET_MODE_STRICT,
   retarget: RETARGET_MODE_LEGACY,
   normal: RETARGET_MODE_LEGACY,
   strict: RETARGET_MODE_STRICT,
@@ -20,7 +20,7 @@ export {
   normalizeAvatarRetargetMode,
 };
 
-function normalizeAvatarRetargetMode(value, fallback = RETARGET_MODE_LEGACY) {
+function normalizeAvatarRetargetMode(value, fallback = RETARGET_MODE_STRICT) {
   const normalized = String(value ?? fallback).trim().toLowerCase();
   return RETARGET_MODE_ALIASES[normalized] ?? fallback;
 }

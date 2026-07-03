@@ -70,7 +70,7 @@ const AVATAR_RETARGET_MODE_LEGACY = "legacy";
 const AVATAR_RETARGET_MODE_STRICT = "strict";
 const AVATAR_RETARGET_MODE_ALIASES = {
   legacy: AVATAR_RETARGET_MODE_LEGACY,
-  default: AVATAR_RETARGET_MODE_LEGACY,
+  default: AVATAR_RETARGET_MODE_STRICT,
   retarget: AVATAR_RETARGET_MODE_LEGACY,
   strict: AVATAR_RETARGET_MODE_STRICT,
   "skeleton-direct": AVATAR_RETARGET_MODE_STRICT,
@@ -4342,8 +4342,8 @@ function getInitialAvatarRetargetMode() {
 }
 
 function normalizeAvatarRetargetMode(value) {
-  const normalized = String(value ?? AVATAR_RETARGET_MODE_LEGACY).trim().toLowerCase();
-  return AVATAR_RETARGET_MODE_ALIASES[normalized] ?? AVATAR_RETARGET_MODE_LEGACY;
+  const normalized = String(value ?? AVATAR_RETARGET_MODE_STRICT).trim().toLowerCase();
+  return AVATAR_RETARGET_MODE_ALIASES[normalized] ?? AVATAR_RETARGET_MODE_STRICT;
 }
 
 function getInitialDebugOverlayEnabled() {

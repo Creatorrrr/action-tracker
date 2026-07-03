@@ -1585,7 +1585,7 @@ function printModelSummary(result, videoLabel = "") {
     + `finger min ${summary.minFingerChainLength}, `
     + `${summary.framesWithPose} pose frames, `
     + `solver ${summary.poseSolverMode ?? "unknown"}/${summary.poseSolverFacing ?? "unknown"}, `
-    + `retarget ${summary.avatarRetargetMode ?? "legacy"}, `
+    + `retarget ${summary.avatarRetargetMode ?? "strict"}, `
     + `solver p95 ${formatNullableMs(summary.poseSolverP95Ms)}, `
     + `hinge diag ${summary.poseSolverHingeViolations ?? "n/a"}/${summary.poseSolverHingeViolationFrames ?? "n/a"}f, `
     + `warn ${summary.poseSolverHingeLimitWarningFrames ?? "n/a"}f`

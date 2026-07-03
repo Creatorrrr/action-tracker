@@ -20,7 +20,7 @@
   - SAM 3D Body, WHAM, GVHMR 같은 heavy HMR을 브라우저 실시간 런타임 필수 의존성으로 넣지 않는다.
   - 기존 `motionFrame` JSONL/replay/forwarding 계약을 깨지 않는다.
   - 검증 threshold를 낮춰 통과시키지 않는다. 실패가 coverage blocker라면 blocker로 보고한다.
-  - strict mode 검증 전에는 기존 retarget mode를 즉시 삭제하거나 기본값으로 바꾸지 않는다.
+  - strict mode 검증 전에는 기존 retarget mode를 즉시 삭제하거나 기본값으로 바꾸지 않는다. 검증 통과 후 strict를 기본값으로 전환하고 legacy는 explicit fallback으로 유지한다.
 
 ## 문제 진단
 
@@ -101,11 +101,11 @@ flowchart LR
   - `?avatar-retarget=legacy|strict`
   - debug API: `window.motionTrackerDebug.setAvatarRetargetMode("strict")`
   - recording summary field: `motionState.retargetMode`
-- 초기 기본값:
-  - `legacy`
-  - strict는 opt-in 비교 모드
-- 기본값 전환 조건:
-  - csi-pose 주요 window에서 strict가 legacy보다 source-vs-avatar divergence를 줄이고, 기존 performance/test gate를 깨지 않을 때만 기본값 전환을 검토한다.
+- 초기 구현 기본값:
+  - 검증 단계에서는 `legacy`를 유지하고 strict는 opt-in 비교 모드로 추가했다.
+- 기본값 전환 결과:
+  - csi-pose 주요 window에서 strict가 legacy보다 source-vs-avatar divergence를 줄이고, 기존 performance/test gate를 깨지 않아 strict를 기본값으로 전환했다.
+  - legacy는 `?avatar-retarget=legacy`와 debug API로 명시 선택할 수 있다.
 
 ### Pure strict FK module
 
@@ -214,7 +214,7 @@ Strict mode should make the following logic optional or removable after validati
 | 0 | Baseline 고정 | legacy mode의 csi-pose/root yaw/palm/bone divergence baseline을 산출한다. threshold는 baseline 측정 후 absolute와 relative를 함께 정한다. | `npm run check`, csi tracker recording 재생성, `npm run compare:recordings`, HTML/JSON report | baseline report에 root yaw jump, turn direction mismatch, palm dot, major bone angular error가 기록됨 |
 | 1 | Source-vs-avatar diagnostics 추가 | 현재 legacy mode에서도 source axis와 avatar axis 차이를 볼 수 있어야 한다. | 신규/수정 tests, `npm run check`, report fixture | debug snapshot, recording summary, compare report에 divergence 지표가 포함됨 |
 | 2 | Strict FK pure module 구현 | source bone direction에서 root/local bone quaternion을 계산하는 pure module과 synthetic fixture를 만든다. | `tests/strict-retarget-check.mjs`, `tests/solver-synthetic-check.mjs` | identity, 180도 회전, crossed-arms, hands-up, upper-body synthetic case가 결정적으로 통과 |
-| 3 | Renderer opt-in integration | `?avatar-retarget=strict`와 debug API로 strict mode를 선택할 수 있고 legacy default는 유지한다. | browser smoke, `npm run smoke:hud`, `npm run perf:pump`, `npm run check` | strict mode가 로드되고 avatar가 finite transform을 유지하며 기존 mode가 회귀하지 않음 |
+| 3 | Renderer integration | `?avatar-retarget=strict|legacy`와 debug API로 retarget mode를 선택할 수 있고, 검증 뒤 strict default를 적용한다. | browser smoke, `npm run smoke:hud`, `npm run perf:pump`, `npm run check` | strict mode가 기본 로드되고 avatar가 finite transform을 유지하며 legacy fallback이 유지됨 |
 | 4 | Hand/palm/finger strict solve | 손등/손바닥 방향과 wrist roll이 hand 21점 기준으로 avatar에 반영된다. | hand synthetic tests, csi hands-up/occlusion windows compare | high-confidence hand frame에서 palm inversion frame이 baseline보다 감소하고 palmDot p50/p95가 리포트됨 |
 | 5 | CSI/SAM 비교 gate 연결 | csi-pose 라벨 window 기준으로 strict vs legacy를 비교하고 failure reason을 분리한다. | `npm run compare:recordings`, `npm run sam:oracle:csi`, generated HTML/JSON | strict report가 legacy 대비 yaw mismatch, palm inversion, major-bone angular error 개선/비개선을 명확히 보여줌 |
 | 6 | 기본값 전환/legacy 제거 판단 | strict가 기준을 만족하면 default 후보로 승격하고 불필요한 heuristic을 제거한다. 만족 못하면 blocker와 다음 실험을 기록한다. | 전체 검증, independent review, git diff review | default 전환 또는 fallback 유지 결정이 근거와 함께 문서화됨 |
@@ -222,7 +222,7 @@ Strict mode should make the following logic optional or removable after validati
 ## 최종 목표 스펙/성능
 
 - 필수 완료 기준:
-  - `?avatar-retarget=strict` opt-in mode가 존재한다.
+  - `?avatar-retarget=strict|legacy` mode가 존재하고 strict가 기본값이다.
   - strict mode는 source skeleton joint direction을 primary input으로 사용하고, gesture/facing label로 보이는 bone direction을 임의 반전하지 않는다.
   - strict mode와 legacy mode를 같은 recording/report에서 비교할 수 있다.
   - source-vs-avatar divergence 지표가 JSON/HTML report에 기록된다.
@@ -235,7 +235,7 @@ Strict mode should make the following logic optional or removable after validati
 - 성능 목표:
   - `poseSolverP95Ms <= 2ms` 유지.
   - `npm run perf:pump`에서 RAF/rVFC motion ratio가 기존 기준을 회귀하지 않는다.
-  - strict mode 추가로 기본 legacy path의 frame loop 비용이 유의미하게 증가하지 않아야 한다.
+  - strict default 추가로 frame loop 비용이 유의미하게 증가하지 않아야 한다.
 - 회귀 방지 기준:
   - `npm run check` 통과.
   - `npm run smoke:hud` 통과.
@@ -312,7 +312,7 @@ Strict mode should make the following logic optional or removable after validati
 - 검증:
   - `npm run check`: 통과.
   - `npm run smoke:hud`: 통과, `output/reports/motion-status-hud-smoke-latest.json`.
-  - strict opt-in smoke: `node scripts/avatar-motion-agreement-check.mjs --video output/test-videos/dance-16x9-padded.mp4 --only-models --model Xbot=assets/models/Xbot.glb --min-pose-frames 90 --warmup-pose-frames 20 --timeout-ms 180000 --playback-rate 0.5 --pump rvfc --debug-overlay off --smoothing retarget --avatar-retarget strict --measurement-only --output output/reports/avatar-motion-strict-smoke.json`: 통과.
+  - strict smoke: `node scripts/avatar-motion-agreement-check.mjs --video output/test-videos/dance-16x9-padded.mp4 --only-models --model Xbot=assets/models/Xbot.glb --min-pose-frames 90 --warmup-pose-frames 20 --timeout-ms 180000 --playback-rate 0.5 --pump rvfc --debug-overlay off --smoothing retarget --avatar-retarget strict --measurement-only --output output/reports/avatar-motion-strict-smoke.json`: 통과.
   - legacy-vs-strict smoke compare: `npm run compare:retarget -- --legacy output/reports/avatar-motion-legacy-smoke.json --strict output/reports/avatar-motion-strict-smoke.json --output output/reports/retarget-mode-smoke-compare.json --html output/reports/retarget-mode-smoke-compare.html`: 통과.
 - 관찰:
   - 짧은 smoke 기준 strict angular P90은 `8.033deg -> 3.354deg`로 개선.
@@ -356,7 +356,7 @@ Strict mode should make the following logic optional or removable after validati
 ### 2026-07-04 독립 검증 반영
 
 - 독립 검증 결과:
-  - legacy default와 strict opt-in 구조, source-vs-avatar report wiring, strict 품질 지표는 조건부 통과.
+  - strict default 전환 전 기준으로 legacy default와 strict opt-in 구조, source-vs-avatar report wiring, strict 품질 지표는 조건부 통과.
   - 지적 1: `RetargetFrame.localRotation`이 runtime source가 아니라 renderer final aim layer가 적용한다.
   - 지적 2: retarget compare가 angular p90만으로 pass 처리할 수 있다.
   - 지적 3: `sam:oracle:csi`가 오래된 v1 report를 가리킨다.
@@ -365,6 +365,9 @@ Strict mode should make the following logic optional or removable after validati
   - `scripts/retarget-mode-compare.mjs` pass 조건을 angular p90, angular max, palm inversion, root yaw, poseSolver budget 모두 통과해야 하도록 강화했다.
   - `tests/retarget-mode-compare-check.mjs`에 palm/root 악화 시 `passed=false`가 되는 회귀 테스트를 추가했다.
   - `package.json`의 `sam:oracle:csi`와 `tests/contract-check.mjs`를 현재 strict direct v4 evidence 경로로 갱신했다.
+- 기본값 전환:
+  - strict를 앱/renderer 기본값으로 전환했다.
+  - `?avatar-retarget=legacy`와 `window.motionTrackerDebug.setAvatarRetargetMode("legacy")`는 legacy fallback으로 유지한다.
 - 최종 검증:
   - `npm run check`: 통과.
   - `git diff --check`: 통과.

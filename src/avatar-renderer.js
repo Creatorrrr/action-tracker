@@ -426,7 +426,7 @@ export function createAvatarRenderer(options = {}) {
   let landmarkDepthScale = normalizeDepthScale(options.depthScale ?? DEFAULT_LANDMARK_DEPTH_SCALE);
   let depthCalibrationMode = normalizeDepthCalibrationMode(options.depthCalibrationMode);
   let activeSmoothingMode = normalizeAvatarSmoothingMode(options.smoothingMode);
-  let activeRetargetMode = normalizeAvatarRetargetMode(options.retargetMode, RETARGET_MODE_LEGACY);
+  let activeRetargetMode = normalizeAvatarRetargetMode(options.retargetMode, RETARGET_MODE_STRICT);
   let orbitControlsAttached = false;
   const orbitCamera = {
     target: new THREE.Vector3(0, 1, 0),
