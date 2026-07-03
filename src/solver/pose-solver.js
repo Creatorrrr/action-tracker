@@ -9,6 +9,10 @@ const FULL_CONFIDENCE_VISIBILITY = 0.72;
 const LOW_CONFIDENCE_VISIBILITY = 0.35;
 const HINGE_RELIABLE_CONFIDENCE = 0.5;
 const HINGE_LIMIT_EPSILON_DEG = 2;
+const TARGET_RELIABLE_CONFIDENCE = 0.5;
+const ARM_OCCLUSION_HOLD_MS = 260;
+const ARM_OCCLUSION_DECAY_MS = 760;
+const ARM_REACQUIRE_MAX_DEG_PER_SEC = 420;
 
 const POSE = {
   nose: 0,
@@ -107,35 +111,50 @@ export {
   solvePoseTargetsFromPoints,
 };
 
-function solvePoseFrame(motionFrame, previousState = {}) {
+function solvePoseFrame(motionFrame, previousState = {}, options = {}) {
   const points = buildPosePoints(motionFrame);
 
   return solvePoseTargetsFromPoints(points, previousState, {
     timestamp: Number(motionFrame?.timestamp ?? 0),
+    ...options,
   });
 }
 
 function solvePoseTargetsFromPoints(points, previousState = {}, options = {}) {
+  const timestamp = Number(options.timestamp ?? 0);
+  const targetStabilizationEnabled = options.targetStabilization !== false;
   const mode = estimateTrackingMode(points);
   const facingState = estimateFacingState(points, previousState.facing, {
     lowConfidence: LOW_CONFIDENCE_VISIBILITY,
   });
   const facing = toLegacyFacing(facingState.state);
-  const targets = BODY_TARGETS.map((target) => solveTarget(target, points))
+  const rawTargets = BODY_TARGETS.map((target) => solveTarget(target, points))
     .filter(Boolean);
+  const targetStabilization = targetStabilizationEnabled
+    ? stabilizeTargets(rawTargets, previousState.targetMemory, {
+      points,
+      timestamp,
+    })
+    : {
+      targets: rawTargets,
+      memory: {},
+      summary: summarizeTargetOcclusion(rawTargets),
+    };
+  const targets = targetStabilization.targets;
   const hinges = solveHinges(points);
   const hingeViolations = hinges.filter((hinge) => hinge.violation).length;
   const hingeLimitWarnings = hinges.filter((hinge) => hinge.limitWarning).length;
 
   return {
     version: SOLVER_VERSION,
-    timestamp: Number(options.timestamp ?? 0),
+    timestamp,
     rotations: {},
     targets,
     hinges,
     state: {
       facing: facingState,
       mode,
+      targetMemory: targetStabilization.memory,
     },
     meta: {
       facing,
@@ -146,12 +165,199 @@ function solvePoseTargetsFromPoints(points, previousState = {}, options = {}) {
       mode,
       targetCount: targets.length,
       lowConfidenceTargets: targets.filter((target) => target.confidence <= LOW_CONFIDENCE_VISIBILITY).length,
+      occlusionActiveTargets: targetStabilization.summary.activeCount,
+      occlusionHoldTargets: targetStabilization.summary.holdCount,
+      occlusionDecayTargets: targetStabilization.summary.decayCount,
+      occlusionReacquireTargets: targetStabilization.summary.reacquireCount,
       hingeCount: hinges.length,
       hingeViolations,
       hingeLimitWarnings,
       lowConfidenceHinges: hinges.filter((hinge) => hinge.confidence < HINGE_RELIABLE_CONFIDENCE).length,
     },
   };
+}
+
+function stabilizeTargets(rawTargets, previousMemory = {}, options = {}) {
+  const timestamp = Number(options.timestamp ?? 0);
+  const previous = previousMemory && typeof previousMemory === "object" ? previousMemory : {};
+  const memory = {};
+  const targets = rawTargets.map((target) => {
+    if (target.group !== "arms") {
+      return target;
+    }
+
+    const previousTarget = previous[target.bone];
+    const occlusionRisk = estimateArmOcclusionRisk(target);
+    const targetReliable = target.confidence >= TARGET_RELIABLE_CONFIDENCE && !occlusionRisk.active;
+    const stabilized = targetReliable
+      ? stabilizeReliableTarget(target, previousTarget, timestamp)
+      : stabilizeOccludedTarget(target, previousTarget, timestamp, occlusionRisk);
+
+    if (stabilized.memory) {
+      memory[target.bone] = stabilized.memory;
+    }
+
+    return stabilized.target;
+  });
+
+  for (const target of rawTargets) {
+    if (target.group === "arms" || !target.direction) {
+      continue;
+    }
+
+    memory[target.bone] = {
+      direction: target.direction,
+      confidence: target.confidence,
+      timestamp,
+      reliableTimestamp: target.confidence >= TARGET_RELIABLE_CONFIDENCE ? timestamp : null,
+      occlusionState: "tracking",
+      occluded: false,
+    };
+  }
+
+  return {
+    targets,
+    memory,
+    summary: summarizeTargetOcclusion(targets),
+  };
+}
+
+function stabilizeReliableTarget(target, previousTarget, timestamp) {
+  const previousOccluded = previousTarget?.occluded === true ||
+    previousTarget?.occlusionState === "hold" ||
+    previousTarget?.occlusionState === "decay";
+  const elapsedMs = Number.isFinite(timestamp) && Number.isFinite(Number(previousTarget?.timestamp))
+    ? Math.max(0, timestamp - Number(previousTarget.timestamp))
+    : 0;
+  const maxReacquireAngleDeg = elapsedMs > 0
+    ? (elapsedMs / 1000) * ARM_REACQUIRE_MAX_DEG_PER_SEC
+    : ARM_REACQUIRE_MAX_DEG_PER_SEC / 30;
+  const angleDeg = previousOccluded && previousTarget?.direction
+    ? directionAngleDeg(previousTarget.direction, target.direction)
+    : 0;
+  const shouldClamp = previousOccluded && previousTarget?.direction && angleDeg > maxReacquireAngleDeg;
+  const direction = shouldClamp
+    ? blendDirections(previousTarget.direction, target.direction, maxReacquireAngleDeg / angleDeg)
+    : target.direction;
+  const occlusionState = shouldClamp ? "reacquire" : "tracking";
+  const stabilizedTarget = {
+    ...target,
+    direction,
+    occlusionState,
+    occlusionReason: shouldClamp ? "reacquire_angular_limit" : "none",
+    rawDirection: target.direction,
+  };
+
+  return {
+    target: stabilizedTarget,
+    memory: {
+      direction,
+      confidence: target.confidence,
+      timestamp,
+      reliableTimestamp: timestamp,
+      occlusionState,
+      occluded: false,
+    },
+  };
+}
+
+function stabilizeOccludedTarget(target, previousTarget, timestamp, occlusionRisk) {
+  if (!previousTarget?.direction) {
+    return {
+      target: {
+        ...target,
+        occlusionState: occlusionRisk.active ? "detected" : "low-confidence",
+        occlusionReason: occlusionRisk.reason,
+        rawDirection: target.direction,
+      },
+      memory: {
+        direction: target.direction,
+        confidence: target.confidence,
+        timestamp,
+        reliableTimestamp: null,
+        occlusionState: occlusionRisk.active ? "detected" : "low-confidence",
+        occluded: occlusionRisk.active || target.confidence < TARGET_RELIABLE_CONFIDENCE,
+      },
+    };
+  }
+
+  const reliableTimestamp = Number.isFinite(Number(previousTarget.reliableTimestamp))
+    ? Number(previousTarget.reliableTimestamp)
+    : Number(previousTarget.timestamp);
+  const elapsedSinceReliableMs = Number.isFinite(timestamp) && Number.isFinite(reliableTimestamp)
+    ? Math.max(0, timestamp - reliableTimestamp)
+    : 0;
+  let occlusionState = "hold";
+  let direction = previousTarget.direction;
+
+  if (elapsedSinceReliableMs > ARM_OCCLUSION_HOLD_MS) {
+    occlusionState = "decay";
+    const decayProgress = clamp(
+      (elapsedSinceReliableMs - ARM_OCCLUSION_HOLD_MS) /
+        Math.max(1, ARM_OCCLUSION_DECAY_MS - ARM_OCCLUSION_HOLD_MS),
+      0,
+      1,
+    );
+    direction = blendDirections(previousTarget.direction, target.direction, decayProgress * 0.35);
+  }
+
+  if (elapsedSinceReliableMs > ARM_OCCLUSION_DECAY_MS) {
+    occlusionState = "expired";
+    direction = target.direction;
+  }
+
+  return {
+    target: {
+      ...target,
+      direction,
+      occlusionState,
+      occlusionReason: occlusionRisk.reason,
+      rawDirection: target.direction,
+    },
+    memory: {
+      direction,
+      confidence: target.confidence,
+      timestamp,
+      reliableTimestamp,
+      occlusionState,
+      occluded: occlusionState !== "expired",
+    },
+  };
+}
+
+function summarizeTargetOcclusion(targets) {
+  const summary = {
+    activeCount: 0,
+    holdCount: 0,
+    decayCount: 0,
+    reacquireCount: 0,
+  };
+
+  for (const target of targets) {
+    if (target.occlusionState === "hold" || target.occlusionState === "decay") {
+      summary.activeCount += 1;
+    }
+    if (target.occlusionState === "hold") {
+      summary.holdCount += 1;
+    }
+    if (target.occlusionState === "decay") {
+      summary.decayCount += 1;
+    }
+    if (target.occlusionState === "reacquire") {
+      summary.reacquireCount += 1;
+    }
+  }
+
+  return summary;
+}
+
+function estimateArmOcclusionRisk(target) {
+  const lowConfidence = target.confidence < TARGET_RELIABLE_CONFIDENCE;
+  if (lowConfidence) {
+    return { active: true, reason: "low_confidence" };
+  }
+
+  return { active: false, reason: "none" };
 }
 
 function buildPosePoints(motionFrame) {
@@ -379,6 +585,10 @@ function subtract(a, b) {
   };
 }
 
+function dot(a, b) {
+  return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
 function normalize(vector) {
   const length = Math.hypot(vector.x, vector.y, vector.z);
 
@@ -399,6 +609,32 @@ function magnitude(vector) {
 
 function distance(a, b) {
   return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+}
+
+function directionAngleDeg(a, b) {
+  if (!a || !b) {
+    return 0;
+  }
+
+  const aLength = magnitude(a);
+  const bLength = magnitude(b);
+
+  if (aLength < MIN_DIRECTION_LENGTH || bLength < MIN_DIRECTION_LENGTH) {
+    return 0;
+  }
+
+  return radToDeg(Math.acos(clamp(dot(a, b) / (aLength * bLength), -1, 1)));
+}
+
+function blendDirections(from, to, amount) {
+  const blend = clamp(Number(amount), 0, 1);
+  const direction = normalize({
+    x: from.x + (to.x - from.x) * blend,
+    y: from.y + (to.y - from.y) * blend,
+    z: from.z + (to.z - from.z) * blend,
+  });
+
+  return direction ?? to;
 }
 
 function clamp(value, min, max) {

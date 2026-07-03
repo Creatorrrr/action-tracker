@@ -11,6 +11,11 @@ import { solvePoseFrame } from "../src/solver/pose-solver.js";
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const scriptPath = fileURLToPath(import.meta.url);
 const FACING_YAW_MATCH_THRESHOLD_DEG = 30;
+const ARM_OCCLUSION_WINDOW_KINDS = new Set([
+  "crossed-arms",
+  "left-behind-back",
+  "right-behind-back",
+]);
 
 if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
   await main();
@@ -155,7 +160,10 @@ export function compareRecordings(live, offline, options = {}) {
     timestampSource,
     timestampWrapMs: offlineDurationMs,
   });
-  const offlineSolved = solveRecordingFrames(offline.frames, { timestampSource });
+  const offlineSolved = solveRecordingFrames(offline.frames, {
+    timestampSource,
+    targetStabilization: false,
+  });
   const estimatedOffsetMs = options.offsetMs === "auto"
     ? estimateTimestampOffsetMs(liveSolved, offlineSolved, maxTimestampDeltaMs)
     : Number(options.offsetMs ?? 0);
@@ -188,6 +196,8 @@ export function compareRecordings(live, offline, options = {}) {
     timestampWrap,
     timestampWrapMs: round(offlineDurationMs, 3),
     interpolate,
+    liveTargetStabilization: true,
+    offlineTargetStabilization: false,
     offsetMs: options.offsetMs ?? 0,
     estimatedOffsetMs: round(estimatedOffsetMs, 3),
     live: summarizeRecordingSource(live),
@@ -205,12 +215,18 @@ export function compareRecordings(live, offline, options = {}) {
         confidenceWeight: 1,
       })), "timestampDeltaMs"),
       targetAngle: summarizeRows(targetAngleRows, "angleDeltaDeg"),
+      occlusionArmTargetAngle: summarizeRows(rowsInWindowKinds(
+        targetAngleRows.filter((row) => row.group === "arms"),
+        labels.windows,
+        ARM_OCCLUSION_WINDOW_KINDS,
+      ), "angleDeltaDeg"),
       hingeFlex: summarizeRows(hingeFlexRows, "flexDeltaDeg"),
       facingAgreement: summarizeFacingRows(facingRows),
     },
     timeline: buildComparisonTimeline(pairs, targetAngleRows, hingeFlexRows),
     byTarget: summarizeRowsByKey(targetAngleRows, "bone", "angleDeltaDeg"),
     byHinge: summarizeRowsByKey(hingeFlexRows, "name", "flexDeltaDeg"),
+    byLabelWindowKind: summarizeRowsByLabelWindowKind(labels.windows, targetAngleRows, hingeFlexRows, facingRows),
     byReferenceFacing: summarizeFacingRowsByState(facingRows),
     facingRows,
     worstTargets: targetAngleRows
@@ -380,9 +396,10 @@ function solveRecordingFrames(frames, options = {}) {
   let previousState = {};
   const timestampSource = options.timestampSource ?? "timestamp";
   const timestampWrapMs = Number(options.timestampWrapMs ?? 0);
+  const targetStabilization = options.targetStabilization !== false;
 
   return frames.map((frame, index) => {
-    const solved = solvePoseFrame(frame, previousState);
+    const solved = solvePoseFrame(frame, previousState, { targetStabilization });
     previousState = solved.state;
     const timestamp = readFrameTimestampMs(frame, timestampSource);
 
@@ -453,7 +470,7 @@ function buildComparisonTimeline(pairs, targetAngleRows, hingeFlexRows) {
     return {
       liveIndex: pair.live.index,
       offlineIndex: pair.offline.index,
-      timestamp: round(pair.live.timestamp, 3),
+      timestamp: Number(pair.live.timestamp),
       timestampDeltaMs: round(pair.timestampDeltaMs, 3),
       targetAngleMeanDeg: targetSummary.mean,
       targetAngleP95Deg: targetSummary.p95,
@@ -551,7 +568,9 @@ function pairLiveFramesWithInterpolatedOffline(liveSolved, offlineFrames, option
         interpolationRatio: round(interpolationRatio, 6),
       },
     });
-    const solved = solvePoseFrame(interpolatedFrame, previousState);
+    const solved = solvePoseFrame(interpolatedFrame, previousState, {
+      targetStabilization: false,
+    });
     previousState = solved.state;
 
     pairs.push({
@@ -585,6 +604,7 @@ function collectTargetAngleRows(rows, pair) {
     rows.push({
       liveIndex: pair.live.index,
       offlineIndex: pair.offline.index,
+      timestamp: Number(pair.live.timestamp),
       timestampDeltaMs: pair.timestampDeltaMs,
       bone: liveTarget.bone,
       group: liveTarget.group,
@@ -609,6 +629,7 @@ function collectHingeFlexRows(rows, pair) {
     rows.push({
       liveIndex: pair.live.index,
       offlineIndex: pair.offline.index,
+      timestamp: Number(pair.live.timestamp),
       timestampDeltaMs: pair.timestampDeltaMs,
       name: liveHinge.name,
       group: liveHinge.group,
@@ -644,6 +665,7 @@ function collectFacingRows(rows, pair, referenceLabel) {
     liveIndex: pair.live.index,
     offlineIndex: pair.offline.index,
     labelIndex: referenceLabel.index,
+    timestamp: Number(pair.live.timestamp),
     timestampDeltaMs: round(Math.abs((referenceLabel.timestamp ?? 0) - pair.live.timestamp), 3),
     liveFacing,
     liveLegacyFacing,
@@ -768,6 +790,55 @@ function summarizeFacingRowsByState(rows) {
   return Object.fromEntries(
     Object.entries(grouped).map(([state, stateRows]) => [state, summarizeFacingRows(stateRows)]),
   );
+}
+
+function summarizeRowsByLabelWindowKind(windows, targetAngleRows, hingeFlexRows, facingRows) {
+  const groupedWindows = groupRowsByKey(normalizeReferenceWindows(windows), "kind");
+
+  return Object.fromEntries(Object.entries(groupedWindows).map(([kind, kindWindows]) => {
+    const targets = rowsInWindows(targetAngleRows, kindWindows);
+    const armTargets = targets.filter((row) => row.group === "arms");
+    const hinges = rowsInWindows(hingeFlexRows, kindWindows);
+    const armHinges = hinges.filter((row) => row.group === "arms");
+    const facing = rowsInWindows(facingRows, kindWindows);
+
+    return [kind, {
+      windowCount: kindWindows.length,
+      targetAngle: summarizeRows(targets, "angleDeltaDeg"),
+      armTargetAngle: summarizeRows(armTargets, "angleDeltaDeg"),
+      byArmTarget: summarizeRowsByKey(armTargets, "bone", "angleDeltaDeg"),
+      worstArmTargets: armTargets
+        .slice()
+        .sort((a, b) => b.angleDeltaDeg - a.angleDeltaDeg)
+        .slice(0, 10),
+      hingeFlex: summarizeRows(hinges, "flexDeltaDeg"),
+      armHingeFlex: summarizeRows(armHinges, "flexDeltaDeg"),
+      facingAgreement: summarizeFacingRows(facing),
+    }];
+  }));
+}
+
+function rowsInWindowKinds(rows, windows, kinds) {
+  const kindSet = kinds instanceof Set ? kinds : new Set(kinds);
+  return rowsInWindows(
+    rows,
+    normalizeReferenceWindows(windows).filter((window) => kindSet.has(window.kind)),
+  );
+}
+
+function rowsInWindows(rows, windows) {
+  const normalizedWindows = normalizeReferenceWindows(windows);
+
+  if (!Array.isArray(rows) || rows.length === 0 || normalizedWindows.length === 0) {
+    return [];
+  }
+
+  return rows.filter((row) => {
+    const timestamp = Number(row.timestamp);
+    return Number.isFinite(timestamp) && normalizedWindows.some((window) =>
+      timestamp >= window.startMs && timestamp <= window.endMs
+    );
+  });
 }
 
 function groupRowsByKey(rows, key) {
@@ -907,10 +978,13 @@ function estimateTimestampOffsetMs(liveSolved, offlineSolved, maxTimestampDeltaM
 
 function normalizeReferenceLabels(labels) {
   if (!labels || !Array.isArray(labels.frames)) {
-    return [];
+    return {
+      frames: [],
+      windows: [],
+    };
   }
 
-  return labels.frames
+  const frames = labels.frames
     .map((frame, fallbackIndex) => ({
       ...frame,
       index: Number.isFinite(Number(frame.index)) ? Number(frame.index) : fallbackIndex,
@@ -921,19 +995,47 @@ function normalizeReferenceLabels(labels) {
           : 0,
     }))
     .sort((a, b) => a.timestamp - b.timestamp);
+
+  return {
+    frames,
+    windows: normalizeReferenceWindows(labels.windows),
+  };
+}
+
+function normalizeReferenceWindows(windows) {
+  if (!Array.isArray(windows)) {
+    return [];
+  }
+
+  return windows
+    .map((window) => ({
+      ...window,
+      kind: String(window.kind ?? "unknown"),
+      startMs: Number(window.startMs),
+      endMs: Number(window.endMs),
+    }))
+    .filter((window) =>
+      window.kind &&
+      Number.isFinite(window.startMs) &&
+      Number.isFinite(window.endMs) &&
+      window.endMs >= window.startMs
+    )
+    .sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs || a.kind.localeCompare(b.kind));
 }
 
 function findReferenceLabelForPair(pair, labels, maxTimestampDeltaMs) {
-  if (!Array.isArray(labels) || labels.length === 0) {
+  const frames = Array.isArray(labels) ? labels : labels?.frames;
+
+  if (!Array.isArray(frames) || frames.length === 0) {
     return null;
   }
 
   const timestamp = Number(pair.live?.timestamp);
-  const insertionIndex = lowerBoundLabels(labels, timestamp);
+  const insertionIndex = lowerBoundLabels(frames, timestamp);
   const candidates = [
-    labels[insertionIndex - 1],
-    labels[insertionIndex],
-    labels[insertionIndex + 1],
+    frames[insertionIndex - 1],
+    frames[insertionIndex],
+    frames[insertionIndex + 1],
   ].filter(Boolean);
   let best = null;
 

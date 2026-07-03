@@ -509,6 +509,8 @@ export function createAvatarRenderer(options = {}) {
     maxHingeOverflowDegByName: {},
     facingChanges: 0,
     modeChanges: 0,
+    occlusionActiveFrames: 0,
+    maxOcclusionActiveTargets: 0,
     previousFacing: null,
     previousMode: null,
   };
@@ -2103,6 +2105,12 @@ export function createAvatarRenderer(options = {}) {
       mode: solvedPose.meta.mode,
       targetCount: solvedPose.meta.targetCount,
       lowConfidenceTargets: solvedPose.meta.lowConfidenceTargets,
+      occlusion: {
+        activeCount: solvedPose.meta.occlusionActiveTargets ?? 0,
+        holdCount: solvedPose.meta.occlusionHoldTargets ?? 0,
+        decayCount: solvedPose.meta.occlusionDecayTargets ?? 0,
+        reacquireCount: solvedPose.meta.occlusionReacquireTargets ?? 0,
+      },
       hingeCount: solvedPose.meta.hingeCount,
       hingeViolations: solvedPose.meta.hingeViolations,
       hingeLimitWarnings: solvedPose.meta.hingeLimitWarnings,
@@ -2113,6 +2121,8 @@ export function createAvatarRenderer(options = {}) {
         confidence: target.confidence,
         length: target.length,
         hinge: target.hinge,
+        occlusionState: target.occlusionState,
+        occlusionReason: target.occlusionReason,
       })),
       hinges: solvedPose.hinges.map((hinge) => ({
         name: hinge.name,
@@ -2178,6 +2188,15 @@ export function createAvatarRenderer(options = {}) {
       poseSolverMetrics.modeChanges += 1;
     }
 
+    const occlusionActiveTargets = Number(solvedPose.meta.occlusionActiveTargets ?? 0);
+    if (occlusionActiveTargets > 0) {
+      poseSolverMetrics.occlusionActiveFrames += 1;
+      poseSolverMetrics.maxOcclusionActiveTargets = Math.max(
+        poseSolverMetrics.maxOcclusionActiveTargets,
+        occlusionActiveTargets,
+      );
+    }
+
     poseSolverMetrics.previousFacing = solvedPose.meta.facing;
     poseSolverMetrics.previousMode = solvedPose.meta.mode;
   }
@@ -2193,6 +2212,8 @@ export function createAvatarRenderer(options = {}) {
     poseSolverMetrics.maxHingeOverflowDegByName = {};
     poseSolverMetrics.facingChanges = 0;
     poseSolverMetrics.modeChanges = 0;
+    poseSolverMetrics.occlusionActiveFrames = 0;
+    poseSolverMetrics.maxOcclusionActiveTargets = 0;
     poseSolverMetrics.previousFacing = null;
     poseSolverMetrics.previousMode = null;
   }
@@ -2271,6 +2292,8 @@ export function createAvatarRenderer(options = {}) {
       maxHingeOverflowDegByName: { ...poseSolverMetrics.maxHingeOverflowDegByName },
       facingChanges: poseSolverMetrics.facingChanges,
       modeChanges: poseSolverMetrics.modeChanges,
+      occlusionActiveFrames: poseSolverMetrics.occlusionActiveFrames,
+      maxOcclusionActiveTargets: poseSolverMetrics.maxOcclusionActiveTargets,
       currentFacing: poseSolverMetrics.previousFacing,
       currentMode: poseSolverMetrics.previousMode,
     };

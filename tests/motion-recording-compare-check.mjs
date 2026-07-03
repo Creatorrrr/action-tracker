@@ -29,6 +29,22 @@ const labeledIdentityReport = compareRecordings(identityRecording, identityRecor
 assert.equal(labeledIdentityReport.summary.facingAgreement.count, identityRecording.frames.length);
 assert.equal(labeledIdentityReport.summary.facingAgreement.agreementRatio, 1);
 assert.equal(labeledIdentityReport.summary.facingAgreement.yawError.max, 0);
+const windowedIdentityReport = compareRecordings(identityRecording, identityRecording, {
+  labels: {
+    ...labelsFromSyntheticRecording(identityRecording),
+    windows: [
+      {
+        kind: "left-behind-back",
+        startMs: identityRecording.frames[0].timestamp,
+        endMs: identityRecording.frames.at(-1).timestamp,
+      },
+    ],
+  },
+});
+assert.equal(windowedIdentityReport.byLabelWindowKind["left-behind-back"].windowCount, 1);
+assert.equal(windowedIdentityReport.byLabelWindowKind["left-behind-back"].armTargetAngle.count, 4 * identityRecording.frames.length);
+assert.equal(windowedIdentityReport.summary.occlusionArmTargetAngle.count, 4 * identityRecording.frames.length);
+assert.equal(windowedIdentityReport.summary.occlusionArmTargetAngle.max, 0);
 
 const differentReport = compareRecordings(identityRecording, turnRecording);
 assert.equal(differentReport.summary.pairedFrames, identityRecording.frames.length);

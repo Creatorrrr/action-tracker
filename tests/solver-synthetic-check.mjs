@@ -118,14 +118,30 @@ assert.ok(leftOccludedHinge.confidence < 0.5);
 assert.equal(leftOccludedHinge.violation, false);
 assert.equal(leftOccludedHinge.reason, "low_confidence");
 const occlusionSequence = createSyntheticSequence({ scenario: "left-wrist-occlusion", frames: 9 });
-const occlusionReliableSpikes = countReliableTargetSpikes(
-  solveSequence(occlusionSequence.frames),
-  180,
-);
+const solvedOcclusionSequence = solveSequence(occlusionSequence.frames);
+const occlusionReliableSpikes = countReliableTargetSpikes(solvedOcclusionSequence, 180);
 assert.equal(
   occlusionReliableSpikes,
   0,
   "left-wrist-occlusion should not emit reliable target spikes while wrist visibility is low",
+);
+const leftForeArmOcclusionStates = solvedOcclusionSequence
+  .map((solved) => solved.targets.find((target) => target.bone === "LeftForeArm")?.occlusionState)
+  .filter(Boolean);
+assert.ok(
+  leftForeArmOcclusionStates.includes("hold"),
+  `left-wrist-occlusion should hold the previous left forearm direction, got ${leftForeArmOcclusionStates.join(",")}`,
+);
+assert.ok(
+  Math.max(...solvedOcclusionSequence.map((solved) => solved.meta.occlusionActiveTargets)) > 0,
+  "left-wrist-occlusion should expose active occlusion target counts",
+);
+const rawOcclusionSolved = solveSequence(occlusionSequence.frames, { targetStabilization: false });
+assert.ok(
+  rawOcclusionSolved.every((solved) =>
+    solved.targets.every((target) => target.occlusionState === undefined)
+  ),
+  "targetStabilization=false should leave target rows raw for offline references",
 );
 
 const lostAndReacquired = createSyntheticSequence({ scenario: "lost-and-reacquired", frames: 9 });
@@ -151,11 +167,11 @@ assert.equal(lostAndReacquired.frames.at(-1).expected.mode, "full-body");
 
 console.log("Solver synthetic fixture check passed.");
 
-function solveSequence(frames) {
+function solveSequence(frames, options = {}) {
   let previousState = {};
 
   return frames.map((frame) => {
-    const solved = solvePoseFrame(frame, previousState);
+    const solved = solvePoseFrame(frame, previousState, options);
     previousState = solved.state;
     return solved;
   });
