@@ -25,6 +25,11 @@ export const DEFAULT_SAM_ORACLE_THRESHOLDS = Object.freeze({
   minStableBackSideFacingAgreement: 0.4,
   minYawBackSideFacingAgreement: 0.7,
   maxYawP95Deg: 35,
+  maxYawDeltaP95Deg: null,
+  maxYawFlipsPerMinute: null,
+  maxSideSwapRatio: null,
+  maxImplausibleFrameRatio: null,
+  maxImplausibleRatioP95: null,
   minOcclusionCount: 16,
   maxOcclusionArmP95Deg: 75,
   maxOcclusionArmMaxDeg: 120,
@@ -149,6 +154,16 @@ function parseArgs(rawArgs) {
       parsed.thresholds.minYawBackSideFacingAgreement = numberArg(rawArgs[++index], arg);
     } else if (arg === "--max-yaw-p95-deg") {
       parsed.thresholds.maxYawP95Deg = numberArg(rawArgs[++index], arg);
+    } else if (arg === "--max-yaw-delta-p95-deg") {
+      parsed.thresholds.maxYawDeltaP95Deg = numberArg(rawArgs[++index], arg);
+    } else if (arg === "--max-yaw-flips-per-minute") {
+      parsed.thresholds.maxYawFlipsPerMinute = numberArg(rawArgs[++index], arg);
+    } else if (arg === "--max-side-swap-ratio") {
+      parsed.thresholds.maxSideSwapRatio = numberArg(rawArgs[++index], arg);
+    } else if (arg === "--max-implausible-frame-ratio") {
+      parsed.thresholds.maxImplausibleFrameRatio = numberArg(rawArgs[++index], arg);
+    } else if (arg === "--max-implausible-ratio-p95") {
+      parsed.thresholds.maxImplausibleRatioP95 = numberArg(rawArgs[++index], arg);
     } else if (arg === "--min-occlusion-count") {
       parsed.thresholds.minOcclusionCount = numberArg(rawArgs[++index], arg);
     } else if (arg === "--max-occlusion-arm-p95-deg") {
@@ -224,6 +239,8 @@ function evaluateSamRegressionOracle(report, options = {}) {
   ];
   const facing = summary.facingAgreement ?? {};
   const occlusion = summary.occlusionArmTargetAngle ?? {};
+  const sideConsistency = summary.sideConsistency ?? {};
+  const implausibility = summary.implausibility ?? {};
 
   if (!Boolean(options.skipProvenance || profile.skipProvenance)) {
     checks.push(...buildProvenanceChecks(report, thresholds, expectations));
@@ -265,6 +282,38 @@ function evaluateSamRegressionOracle(report, options = {}) {
         thresholds.minYawBackSideFacingAgreement,
       ),
       maxCheck("facingAgreement.yawError.p95", facing.yawError?.p95, thresholds.maxYawP95Deg),
+    );
+
+    if (isFiniteThreshold(thresholds.maxYawDeltaP95Deg)) {
+      checks.push(maxCheck("facingAgreement.yawDelta.p95", facing.yawDelta?.p95, thresholds.maxYawDeltaP95Deg));
+    }
+    if (isFiniteThreshold(thresholds.maxYawFlipsPerMinute)) {
+      checks.push(maxCheck("facingAgreement.yawFlipsPerMinute", facing.yawFlipsPerMinute, thresholds.maxYawFlipsPerMinute));
+    }
+  }
+
+  if (isFiniteThreshold(thresholds.maxSideSwapRatio)) {
+    checks.push(
+      minCountCheck("sideConsistency.count", sideConsistency.count, 1),
+      maxCheck("sideConsistency.sideSwapRatio", sideConsistency.sideSwapRatio, thresholds.maxSideSwapRatio),
+    );
+  }
+
+  if (isFiniteThreshold(thresholds.maxImplausibleFrameRatio)) {
+    checks.push(
+      minCountCheck("implausibility.count", implausibility.count, 1),
+      maxCheck(
+        "implausibility.implausibleFrameRatio",
+        implausibility.implausibleFrameRatio,
+        thresholds.maxImplausibleFrameRatio,
+      ),
+    );
+  }
+
+  if (isFiniteThreshold(thresholds.maxImplausibleRatioP95)) {
+    checks.push(
+      minCountCheck("implausibility.implausibleRatio.count", implausibility.implausibleRatio?.count, 1),
+      maxCheck("implausibility.implausibleRatio.p95", implausibility.implausibleRatio?.p95, thresholds.maxImplausibleRatioP95),
     );
   }
 
@@ -386,6 +435,10 @@ function formatCheckActual(actual) {
   }
 
   return Number.isFinite(Number(actual)) ? round(Number(actual), 6) : actual ?? null;
+}
+
+function isFiniteThreshold(value) {
+  return value !== null && value !== undefined && Number.isFinite(Number(value));
 }
 
 function buildProvenanceChecks(report, thresholds, expectations = {}) {

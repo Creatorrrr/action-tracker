@@ -38,6 +38,12 @@ import {
   resolveVrmExpressionTargets,
   summarizeVrmExpressionMapping,
 } from './vrm-expression-mapping.js';
+import {
+  DEFAULT_AVATAR_YAW_SIGN,
+  DEFAULT_PALM_NORMAL_SIGNS,
+  resolveAvatarYawDeg,
+  resolveHandPalmNormal,
+} from './retarget-orientation.js';
 
 const DEFAULT_MODEL_URL = './assets/models/Xbot.glb';
 const DEFAULT_XBOT_MODEL_YAW_RAD = 0;
@@ -439,6 +445,10 @@ export function createAvatarRenderer(options = {}) {
   const fingerChains = {
     Left: new Map(),
     Right: new Map(),
+  };
+  const handOrientation = {
+    Left: null,
+    Right: null,
   };
   const proportionCalibration = {
     frames: 0,
@@ -969,6 +979,7 @@ export function createAvatarRenderer(options = {}) {
         targetYawOffset: rootMotion.targetYawOffset,
         orientationMetrics: rootMotion.orientationMetrics,
       },
+      handOrientation: { ...handOrientation },
       poseSolver: lastPoseSolverSnapshot,
       poseSolverMetrics: getPoseSolverMetricsSnapshot(),
       occlusion: getOcclusionSnapshot(),
@@ -996,6 +1007,7 @@ export function createAvatarRenderer(options = {}) {
         modelRotationY: model?.rotation?.y ?? null,
         orientationMetrics: rootMotion.orientationMetrics,
       },
+      handOrientation: { ...handOrientation },
       poseSolver: lastPoseSolverSnapshot,
       poseSolverMetrics: getPoseSolverMetricsSnapshot(),
       occlusion: getOcclusionSnapshot(),
@@ -2098,7 +2110,7 @@ export function createAvatarRenderer(options = {}) {
       return;
     }
 
-    applyRootOrientation(points, delta);
+    applyRootOrientation(points, delta, solvedPose);
 
     for (const target of BODY_RETARGETS) {
       const solvedTarget = solvedTargetsByBone.get(target.bone);
@@ -2116,11 +2128,7 @@ export function createAvatarRenderer(options = {}) {
         continue;
       }
 
-      const direction = tmpVectorC.set(
-        solvedTarget.direction.x,
-        solvedTarget.direction.y,
-        solvedTarget.direction.z,
-      );
+      const direction = resolveSolvedTargetDirection(solvedTarget);
       const profile = target.profileKey ? activeModelProfile[target.profileKey] : null;
       const smoothingMs = (RETARGET_SMOOTHING_MS[target.smoothing] ?? RETARGET_SMOOTHING_MS.foreArm)
         * (target.profileKey ? activeModelProfile.smoothingScale : 1);
@@ -2150,14 +2158,60 @@ export function createAvatarRenderer(options = {}) {
     };
   }
 
+  function resolveSolvedTargetDirection(solvedTarget) {
+    if (
+      solvedTarget?.directionTorsoLocal &&
+      shouldUseTorsoLocalDirection(solvedTarget)
+    ) {
+      const local = solvedTarget.directionTorsoLocal;
+      const direction = tmpVectorC.set(
+        -Number(local.x ?? 0),
+        Number(local.y ?? 0),
+        Number(local.z ?? 0),
+      );
+
+      if (direction.lengthSq() > 0.000001 && model) {
+        model.getWorldQuaternion(tmpQuaternionG);
+        return direction.normalize().applyQuaternion(tmpQuaternionG).normalize();
+      }
+    }
+
+    return tmpVectorC.set(
+      solvedTarget.direction.x,
+      solvedTarget.direction.y,
+      solvedTarget.direction.z,
+    );
+  }
+
+  function shouldUseTorsoLocalDirection(solvedTarget) {
+    if (!(solvedTarget?.group === 'arms' || solvedTarget?.group === 'legs' || solvedTarget?.group === 'feet')) {
+      return false;
+    }
+
+    const yawMagnitude = Math.abs(shortestAngle(rootMotion.yawOffset));
+    return rootMotion.facing === 'back' || rootMotion.facing === 'side' || yawMagnitude >= Math.PI / 3;
+  }
+
   function createPoseSolverSnapshot(solvedPose) {
     return {
       version: solvedPose.version,
       timestamp: solvedPose.timestamp,
       facing: solvedPose.meta.facing,
+      facingDetail: solvedPose.meta.facingDetail,
+      facingYawDeg: solvedPose.meta.facingYawDeg,
+      facingUnwrappedYawDeg: solvedPose.meta.facingUnwrappedYawDeg,
+      facingRawYawDeltaDeg: solvedPose.meta.facingRawYawDeltaDeg,
+      facingLimitedYawDeltaDeg: solvedPose.meta.facingLimitedYawDeltaDeg,
+      facingRawYawJump: solvedPose.meta.facingRawYawJump,
+      facingYawFlipCount: solvedPose.meta.facingYawFlipCount,
+      facingSideOrderSign: solvedPose.meta.facingSideOrderSign,
+      facingSideOrderConfidence: solvedPose.meta.facingSideOrderConfidence,
+      facingSideOrderFlip: solvedPose.meta.facingSideOrderFlip,
       mode: solvedPose.meta.mode,
       targetCount: solvedPose.meta.targetCount,
       lowConfidenceTargets: solvedPose.meta.lowConfidenceTargets,
+      implausibleTargets: solvedPose.meta.implausibleTargets,
+      implausibleRatio: solvedPose.meta.implausibleRatio,
       occlusion: {
         activeCount: solvedPose.meta.occlusionActiveTargets ?? 0,
         holdCount: solvedPose.meta.occlusionHoldTargets ?? 0,
@@ -2176,6 +2230,8 @@ export function createAvatarRenderer(options = {}) {
         hinge: target.hinge,
         occlusionState: target.occlusionState,
         occlusionReason: target.occlusionReason,
+        implausible: Boolean(target.implausible),
+        plausibilityReason: target.plausibilityReason,
       })),
       hinges: solvedPose.hinges.map((hinge) => ({
         name: hinge.name,
@@ -2448,23 +2504,42 @@ export function createAvatarRenderer(options = {}) {
     );
   }
 
-  function applyRootOrientation(points, delta) {
+  function applyRootOrientation(points, delta, solvedPose = null) {
     if (!model) {
       return;
     }
 
     const metrics = sourceTorsoFacingMetrics(points);
     updateRootOrientationCalibration(metrics);
-    const facing = updateStableRootFacing(estimateRootFacing(metrics));
-
-    const targetYawOffset = facingToRootYawOffset(facing);
+    const solverFacing = solvedPose?.meta?.facing ?? null;
+    const facing = solverFacing || updateStableRootFacing(estimateRootFacing(metrics));
+    const solverYawDeg = Number(solvedPose?.meta?.facingUnwrappedYawDeg ?? solvedPose?.meta?.facingYawDeg);
+    const avatarYawDeg = Number.isFinite(solverYawDeg) ? resolveAvatarYawDeg(solverYawDeg) : null;
+    const targetYawOffset = Number.isFinite(avatarYawDeg)
+      ? THREE.MathUtils.degToRad(avatarYawDeg)
+      : facingToRootYawOffset(facing);
     const alpha = smoothingAlpha(delta, ROOT_ORIENTATION_SMOOTHING_MS);
-    const yawDelta = shortestAngle(targetYawOffset - rootMotion.yawOffset);
+    const yawDelta = Number.isFinite(solverYawDeg)
+      ? targetYawOffset - rootMotion.yawOffset
+      : shortestAngle(targetYawOffset - rootMotion.yawOffset);
 
     rootMotion.facing = facing;
+    rootMotion.candidateFacing = facing;
+    rootMotion.candidateFacingFrames = 0;
     rootMotion.targetYawOffset = targetYawOffset;
-    rootMotion.orientationMetrics = metrics;
-    rootMotion.yawOffset = shortestAngle(rootMotion.yawOffset + yawDelta * alpha);
+    rootMotion.orientationMetrics = {
+      ...metrics,
+      solverFacing: solvedPose?.meta?.facingDetail ?? facing,
+      solverYawDeg: Number.isFinite(Number(solvedPose?.meta?.facingYawDeg))
+        ? Number(solvedPose.meta.facingYawDeg)
+        : null,
+      solverUnwrappedYawDeg: Number.isFinite(solverYawDeg) ? solverYawDeg : null,
+      avatarTargetYawDeg: Number.isFinite(avatarYawDeg) ? avatarYawDeg : null,
+      avatarYawSign: DEFAULT_AVATAR_YAW_SIGN,
+      solverRawYawJump: Boolean(solvedPose?.meta?.facingRawYawJump),
+      solverSideOrderFlip: Boolean(solvedPose?.meta?.facingSideOrderFlip),
+    };
+    rootMotion.yawOffset = rootMotion.yawOffset + yawDelta * alpha;
 
     if (Math.abs(yawDelta) < 0.004) {
       rootMotion.yawOffset = targetYawOffset;
@@ -2833,6 +2908,11 @@ export function createAvatarRenderer(options = {}) {
     for (const side of ['Left', 'Right']) {
       if (!usedSides.has(side)) {
         relaxHand(side, relaxAlpha * 0.4);
+        handOrientation[side] = {
+          side,
+          tracked: false,
+          source: 'none',
+        };
       }
     }
   }
@@ -2980,12 +3060,34 @@ export function createAvatarRenderer(options = {}) {
     const indexBase = points[5];
     const middleBase = points[9];
     const pinkyBase = points[17];
-    const worldPalmNormal = worldPoints
-      ? computePalmNormal(worldPoints[0], worldPoints[5], worldPoints[17])
+    const worldPalmOrientation = worldPoints
+      ? resolveHandPalmNormal({
+          wrist: worldPoints[0],
+          indexBase: worldPoints[5],
+          pinkyBase: worldPoints[17],
+          side,
+          normalSigns: DEFAULT_PALM_NORMAL_SIGNS,
+        })
       : null;
+    const imagePalmOrientation = resolveHandPalmNormal({
+      wrist,
+      indexBase,
+      pinkyBase,
+      side,
+      normalSigns: DEFAULT_PALM_NORMAL_SIGNS,
+    });
+    const palmOrientation = worldPalmOrientation?.valid ? worldPalmOrientation : imagePalmOrientation;
     const handAlpha = smoothingAlpha(delta, RETARGET_SMOOTHING_MS.hand);
     const fingerAlpha = smoothingAlpha(delta, RETARGET_SMOOTHING_MS.finger);
-    const palmNormal = worldPalmNormal ?? computePalmNormal(wrist, indexBase, pinkyBase);
+    const palmNormal = palmOrientation?.normal
+      ? plainVectorToThree(palmOrientation.normal, tmpVectorD)
+      : null;
+    handOrientation[side] = buildHandOrientationSnapshot({
+      side,
+      mirrored,
+      source: worldPalmOrientation?.valid ? 'worldLandmarks' : imagePalmOrientation.valid ? 'imageLandmarks' : 'none',
+      orientation: palmOrientation,
+    });
 
     if (wrist && middleBase) {
       tmpVectorC.subVectors(middleBase, wrist);
@@ -3063,6 +3165,26 @@ export function createAvatarRenderer(options = {}) {
     const normal = new THREE.Vector3().crossVectors(indexVector, pinkyVector);
 
     return normal.lengthSq() > 0.000001 ? normal.normalize() : null;
+  }
+
+  function plainVectorToThree(vector, target) {
+    return target.set(
+      Number(vector.x ?? 0),
+      Number(vector.y ?? 0),
+      Number(vector.z ?? 0),
+    );
+  }
+
+  function buildHandOrientationSnapshot({ side, mirrored, source, orientation }) {
+    return {
+      side,
+      tracked: Boolean(orientation?.valid),
+      source,
+      mirrored,
+      palmNormalSign: orientation?.sign ?? DEFAULT_PALM_NORMAL_SIGNS[side] ?? -1,
+      rawPalmNormal: orientation?.rawNormal ? vectorToArray(orientation.rawNormal) : null,
+      avatarPalmNormal: orientation?.normal ? vectorToArray(orientation.normal) : null,
+    };
   }
 
   function applyAimToBone(boneOrName, directionWorld, alpha, maxAngle, options = {}) {

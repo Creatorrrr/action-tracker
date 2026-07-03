@@ -20,10 +20,19 @@ for (const frame of identity.frames) {
   const solved = solvePoseFrame(frame);
   assert.equal(solved.meta.mode, "full-body");
   assert.equal(solved.meta.facing, "front");
+  assert.equal(solved.meta.facingYawFlipCount, 0);
+  assert.equal(solved.meta.facingSideOrderFlip, false);
+  assert.equal(Math.abs(solved.meta.facingSideOrderSign), 1);
+  assert.equal(solved.meta.implausibleTargets, 0);
+  assert.equal(solved.meta.implausibleRatio, 0);
+  assert.ok(Number.isFinite(solved.meta.facingUnwrappedYawDeg));
   assert.ok(solved.meta.targetCount >= 16);
   assert.equal(solved.meta.hingeViolations, 0);
   assert.equal(solved.meta.hingeLimitWarnings, 0);
   assert.equal(solved.hinges.length, 4);
+  const leftArmTarget = solved.targets.find((target) => target.bone === "LeftArm");
+  assert.ok(leftArmTarget?.directionTorsoLocal, "solver should expose torso-local target directions");
+  assert.equal(leftArmTarget.implausible, false);
 }
 
 const leftElbowFlex = createSyntheticSequence({ scenario: "left-elbow-flex", frames: 5 });
@@ -74,6 +83,9 @@ assert.deepEqual(
   ["front", "front", "front", "front", "back"],
   "turn-180 should keep facing stable until the rear-facing transition",
 );
+const solvedTurnFrames = solveSequence(turn.frames);
+assert.ok(Math.abs(Math.abs(solvedTurnFrames.at(-1).meta.facingUnwrappedYawDeg) - 180) <= 0.001);
+assert.equal(Math.max(...solvedTurnFrames.map((solved) => solved.meta.facingYawFlipCount)), 0);
 assert.equal(
   countStateChatter(turnFacingStates),
   0,

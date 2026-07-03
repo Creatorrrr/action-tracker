@@ -126,9 +126,12 @@ function solvePoseTargetsFromPoints(points, previousState = {}, options = {}) {
   const mode = estimateTrackingMode(points);
   const facingState = estimateFacingState(points, previousState.facing, {
     lowConfidence: LOW_CONFIDENCE_VISIBILITY,
+    timestamp,
   });
   const facing = toLegacyFacing(facingState.state);
+  const torsoBasis = buildTorsoBasis(points);
   const rawTargets = BODY_TARGETS.map((target) => solveTarget(target, points))
+    .map((target) => target ? enrichTargetWithTorsoBasis(target, torsoBasis) : null)
     .filter(Boolean);
   const targetStabilization = targetStabilizationEnabled
     ? stabilizeTargets(rawTargets, previousState.targetMemory, {
@@ -160,6 +163,15 @@ function solvePoseTargetsFromPoints(points, previousState = {}, options = {}) {
       facing,
       facingDetail: facingState.state,
       facingYawDeg: facingState.yawDeg,
+      facingUnwrappedYawDeg: facingState.unwrappedYawDeg,
+      facingRawYawDeg: facingState.rawYawDeg,
+      facingRawYawDeltaDeg: facingState.rawYawDeltaDeg,
+      facingLimitedYawDeltaDeg: facingState.limitedYawDeltaDeg,
+      facingRawYawJump: facingState.rawYawJump,
+      facingYawFlipCount: facingState.yawFlipCount,
+      facingSideOrderSign: facingState.sideOrderSign,
+      facingSideOrderConfidence: facingState.sideOrderConfidence,
+      facingSideOrderFlip: facingState.sideOrderFlip,
       facingConfidence: facingState.confidence,
       facingReason: facingState.reason,
       mode,
@@ -169,6 +181,8 @@ function solvePoseTargetsFromPoints(points, previousState = {}, options = {}) {
       occlusionHoldTargets: targetStabilization.summary.holdCount,
       occlusionDecayTargets: targetStabilization.summary.decayCount,
       occlusionReacquireTargets: targetStabilization.summary.reacquireCount,
+      implausibleTargets: targets.filter((target) => target.implausible).length,
+      implausibleRatio: round(targets.filter((target) => target.implausible).length / Math.max(1, targets.length), 6),
       hingeCount: hinges.length,
       hingeViolations,
       hingeLimitWarnings,
@@ -207,6 +221,7 @@ function stabilizeTargets(rawTargets, previousMemory = {}, options = {}) {
 
     memory[target.bone] = {
       direction: target.direction,
+      directionTorsoLocal: target.directionTorsoLocal,
       confidence: target.confidence,
       timestamp,
       reliableTimestamp: target.confidence >= TARGET_RELIABLE_CONFIDENCE ? timestamp : null,
@@ -239,19 +254,25 @@ function stabilizeReliableTarget(target, previousTarget, timestamp) {
   const direction = shouldClamp
     ? blendDirections(previousTarget.direction, target.direction, maxReacquireAngleDeg / angleDeg)
     : target.direction;
+  const directionTorsoLocal = shouldClamp && previousTarget.directionTorsoLocal && target.directionTorsoLocal
+    ? blendDirections(previousTarget.directionTorsoLocal, target.directionTorsoLocal, maxReacquireAngleDeg / angleDeg)
+    : target.directionTorsoLocal;
   const occlusionState = shouldClamp ? "reacquire" : "tracking";
   const stabilizedTarget = {
     ...target,
     direction,
+    directionTorsoLocal,
     occlusionState,
     occlusionReason: shouldClamp ? "reacquire_angular_limit" : "none",
     rawDirection: target.direction,
+    rawDirectionTorsoLocal: target.directionTorsoLocal,
   };
 
   return {
     target: stabilizedTarget,
     memory: {
       direction,
+      directionTorsoLocal,
       confidence: target.confidence,
       timestamp,
       reliableTimestamp: timestamp,
@@ -269,9 +290,11 @@ function stabilizeOccludedTarget(target, previousTarget, timestamp, occlusionRis
         occlusionState: occlusionRisk.active ? "detected" : "low-confidence",
         occlusionReason: occlusionRisk.reason,
         rawDirection: target.direction,
+        rawDirectionTorsoLocal: target.directionTorsoLocal,
       },
       memory: {
         direction: target.direction,
+        directionTorsoLocal: target.directionTorsoLocal,
         confidence: target.confidence,
         timestamp,
         reliableTimestamp: null,
@@ -289,6 +312,7 @@ function stabilizeOccludedTarget(target, previousTarget, timestamp, occlusionRis
     : 0;
   let occlusionState = "hold";
   let direction = previousTarget.direction;
+  let directionTorsoLocal = previousTarget.directionTorsoLocal ?? target.directionTorsoLocal;
 
   if (elapsedSinceReliableMs > ARM_OCCLUSION_HOLD_MS) {
     occlusionState = "decay";
@@ -299,23 +323,30 @@ function stabilizeOccludedTarget(target, previousTarget, timestamp, occlusionRis
       1,
     );
     direction = blendDirections(previousTarget.direction, target.direction, decayProgress * 0.35);
+    if (previousTarget.directionTorsoLocal && target.directionTorsoLocal) {
+      directionTorsoLocal = blendDirections(previousTarget.directionTorsoLocal, target.directionTorsoLocal, decayProgress * 0.35);
+    }
   }
 
   if (elapsedSinceReliableMs > ARM_OCCLUSION_DECAY_MS) {
     occlusionState = "expired";
     direction = target.direction;
+    directionTorsoLocal = target.directionTorsoLocal;
   }
 
   return {
     target: {
       ...target,
       direction,
+      directionTorsoLocal,
       occlusionState,
       occlusionReason: occlusionRisk.reason,
       rawDirection: target.direction,
+      rawDirectionTorsoLocal: target.directionTorsoLocal,
     },
     memory: {
       direction,
+      directionTorsoLocal,
       confidence: target.confidence,
       timestamp,
       reliableTimestamp,
@@ -352,6 +383,10 @@ function summarizeTargetOcclusion(targets) {
 }
 
 function estimateArmOcclusionRisk(target) {
+  if (target.implausible) {
+    return { active: true, reason: target.plausibilityReason ?? "implausible" };
+  }
+
   const lowConfidence = target.confidence < TARGET_RELIABLE_CONFIDENCE;
   if (lowConfidence) {
     return { active: true, reason: "low_confidence" };
@@ -360,8 +395,61 @@ function estimateArmOcclusionRisk(target) {
   return { active: false, reason: "none" };
 }
 
+function buildTorsoBasis(points) {
+  const leftShoulder = points?.leftShoulder;
+  const rightShoulder = points?.rightShoulder;
+  const shoulderMid = points?.shoulderMid;
+  const hipMid = points?.hipMid;
+
+  if (!leftShoulder || !rightShoulder || !shoulderMid || !hipMid) {
+    return null;
+  }
+
+  const left = normalize(subtract(leftShoulder, rightShoulder));
+  const up = normalize(subtract(shoulderMid, hipMid));
+
+  if (!left || !up) {
+    return null;
+  }
+
+  const forward = normalize(cross(up, left));
+
+  if (!forward) {
+    return null;
+  }
+
+  return { left, up, forward };
+}
+
+function directionToTorsoLocal(direction, torsoBasis) {
+  return {
+    x: round(dot(direction, torsoBasis.left), 6),
+    y: round(dot(direction, torsoBasis.up), 6),
+    z: round(dot(direction, torsoBasis.forward), 6),
+  };
+}
+
+function evaluateTargetPlausibility(target, directionTorsoLocal) {
+  if (!directionTorsoLocal || target.group !== "arms") {
+    return { implausible: false, reason: "ok" };
+  }
+
+  const mostlyHorizontal = Math.abs(directionTorsoLocal.y) < 0.35 && Math.abs(directionTorsoLocal.z) < 0.35;
+
+  if (target.bone === "LeftArm" && directionTorsoLocal.x < -0.92 && mostlyHorizontal) {
+    return { implausible: true, reason: "implausible_left_upper_arm_cross_body" };
+  }
+
+  if (target.bone === "RightArm" && directionTorsoLocal.x > 0.92 && mostlyHorizontal) {
+    return { implausible: true, reason: "implausible_right_upper_arm_cross_body" };
+  }
+
+  return { implausible: false, reason: "ok" };
+}
+
 function buildPosePoints(motionFrame) {
   const landmarks = motionFrame?.poseWorldLandmarks ?? motionFrame?.poseLandmarks ?? [];
+  const imageLandmarks = motionFrame?.poseLandmarks ?? [];
   const points = {
     nose: pointFromLandmark(landmarks[POSE.nose]),
     leftEar: pointFromLandmark(landmarks[POSE.leftEar]),
@@ -382,6 +470,10 @@ function buildPosePoints(motionFrame) {
     rightHeel: pointFromLandmark(landmarks[POSE.rightHeel]),
     leftFootIndex: pointFromLandmark(landmarks[POSE.leftFootIndex]),
     rightFootIndex: pointFromLandmark(landmarks[POSE.rightFootIndex]),
+    imageLeftShoulder: pointFromLandmark(imageLandmarks[POSE.leftShoulder]),
+    imageRightShoulder: pointFromLandmark(imageLandmarks[POSE.rightShoulder]),
+    imageLeftHip: pointFromLandmark(imageLandmarks[POSE.leftHip]),
+    imageRightHip: pointFromLandmark(imageLandmarks[POSE.rightHip]),
   };
 
   points.shoulderMid = midpoint(points.leftShoulder, points.rightShoulder);
@@ -420,6 +512,27 @@ function solveTarget(target, points) {
     direction,
     length: round(distance(from, to), 6),
     confidence: round(retargetConfidence(from, to), 6),
+  };
+}
+
+function enrichTargetWithTorsoBasis(target, torsoBasis) {
+  if (!torsoBasis || !target.direction) {
+    return target;
+  }
+
+  const directionTorsoLocal = directionToTorsoLocal(target.direction, torsoBasis);
+  const plausibility = evaluateTargetPlausibility(target, directionTorsoLocal);
+  const confidence = plausibility.implausible
+    ? round(target.confidence * 0.6, 6)
+    : target.confidence;
+
+  return {
+    ...target,
+    directionTorsoLocal,
+    rawConfidence: target.confidence,
+    confidence,
+    implausible: plausibility.implausible,
+    plausibilityReason: plausibility.reason,
   };
 }
 
@@ -587,6 +700,14 @@ function subtract(a, b) {
 
 function dot(a, b) {
   return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+function cross(a, b) {
+  return {
+    x: a.y * b.z - a.z * b.y,
+    y: a.z * b.x - a.x * b.z,
+    z: a.x * b.y - a.y * b.x,
+  };
 }
 
 function normalize(vector) {

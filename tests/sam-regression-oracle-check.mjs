@@ -43,6 +43,78 @@ const profiledGateFailure = evaluateSamRegressionOracle(passingReport, {
 assert.equal(profiledGateFailure.status, "failed");
 assert.ok(profiledGateFailure.failures.some((check) => check.metric === "summary.validPairedRatio"));
 
+const stabilityOracle = evaluateSamRegressionOracle(passingReport, {
+  thresholds: {
+    maxYawDeltaP95Deg: 20,
+    maxYawFlipsPerMinute: 0,
+    maxSideSwapRatio: 0,
+    maxImplausibleFrameRatio: 0,
+    maxImplausibleRatioP95: 0,
+  },
+});
+assert.equal(stabilityOracle.status, "passed");
+
+const degradedYawStabilityReport = createReport({
+  summary: {
+    facingAgreement: {
+      yawDelta: {
+        p95: 140,
+      },
+      yawFlipsPerMinute: 30,
+    },
+  },
+});
+const degradedYawStabilityOracle = evaluateSamRegressionOracle(degradedYawStabilityReport, {
+  thresholds: {
+    maxYawDeltaP95Deg: 90,
+    maxYawFlipsPerMinute: 12,
+  },
+});
+assert.equal(degradedYawStabilityOracle.status, "failed");
+assert.ok(degradedYawStabilityOracle.failures.some((check) => check.metric === "facingAgreement.yawDelta.p95"));
+assert.ok(
+  degradedYawStabilityOracle.failures.some((check) => check.metric === "facingAgreement.yawFlipsPerMinute"),
+);
+
+const degradedSideSwapReport = createReport({
+  summary: {
+    sideConsistency: {
+      sideSwapRatio: 0.2,
+    },
+  },
+});
+const degradedSideSwapOracle = evaluateSamRegressionOracle(degradedSideSwapReport, {
+  thresholds: {
+    maxSideSwapRatio: 0.05,
+  },
+});
+assert.equal(degradedSideSwapOracle.status, "failed");
+assert.ok(degradedSideSwapOracle.failures.some((check) => check.metric === "sideConsistency.sideSwapRatio"));
+
+const degradedImplausibilityReport = createReport({
+  summary: {
+    implausibility: {
+      implausibleFrameRatio: 0.4,
+      implausibleRatio: {
+        p95: 0.35,
+      },
+    },
+  },
+});
+const degradedImplausibilityOracle = evaluateSamRegressionOracle(degradedImplausibilityReport, {
+  thresholds: {
+    maxImplausibleFrameRatio: 0.25,
+    maxImplausibleRatioP95: 0.3,
+  },
+});
+assert.equal(degradedImplausibilityOracle.status, "failed");
+assert.ok(
+  degradedImplausibilityOracle.failures.some((check) => check.metric === "implausibility.implausibleFrameRatio"),
+);
+assert.ok(
+  degradedImplausibilityOracle.failures.some((check) => check.metric === "implausibility.implausibleRatio.p95"),
+);
+
 const degradedTargetReport = createReport({
   summary: {
     targetAngle: {
@@ -253,6 +325,66 @@ function createReport(overrides = {}) {
           count: 120,
           p95: 27,
           max: 45,
+        },
+        yawDelta: {
+          count: 119,
+          mean: 3,
+          p95: 10,
+          max: 12,
+          weightedMean: 3,
+          weightedP95: 10,
+          weightSum: 119,
+        },
+        yawFlipCount: 0,
+        yawFlipsPerMinute: 0,
+      },
+      sideConsistency: {
+        count: 240,
+        swapped: 0,
+        sideSwapRatio: 0,
+        swapMargin: {
+          count: 240,
+          mean: -1,
+          p95: -0.2,
+          max: 0,
+          weightedMean: -1,
+          weightedP95: -0.2,
+          weightSum: 240,
+        },
+        byKind: {
+          wrist: {
+            count: 120,
+            swapped: 0,
+            sideSwapRatio: 0,
+          },
+          ankle: {
+            count: 120,
+            swapped: 0,
+            sideSwapRatio: 0,
+          },
+        },
+      },
+      implausibility: {
+        count: 120,
+        framesWithImplausibleTargets: 0,
+        implausibleFrameRatio: 0,
+        implausibleTargets: {
+          count: 120,
+          mean: 0,
+          p95: 0,
+          max: 0,
+          weightedMean: 0,
+          weightedP95: 0,
+          weightSum: 120,
+        },
+        implausibleRatio: {
+          count: 120,
+          mean: 0,
+          p95: 0,
+          max: 0,
+          weightedMean: 0,
+          weightedP95: 0,
+          weightSum: 120,
         },
       },
       presenceAgreement: {

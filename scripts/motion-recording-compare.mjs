@@ -228,6 +228,8 @@ export function compareRecordings(live, offline, options = {}) {
   const validFacingRows = rowsOutsideWindows(facingRows, invalidReferenceWindows);
   const presenceRows = collectPresenceRows(pairs, manualLabels);
   const gestureRows = collectGestureRows(pairs, manualLabels);
+  const sideConsistencyRows = collectSideConsistencyRows(pairs);
+  const implausibilityRows = collectImplausibilityRows(pairs);
   const excludedPosePairCount = countPairsInWindows(pairs, invalidReferenceWindows);
 
   return {
@@ -282,6 +284,8 @@ export function compareRecordings(live, offline, options = {}) {
       ), "angleDeltaDeg"),
       hingeFlex: summarizeRows(validHingeFlexRows, "flexDeltaDeg"),
       facingAgreement: summarizeFacingRows(validFacingRows),
+      sideConsistency: summarizeSideConsistencyRows(rowsOutsideWindows(sideConsistencyRows, invalidReferenceWindows)),
+      implausibility: summarizeImplausibilityRows(rowsOutsideWindows(implausibilityRows, invalidReferenceWindows)),
       presenceAgreement: summarizePresenceRows(presenceRows),
       fingerMotion: summarizeFingerMotionRows(rowsOutsideWindows(fingerMotionRows, invalidReferenceWindows)),
       gestureAgreement: summarizeGestureRows(gestureRows),
@@ -297,6 +301,8 @@ export function compareRecordings(live, offline, options = {}) {
     presenceRows,
     gestureRows,
     facingRows,
+    sideConsistencyRows,
+    implausibilityRows,
     worstTargets: validTargetAngleRows
       .slice()
       .sort((a, b) => b.angleDeltaDeg - a.angleDeltaDeg)
@@ -441,6 +447,10 @@ export function renderComparisonHtml(report) {
       ${renderMetricCard("Hinge P95", `${formatNumber(summary.hingeFlex?.p95)} deg`)}
       ${renderMetricCard("Facing Agreement", `${formatNumber((summary.facingAgreement?.agreementRatio ?? 0) * 100, 1)}%`)}
       ${renderMetricCard("Back/Side Facing", `${formatNumber((summary.facingAgreement?.backSideAgreementRatio ?? 0) * 100, 1)}%`)}
+      ${renderMetricCard("Yaw Delta P95", `${formatNumber(summary.facingAgreement?.yawDelta?.p95)} deg`)}
+      ${renderMetricCard("Yaw Flips/min", formatNumber(summary.facingAgreement?.yawFlipsPerMinute, 2))}
+      ${renderMetricCard("Side Swap", `${formatNumber((summary.sideConsistency?.sideSwapRatio ?? 0) * 100, 2)}%`)}
+      ${renderMetricCard("Implausible Frames", `${formatNumber((summary.implausibility?.implausibleFrameRatio ?? 0) * 100, 2)}%`)}
       ${renderMetricCard("Valid Paired Ratio", `${formatNumber((summary.validPairedRatio ?? summary.pairedRatio ?? 0) * 100, 1)}%`)}
       ${renderMetricCard("Excluded Pairs", summary.excludedPairs ?? 0)}
       ${renderMetricCard("Absent Suppression", `${formatNumber((summary.presenceAgreement?.absentSuppressionRatio ?? 0) * 100, 1)}%`)}
@@ -781,6 +791,7 @@ function collectFacingRows(rows, pair, referenceLabel) {
   const referenceFacing = normalizeFacing(referenceLabel.facingState ?? referenceLabel.facing);
   const referenceLegacyFacing = toLegacyFacing(referenceFacing);
   const liveYawDeg = Number(pair.live.solved?.meta?.facingYawDeg);
+  const liveUnwrappedYawDeg = Number(pair.live.solved?.meta?.facingUnwrappedYawDeg);
   const referenceYawDeg = Number(referenceLabel.facingYawDeg);
   const yawErrorDeg = Number.isFinite(liveYawDeg) && Number.isFinite(referenceYawDeg)
     ? angleDeltaDeg(liveYawDeg, referenceYawDeg)
@@ -808,12 +819,92 @@ function collectFacingRows(rows, pair, referenceLabel) {
     yawToleranceMatches,
     matches: stableMatches || yawStateMatches || yawToleranceMatches,
     liveYawDeg: Number.isFinite(liveYawDeg) ? round(liveYawDeg, 3) : null,
+    liveUnwrappedYawDeg: Number.isFinite(liveUnwrappedYawDeg) ? round(liveUnwrappedYawDeg, 3) : null,
     referenceYawDeg: Number.isFinite(referenceYawDeg) ? round(referenceYawDeg, 3) : null,
     yawErrorDeg: yawErrorDeg === null ? null : round(yawErrorDeg, 3),
     confidenceWeight: Number.isFinite(Number(pair.live.solved?.meta?.facingConfidence))
       ? Number(pair.live.solved.meta.facingConfidence)
       : 1,
   });
+}
+
+function collectSideConsistencyRows(pairs) {
+  const specs = [
+    { kind: "wrist", left: 15, right: 16 },
+    { kind: "ankle", left: 27, right: 28 },
+  ];
+  const rows = [];
+
+  for (const pair of pairs) {
+    for (const spec of specs) {
+      const liveLeft = posePoint(pair.live.frame, spec.left);
+      const liveRight = posePoint(pair.live.frame, spec.right);
+      const offlineLeft = posePoint(pair.offline.frame, spec.left);
+      const offlineRight = posePoint(pair.offline.frame, spec.right);
+
+      if (!liveLeft || !liveRight || !offlineLeft || !offlineRight) {
+        continue;
+      }
+
+      const sameDistance = pointDistance(liveLeft, offlineLeft) + pointDistance(liveRight, offlineRight);
+      const crossedDistance = pointDistance(liveLeft, offlineRight) + pointDistance(liveRight, offlineLeft);
+      const swapMargin = sameDistance - crossedDistance;
+
+      rows.push({
+        liveIndex: pair.live.index,
+        offlineIndex: pair.offline.index,
+        timestamp: Number(pair.live.timestamp),
+        kind: spec.kind,
+        sameDistance: round(sameDistance, 6),
+        crossedDistance: round(crossedDistance, 6),
+        swapMargin: round(swapMargin, 6),
+        swapped: crossedDistance + 0.03 < sameDistance,
+        confidenceWeight: Math.min(
+          liveLeft.visibility ?? 1,
+          liveRight.visibility ?? 1,
+          offlineLeft.visibility ?? 1,
+          offlineRight.visibility ?? 1,
+        ),
+      });
+    }
+  }
+
+  return rows;
+}
+
+function collectImplausibilityRows(pairs) {
+  return pairs.map((pair) => ({
+    liveIndex: pair.live.index,
+    offlineIndex: pair.offline.index,
+    timestamp: Number(pair.live.timestamp),
+    implausibleTargets: Number(pair.live.solved?.meta?.implausibleTargets ?? 0),
+    implausibleRatio: Number(pair.live.solved?.meta?.implausibleRatio ?? 0),
+    confidenceWeight: 1,
+  }));
+}
+
+function posePoint(frame, index) {
+  const point = frame?.poseWorldLandmarks?.[index] ?? frame?.poseLandmarks?.[index];
+
+  if (
+    !point ||
+    !Number.isFinite(Number(point.x)) ||
+    !Number.isFinite(Number(point.y)) ||
+    !Number.isFinite(Number(point.z))
+  ) {
+    return null;
+  }
+
+  return {
+    x: Number(point.x),
+    y: Number(point.y),
+    z: Number(point.z),
+    visibility: Number.isFinite(Number(point.visibility)) ? Number(point.visibility) : 1,
+  };
+}
+
+function pointDistance(a, b) {
+  return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 }
 
 function summarizeRecordingSource(recording) {
@@ -878,6 +969,41 @@ function summarizeRowsByKey(rows, key, valueKey) {
   }, {});
 }
 
+function summarizeSideConsistencyRows(rows) {
+  const swapped = rows.filter((row) => row.swapped).length;
+  const byKind = {};
+
+  for (const [kind, kindRows] of Object.entries(groupRowsByKey(rows, "kind"))) {
+    const kindSwapped = kindRows.filter((row) => row.swapped).length;
+    byKind[kind] = {
+      count: kindRows.length,
+      swapped: kindSwapped,
+      sideSwapRatio: round(ratio(kindSwapped, kindRows.length), 6),
+      swapMargin: summarizeRows(kindRows, "swapMargin"),
+    };
+  }
+
+  return {
+    count: rows.length,
+    swapped,
+    sideSwapRatio: round(ratio(swapped, rows.length), 6),
+    swapMargin: summarizeRows(rows, "swapMargin"),
+    byKind,
+  };
+}
+
+function summarizeImplausibilityRows(rows) {
+  const framesWithImplausibleTargets = rows.filter((row) => Number(row.implausibleTargets) > 0).length;
+
+  return {
+    count: rows.length,
+    framesWithImplausibleTargets,
+    implausibleFrameRatio: round(ratio(framesWithImplausibleTargets, rows.length), 6),
+    implausibleTargets: summarizeRows(rows, "implausibleTargets"),
+    implausibleRatio: summarizeRows(rows, "implausibleRatio"),
+  };
+}
+
 function summarizeFacingRows(rows) {
   const matched = rows.filter((row) => row.matches).length;
   const stableMatched = rows.filter((row) => row.stableMatches).length;
@@ -890,6 +1016,7 @@ function summarizeFacingRows(rows) {
   const stableBackSideMatched = backSideRows.filter((row) => row.stableMatches).length;
   const yawBackSideMatched = backSideRows.filter((row) => row.yawStateMatches).length;
   const yawToleranceBackSideMatched = backSideRows.filter((row) => row.yawToleranceMatches).length;
+  const yawDeltas = summarizeYawDeltas(rows);
 
   return {
     count: rows.length,
@@ -912,6 +1039,48 @@ function summarizeFacingRows(rows) {
     yawToleranceBackSideMatched,
     yawToleranceBackSideAgreementRatio: round(ratio(yawToleranceBackSideMatched, backSideRows.length), 6),
     yawError: summarizeRows(rows.filter((row) => Number.isFinite(row.yawErrorDeg)), "yawErrorDeg"),
+    yawDelta: yawDeltas.summary,
+    yawFlipCount: yawDeltas.flipCount,
+    yawFlipsPerMinute: yawDeltas.flipsPerMinute,
+  };
+}
+
+function summarizeYawDeltas(rows) {
+  const sorted = rows
+    .filter((row) => Number.isFinite(row.timestamp))
+    .slice()
+    .sort((a, b) => a.timestamp - b.timestamp);
+  const deltaRows = [];
+
+  for (let index = 1; index < sorted.length; index += 1) {
+    const previous = sorted[index - 1];
+    const current = sorted[index];
+    const previousYaw = Number.isFinite(Number(previous.liveUnwrappedYawDeg))
+      ? Number(previous.liveUnwrappedYawDeg)
+      : Number(previous.liveYawDeg);
+    const currentYaw = Number.isFinite(Number(current.liveUnwrappedYawDeg))
+      ? Number(current.liveUnwrappedYawDeg)
+      : Number(current.liveYawDeg);
+
+    if (!Number.isFinite(previousYaw) || !Number.isFinite(currentYaw)) {
+      continue;
+    }
+
+    const yawDeltaDeg = Math.abs(currentYaw - previousYaw);
+    deltaRows.push({
+      yawDeltaDeg: round(yawDeltaDeg, 3),
+      confidenceWeight: current.confidenceWeight ?? 1,
+    });
+  }
+
+  const flipCount = deltaRows.filter((row) => row.yawDeltaDeg > 120).length;
+  const durationMs = sorted.length >= 2 ? sorted.at(-1).timestamp - sorted[0].timestamp : 0;
+  const flipsPerMinute = durationMs > 0 ? round(flipCount / (durationMs / 60000), 6) : 0;
+
+  return {
+    summary: summarizeRows(deltaRows, "yawDeltaDeg"),
+    flipCount,
+    flipsPerMinute,
   };
 }
 

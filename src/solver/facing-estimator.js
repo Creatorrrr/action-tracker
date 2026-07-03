@@ -1,12 +1,17 @@
 const MIN_VECTOR_LENGTH = 0.000001;
 const DEFAULT_LOW_CONFIDENCE = 0.35;
 const DEFAULT_TRANSITION_FRAMES = 2;
+const DEFAULT_FRAME_INTERVAL_MS = 1000 / 30;
+const DEFAULT_MAX_YAW_RATE_DEG_PER_SEC = 1800;
+const FRONT_FACE_CONFIDENCE = 0.55;
+const SIDE_ORDER_MIN_DELTA = 0.025;
 
 export {
   classifyFacingYaw,
   estimateFacingState,
   estimateFacingYaw,
   normalizeFacingState,
+  normalizeAngleDeg,
   toLegacyFacing,
   updateFacingState,
 };
@@ -22,12 +27,16 @@ function estimateFacingYaw(points, options = {}) {
   const rightShoulder = points?.rightShoulder;
   const leftHip = points?.leftHip;
   const rightHip = points?.rightHip;
+  const faceConfidence = maxVisibility(points?.nose, points?.leftEar, points?.rightEar);
+  const sideOrder = estimateSideOrder(points);
 
   if (!leftShoulder || !rightShoulder || !leftHip || !rightHip) {
     return {
       yawDeg: 0,
       state: "unknown",
       confidence: 0,
+      sideOrderSign: sideOrder.sign,
+      sideOrderConfidence: sideOrder.confidence,
       reason: "missing_torso",
     };
   }
@@ -48,6 +57,8 @@ function estimateFacingYaw(points, options = {}) {
       yawDeg: 0,
       state: "unknown",
       confidence,
+      sideOrderSign: sideOrder.sign,
+      sideOrderConfidence: sideOrder.confidence,
       reason: confidence < lowConfidence ? "low_confidence" : "degenerate_torso",
     };
   }
@@ -59,6 +70,8 @@ function estimateFacingYaw(points, options = {}) {
       yawDeg: 0,
       state: "unknown",
       confidence,
+      sideOrderSign: sideOrder.sign,
+      sideOrderConfidence: sideOrder.confidence,
       reason: "degenerate_forward",
     };
   }
@@ -70,6 +83,10 @@ function estimateFacingYaw(points, options = {}) {
     state: classifyFacingYaw(yawDeg),
     confidence,
     forward,
+    faceConfidence,
+    faceVisible: faceConfidence >= FRONT_FACE_CONFIDENCE,
+    sideOrderSign: sideOrder.sign,
+    sideOrderConfidence: sideOrder.confidence,
     reason: "ok",
   };
 }
@@ -79,27 +96,76 @@ function updateFacingState(previousFacing, estimate, options = {}) {
   const previous = normalizeFacingState(previousFacing);
   const minTransitionFrames = Math.max(1, Math.trunc(Number(options.minTransitionFrames ?? DEFAULT_TRANSITION_FRAMES)));
   const lowConfidence = Number(options.lowConfidence ?? DEFAULT_LOW_CONFIDENCE);
-  const candidateState = estimate?.confidence >= lowConfidence && estimate?.state !== "unknown"
-    ? estimate.state
+  const timestamp = Number(options.timestamp ?? estimate?.timestamp);
+  const previousTimestamp = Number(previous.timestamp);
+  const elapsedMs = Number.isFinite(timestamp) && Number.isFinite(previousTimestamp)
+    ? Math.max(1, timestamp - previousTimestamp)
+    : DEFAULT_FRAME_INTERVAL_MS;
+  const reliableEstimate = estimate?.confidence >= lowConfidence && estimate?.state !== "unknown";
+  const observedYaw = reliableEstimate
+    ? chooseYawHypothesis(Number(estimate.yawDeg), previous, estimate, hasPrevious)
+    : previous.yawDeg;
+  const unwrappedObservedYaw = reliableEstimate
+    ? unwrapAngleDeg(observedYaw, previous.unwrappedYawDeg)
+    : previous.unwrappedYawDeg;
+  const rawYawDeltaDeg = reliableEstimate
+    ? unwrappedObservedYaw - previous.unwrappedYawDeg
+    : 0;
+  const maxYawRateDegPerSec = Number(options.maxYawRateDegPerSec ?? DEFAULT_MAX_YAW_RATE_DEG_PER_SEC);
+  const maxYawDeltaDeg = Math.max(1, (elapsedMs / 1000) * maxYawRateDegPerSec);
+  const limitedYawDeltaDeg = clamp(rawYawDeltaDeg, -maxYawDeltaDeg, maxYawDeltaDeg);
+  const unwrappedYawDeg = hasPrevious
+    ? previous.unwrappedYawDeg + limitedYawDeltaDeg
+    : Number.isFinite(Number(estimate?.yawDeg))
+      ? Number(estimate.yawDeg)
+      : previous.unwrappedYawDeg;
+  const yawDeg = normalizeAngleDeg(unwrappedYawDeg);
+  const rawYawJump = Math.abs(rawYawDeltaDeg) > 120;
+  const candidateState = reliableEstimate
+    ? classifyFacingYaw(yawDeg)
     : previous.state;
   const initialState = hasPrevious ? previous.state : candidateState;
+  const sideOrderSign = reliableEstimate && Number.isFinite(Number(estimate?.sideOrderSign))
+    ? Math.sign(Number(estimate.sideOrderSign))
+    : previous.sideOrderSign;
+  const sideOrderConfidence = Number.isFinite(Number(estimate?.sideOrderConfidence))
+    ? Number(estimate.sideOrderConfidence)
+    : previous.sideOrderConfidence;
+  const sideOrderFlip = reliableEstimate &&
+    sideOrderConfidence >= lowConfidence &&
+    Math.abs(previous.sideOrderSign) === 1 &&
+    Math.abs(sideOrderSign) === 1 &&
+    previous.sideOrderSign !== sideOrderSign;
+  const effectiveMinTransitionFrames = sideOrderFlip
+    ? Math.max(minTransitionFrames, DEFAULT_TRANSITION_FRAMES + 1)
+    : minTransitionFrames;
   const candidateFrames = candidateState === previous.state
     ? 0
     : candidateState === previous.candidateState
       ? previous.candidateFrames + 1
       : 1;
   const shouldSwitch = candidateState !== previous.state &&
-    (candidateFrames >= minTransitionFrames || previous.state === "unknown" || !hasPrevious);
+    (candidateFrames >= effectiveMinTransitionFrames || previous.state === "unknown" || !hasPrevious);
   const state = shouldSwitch ? candidateState : initialState;
 
   return {
     state,
     legacyState: toLegacyFacing(state),
-    yawDeg: round(Number.isFinite(Number(estimate?.yawDeg)) ? Number(estimate.yawDeg) : previous.yawDeg, 3),
+    yawDeg: round(yawDeg, 3),
+    unwrappedYawDeg: round(unwrappedYawDeg, 3),
+    rawYawDeg: Number.isFinite(Number(estimate?.yawDeg)) ? round(Number(estimate.yawDeg), 3) : previous.rawYawDeg,
+    rawYawDeltaDeg: round(rawYawDeltaDeg, 3),
+    limitedYawDeltaDeg: round(limitedYawDeltaDeg, 3),
+    rawYawJump,
+    yawFlipCount: previous.yawFlipCount + (rawYawJump ? 1 : 0),
+    sideOrderSign,
+    sideOrderConfidence: round(sideOrderConfidence, 3),
+    sideOrderFlip,
     confidence: round(Number.isFinite(Number(estimate?.confidence)) ? Number(estimate.confidence) : previous.confidence, 3),
     candidateState: shouldSwitch ? state : candidateState,
     candidateFrames: shouldSwitch ? 0 : candidateFrames,
     reason: estimate?.reason ?? "unknown",
+    timestamp: Number.isFinite(timestamp) ? timestamp : previous.timestamp,
   };
 }
 
@@ -110,10 +176,28 @@ function normalizeFacingState(value) {
       state,
       legacyState: toLegacyFacing(state),
       yawDeg: Number.isFinite(Number(value.yawDeg)) ? Number(value.yawDeg) : 0,
+      unwrappedYawDeg: Number.isFinite(Number(value.unwrappedYawDeg))
+        ? Number(value.unwrappedYawDeg)
+        : Number.isFinite(Number(value.yawDeg))
+          ? Number(value.yawDeg)
+          : 0,
+      rawYawDeg: Number.isFinite(Number(value.rawYawDeg))
+        ? Number(value.rawYawDeg)
+        : Number.isFinite(Number(value.yawDeg))
+          ? Number(value.yawDeg)
+          : 0,
+      rawYawDeltaDeg: Number.isFinite(Number(value.rawYawDeltaDeg)) ? Number(value.rawYawDeltaDeg) : 0,
+      limitedYawDeltaDeg: Number.isFinite(Number(value.limitedYawDeltaDeg)) ? Number(value.limitedYawDeltaDeg) : 0,
+      rawYawJump: Boolean(value.rawYawJump),
+      yawFlipCount: Math.max(0, Math.trunc(Number(value.yawFlipCount ?? 0))),
+      sideOrderSign: Number.isFinite(Number(value.sideOrderSign)) ? Math.sign(Number(value.sideOrderSign)) : 0,
+      sideOrderConfidence: Number.isFinite(Number(value.sideOrderConfidence)) ? Number(value.sideOrderConfidence) : 0,
+      sideOrderFlip: Boolean(value.sideOrderFlip),
       confidence: Number.isFinite(Number(value.confidence)) ? Number(value.confidence) : 0,
       candidateState: normalizeFacingToken(value.candidateState ?? state),
       candidateFrames: Math.max(0, Math.trunc(Number(value.candidateFrames ?? 0))),
       reason: typeof value.reason === "string" ? value.reason : "previous",
+      timestamp: Number.isFinite(Number(value.timestamp)) ? Number(value.timestamp) : 0,
     };
   }
 
@@ -123,10 +207,20 @@ function normalizeFacingState(value) {
     state,
     legacyState: toLegacyFacing(state),
     yawDeg: state === "back" ? 180 : 0,
+    unwrappedYawDeg: state === "back" ? 180 : 0,
+    rawYawDeg: state === "back" ? 180 : 0,
+    rawYawDeltaDeg: 0,
+    limitedYawDeltaDeg: 0,
+    rawYawJump: false,
+    yawFlipCount: 0,
+    sideOrderSign: 0,
+    sideOrderConfidence: 0,
+    sideOrderFlip: false,
     confidence: 0,
     candidateState: state,
     candidateFrames: 0,
     reason: "fallback",
+    timestamp: 0,
   };
 }
 
@@ -227,6 +321,88 @@ function normalizeAngleDeg(value) {
   }
 
   return normalized;
+}
+
+function chooseYawHypothesis(rawYawDeg, previous, estimate, hasPrevious) {
+  if (!hasPrevious || previous.state === "unknown") {
+    return normalizeAngleDeg(rawYawDeg);
+  }
+
+  const hypotheses = [
+    normalizeAngleDeg(rawYawDeg),
+    normalizeAngleDeg(rawYawDeg + 180),
+  ];
+  const faceVisible = Boolean(estimate?.faceVisible);
+  const scored = hypotheses.map((yawDeg) => {
+    const unwrapped = unwrapAngleDeg(yawDeg, previous.unwrappedYawDeg);
+    const continuityPenalty = Math.abs(unwrapped - previous.unwrappedYawDeg);
+    const state = classifyFacingYaw(yawDeg);
+    const facePenalty = faceVisible && state === "back" ? 90 : 0;
+    return {
+      yawDeg,
+      score: continuityPenalty + facePenalty,
+    };
+  });
+
+  scored.sort((a, b) => a.score - b.score);
+  return scored[0].yawDeg;
+}
+
+function unwrapAngleDeg(yawDeg, referenceYawDeg = 0) {
+  const normalized = normalizeAngleDeg(yawDeg);
+  const reference = Number.isFinite(Number(referenceYawDeg)) ? Number(referenceYawDeg) : 0;
+  return reference + normalizeAngleDeg(normalized - normalizeAngleDeg(reference));
+}
+
+function estimateSideOrder(points) {
+  const leftShoulder = points?.imageLeftShoulder ?? points?.leftShoulder;
+  const rightShoulder = points?.imageRightShoulder ?? points?.rightShoulder;
+  const leftHip = points?.imageLeftHip ?? points?.leftHip;
+  const rightHip = points?.imageRightHip ?? points?.rightHip;
+  const pairs = [
+    [leftShoulder, rightShoulder],
+    [leftHip, rightHip],
+  ];
+  const deltas = [];
+  const confidences = [];
+
+  for (const [left, right] of pairs) {
+    if (
+      !left ||
+      !right ||
+      !Number.isFinite(Number(left.x)) ||
+      !Number.isFinite(Number(right.x))
+    ) {
+      continue;
+    }
+
+    const delta = Number(left.x) - Number(right.x);
+
+    if (Math.abs(delta) >= SIDE_ORDER_MIN_DELTA) {
+      deltas.push(delta);
+    }
+
+    confidences.push(Math.min(left.visibility ?? 1, right.visibility ?? 1));
+  }
+
+  const signedMagnitude = deltas.reduce((sum, delta) => sum + Math.sign(delta) * Math.abs(delta), 0);
+
+  return {
+    sign: Math.abs(signedMagnitude) >= SIDE_ORDER_MIN_DELTA ? Math.sign(signedMagnitude) : 0,
+    confidence: confidences.length > 0 ? Math.min(...confidences) : 0,
+  };
+}
+
+function maxVisibility(...points) {
+  const values = points
+    .map((point) => Number(point?.visibility))
+    .filter(Number.isFinite);
+
+  return values.length > 0 ? Math.max(...values) : 0;
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
 }
 
 function round(value, digits = 6) {

@@ -106,6 +106,9 @@ The csi HTML report includes:
 - gesture agreement by manual arm state,
 - presence agreement and absent suppression,
 - finger motion watch rows,
+- yaw delta and yaw-flip-per-minute stability,
+- wrist/ankle side-swap consistency against SAM,
+- implausible target frame ratio from the torso-local solver,
 - worst target/hinge rows with timecodes.
 
 Current local evidence as of 2026-07-03: the available tracker recording covers
@@ -141,6 +144,21 @@ the browser recording capture, not a reason to weaken the oracle profile.
 | occlusionArmTargetAngle.count | >= 16 |
 | occlusionArmTargetAngle.p95 | <= 75deg |
 | occlusionArmTargetAngle.max | <= 120deg |
+
+Profile-specific stability thresholds can additionally gate:
+
+| Metric | Meaning |
+|---|---|
+| facingAgreement.yawDelta.p95 | Frame-to-frame unwrapped root-yaw jump size. High values usually indicate front/back flips rather than a smooth turn. |
+| facingAgreement.yawFlipsPerMinute | Count of >120deg yaw jumps normalized by clip duration. |
+| sideConsistency.sideSwapRatio | Fraction of wrist/ankle rows where crossed left/right matching is closer than same-side matching. |
+| implausibility.implausibleFrameRatio | Fraction of paired frames where the solver marked at least one target anatomically implausible. |
+| implausibility.implausibleRatio.p95 | P95 fraction of targets marked implausible per frame. |
+
+The `csi-pose` profile uses these extra gates because the clip contains full
+front/back turns, crossed arms, behind-back arms, and table occlusion. The
+default jujae profile leaves them unset so older jujae reports are not rejected
+until they are regenerated with the newer comparison metrics.
 
 The default oracle also validates report provenance. A standard SAM oracle
 report must use `sourceMeta.videoTime`, offline interpolation, `--offset-ms

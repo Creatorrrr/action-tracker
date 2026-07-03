@@ -21,6 +21,8 @@ assert.equal(identicalReport.summary.liveFrames, identityRecording.frames.length
 assert.equal(identicalReport.summary.pairedFrames, identityRecording.frames.length);
 assert.equal(identicalReport.summary.targetAngle.max, 0);
 assert.equal(identicalReport.summary.hingeFlex.max, 0);
+assert.equal(identicalReport.summary.sideConsistency.sideSwapRatio, 0);
+assert.equal(identicalReport.summary.implausibility.implausibleFrameRatio, 0);
 assert.equal(identicalReport.timeline.length, identityRecording.frames.length);
 assert.equal(identicalReport.timeline[0].targetAngleMaxDeg, 0);
 
@@ -30,6 +32,9 @@ const labeledIdentityReport = compareRecordings(identityRecording, identityRecor
 assert.equal(labeledIdentityReport.summary.facingAgreement.count, identityRecording.frames.length);
 assert.equal(labeledIdentityReport.summary.facingAgreement.agreementRatio, 1);
 assert.equal(labeledIdentityReport.summary.facingAgreement.yawError.max, 0);
+assert.equal(labeledIdentityReport.summary.facingAgreement.yawFlipCount, 0);
+assert.equal(labeledIdentityReport.summary.facingAgreement.yawFlipsPerMinute, 0);
+assert.equal(labeledIdentityReport.summary.facingAgreement.yawDelta.max, 0);
 const windowedIdentityReport = compareRecordings(identityRecording, identityRecording, {
   labels: {
     ...labelsFromSyntheticRecording(identityRecording),
@@ -107,6 +112,8 @@ const handHtml = renderComparisonHtml(handReport);
 assert.ok(handHtml.includes("Manual Window Gates"));
 assert.ok(handHtml.includes("Gesture Agreement"));
 assert.ok(handHtml.includes("Finger Motion"));
+assert.ok(handHtml.includes("Yaw Flips/min"));
+assert.ok(handHtml.includes("Side Swap"));
 assert.ok(handHtml.includes("palms-near-head"));
 assert.ok(handHtml.includes("Pass"));
 

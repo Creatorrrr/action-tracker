@@ -4,6 +4,7 @@ import {
   classifyFacingYaw,
   estimateFacingState,
   estimateFacingYaw,
+  normalizeAngleDeg,
   toLegacyFacing,
 } from "../src/solver/facing-estimator.js";
 
@@ -29,15 +30,29 @@ assert.equal(backEstimate.state, "back");
 assert.ok(Math.abs(Math.abs(backEstimate.yawDeg) - 180) <= 0.001);
 
 let state;
-const states = [0, 45, 90, 135, 180].map((yawDeg) => {
-  state = estimateFacingState(createPoints(yawDeg), state);
+const gradualStates = [0, 45, 90, 135, 180].map((yawDeg, index) => {
+  state = estimateFacingState(createPoints(yawDeg), state, { timestamp: index * 33.333 });
   return state.legacyState;
 });
-assert.deepEqual(states, ["front", "front", "front", "front", "back"]);
+assert.deepEqual(gradualStates, ["front", "front", "front", "front", "back"]);
+assert.ok(Math.abs(Math.abs(state.unwrappedYawDeg) - 180) <= 0.001);
 
 const held = estimateFacingState(createPoints(180, 0.1), state);
 assert.equal(held.legacyState, "back");
 assert.equal(held.reason, "low_confidence");
+
+let suddenState = estimateFacingState(createPoints(0), undefined, { timestamp: 0 });
+suddenState = estimateFacingState(createPoints(180), suddenState, {
+  timestamp: 33.333,
+  maxYawRateDegPerSec: 360,
+});
+assert.equal(suddenState.legacyState, "front");
+assert.ok(Math.abs(normalizeAngleDeg(suddenState.yawDeg)) <= 0.001);
+assert.equal(Math.abs(suddenState.rawYawDeg), 180);
+assert.equal(suddenState.rawYawJump, false);
+assert.equal(suddenState.yawFlipCount, 0);
+assert.equal(suddenState.sideOrderFlip, true);
+assert.equal(Math.abs(suddenState.sideOrderSign), 1);
 
 console.log("Facing estimator check passed.");
 

@@ -14,6 +14,7 @@ const files = {
   css: "styles.css",
   app: "src/app.js",
   avatarRenderer: "src/avatar-renderer.js",
+  retargetOrientation: "src/retarget-orientation.js",
   depthCalibration: "src/depth-calibration.js",
   motionFrame: "src/motion-frame.js",
   motionWorker: "src/motion-worker.js",
@@ -44,6 +45,7 @@ const files = {
   avatarVrmPerformanceScript: "scripts/avatar-vrm-performance-check.mjs",
   avatarVrmHumanoidCheck: "tests/avatar-vrm-humanoid-check.mjs",
   avatarVrmExpressionCheck: "tests/avatar-vrm-expression-check.mjs",
+  retargetOrientationCheck: "tests/retarget-orientation-check.mjs",
   depthCalibrationCheck: "tests/depth-calibration-check.mjs",
   motionFrameCheck: "tests/motion-frame-check.mjs",
   motionForwardingCheck: "tests/motion-forwarding-check.mjs",
@@ -275,8 +277,8 @@ function checkSyntax(relativePath) {
 
 function checkPackageContract(packageJson) {
   check(
-    packageJson?.scripts?.check === "node tests/contract-check.mjs && node tests/avatar-vrm-humanoid-check.mjs && node tests/avatar-vrm-expression-check.mjs && node tests/depth-calibration-check.mjs && node tests/motion-frame-check.mjs && node tests/motion-forwarding-check.mjs && node tests/presence-state-check.mjs && node tests/facing-estimator-check.mjs && node tests/solver-synthetic-check.mjs && node tests/sam-manual-labels-check.mjs && node tests/motion-recording-compare-check.mjs && node tests/mhr70-mapping-check.mjs && node tests/mhr70-hands-check.mjs && node tests/gesture-classifier-check.mjs && node tests/sam-reference-labeler-check.mjs && node tests/sam-calibration-profile-check.mjs && node tests/sam-regression-oracle-check.mjs && node tests/hmr-jsonl-adapter-check.mjs && node tests/clip-manifest-check.mjs",
-    "package.json: check script must run the contract, VRM humanoid, VRM expression, depth calibration, motion frame, forwarding, presence state, facing estimator, solver synthetic, manual labels, recording compare, MHR70 mapping/hands, gesture classifier, SAM labeler/profile/oracle, HMR adapter, and clip manifest checks",
+    packageJson?.scripts?.check === "node tests/contract-check.mjs && node tests/avatar-vrm-humanoid-check.mjs && node tests/avatar-vrm-expression-check.mjs && node tests/retarget-orientation-check.mjs && node tests/depth-calibration-check.mjs && node tests/motion-frame-check.mjs && node tests/motion-forwarding-check.mjs && node tests/presence-state-check.mjs && node tests/facing-estimator-check.mjs && node tests/solver-synthetic-check.mjs && node tests/sam-manual-labels-check.mjs && node tests/motion-recording-compare-check.mjs && node tests/mhr70-mapping-check.mjs && node tests/mhr70-hands-check.mjs && node tests/gesture-classifier-check.mjs && node tests/sam-reference-labeler-check.mjs && node tests/sam-calibration-profile-check.mjs && node tests/sam-regression-oracle-check.mjs && node tests/hmr-jsonl-adapter-check.mjs && node tests/clip-manifest-check.mjs",
+    "package.json: check script must run the contract, VRM humanoid, VRM expression, retarget orientation, depth calibration, motion frame, forwarding, presence state, facing estimator, solver synthetic, manual labels, recording compare, MHR70 mapping/hands, gesture classifier, SAM labeler/profile/oracle, HMR adapter, and clip manifest checks",
   );
   check(
     packageJson?.scripts?.start === "python3 -m http.server 8000 --bind 127.0.0.1",
@@ -700,8 +702,10 @@ function checkAvatarRendererContract(avatarRenderer) {
     ["computes limb plane normals", /function\s+computeLimbPlaneNormals\s*\([^)]*\)[\s\S]*limbPlaneNormal/],
     ["uses limb plane normals as body secondary axes", /computeLimbPlaneNormals\s*\(\s*points\s*\)[\s\S]*limbPlaneNormals\[target\.bone\]/],
     ["keeps secondary aim rest basis in dedicated temp vectors", /const\s+tmpVectorG\s*=\s*new\s+THREE\.Vector3\(\)[\s\S]*const\s+tmpVectorH\s*=\s*new\s+THREE\.Vector3\(\)[\s\S]*function\s+applyAimWithSecondary[\s\S]*const\s+restDirectionLocal\s*=\s*tmpVectorG[\s\S]*const\s+restSecondaryLocal\s*=\s*tmpVectorH/],
-    ["computes palm normal", /function\s+computePalmNormal\s*\([^)]*\)[\s\S]*crossVectors/],
-    ["uses hand world landmarks for palm normal when present", /worldLandmarks[\s\S]*worldPoints[\s\S]*computePalmNormal\(worldPoints\[0\]/],
+    ["computes palm normal", /resolveHandPalmNormal[\s\S]*palmOrientation/],
+    ["uses hand world landmarks for palm normal when present", /worldLandmarks[\s\S]*worldPoints[\s\S]*resolveHandPalmNormal[\s\S]*worldPoints\[0\]/],
+    ["reports hand orientation diagnostics", /handOrientation[\s\S]*rawPalmNormal[\s\S]*avatarPalmNormal/],
+    ["maps solver yaw to avatar yaw explicitly", /resolveAvatarYawDeg[\s\S]*avatarTargetYawDeg[\s\S]*avatarYawSign/],
     ["limits parent-relative twist", /function\s+limitTwistFromRest\s*\([^)]*\)[\s\S]*extractTwist/],
     ["stabilizes root facing before yaw changes", /ROOT_ORIENTATION_SWITCH_FRAMES[\s\S]*candidateFacingFrames[\s\S]*function\s+updateStableRootFacing/],
     ["freezes proportion calibration", /const\s+PROPORTION_CALIBRATION_FRAMES\s*=\s*30[\s\S]*function\s+freezeProportionCalibration\s*\(/],
@@ -810,6 +814,7 @@ const [
   css,
   app,
   avatarRenderer,
+  retargetOrientation,
   depthCalibration,
   motionFrame,
   motionWorker,
@@ -838,6 +843,7 @@ const [
     readProjectFile(files.css),
     readProjectFile(files.app),
     readProjectFile(files.avatarRenderer),
+    readProjectFile(files.retargetOrientation),
     readProjectFile(files.depthCalibration),
     readProjectFile(files.motionFrame),
     readProjectFile(files.motionWorker),
@@ -873,6 +879,9 @@ checkAvatarAppContract(app);
 checkAvatarRendererContract(avatarRenderer);
 checkCssContract(css);
 checkAvatarModelContract(avatarModelJson);
+check(retargetOrientation.includes("resolveHandPalmNormal"), `${files.retargetOrientation}: expected hand palm normal resolver`);
+check(retargetOrientation.includes("resolveAvatarYawDeg"), `${files.retargetOrientation}: expected avatar yaw resolver`);
+check(retargetOrientation.includes("DEFAULT_PALM_NORMAL_SIGNS"), `${files.retargetOrientation}: expected explicit palm normal signs`);
 check(vrmHumanoidMapping.includes("parseVrmHumanoid"), `${files.vrmHumanoidMapping}: expected VRM humanoid parser`);
 check(vrmHumanoidMapping.includes("createVrmHumanoidMapping"), `${files.vrmHumanoidMapping}: expected VRM humanoid mapper`);
 check(vrmExpressionMapping.includes("parseVrmExpressionMetadata"), `${files.vrmExpressionMapping}: expected VRM expression parser`);
@@ -969,6 +978,7 @@ check(
 );
 checkSyntax(files.app);
 checkSyntax(files.avatarRenderer);
+checkSyntax(files.retargetOrientation);
 checkSyntax(files.depthCalibration);
 checkSyntax(files.motionFrame);
 checkSyntax(files.motionWorker);
@@ -995,6 +1005,7 @@ checkSyntax(files.avatarPerformanceScript);
 checkSyntax(files.avatarVrmPerformanceScript);
 checkSyntax(files.avatarVrmHumanoidCheck);
 checkSyntax(files.avatarVrmExpressionCheck);
+checkSyntax(files.retargetOrientationCheck);
 checkSyntax(files.depthCalibrationCheck);
 checkSyntax(files.motionFrameCheck);
 checkSyntax(files.motionForwardingCheck);
