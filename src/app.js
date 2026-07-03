@@ -533,6 +533,7 @@ function initAvatarRenderer() {
       smoothingMode: state.avatarSmoothingMode,
     });
     syncAvatarDebugOptions();
+    void applyInitialDepthCalibrationProfile();
     state.avatarInitPromise = state.avatarRenderer
       .init()
       .catch((error) => {
@@ -554,6 +555,28 @@ function initAvatarRenderer() {
     setAvatarStatus(`Failed: ${getErrorDetail(error)}`);
     setAvatarBoneCount(0);
     console.warn("Avatar initialization failed.", error);
+  }
+}
+
+async function applyInitialDepthCalibrationProfile() {
+  const profileUrl = getInitialDepthCalibrationProfileUrl();
+
+  if (!profileUrl || !state.avatarRenderer?.setDepthCalibrationReference) {
+    return;
+  }
+
+  try {
+    const response = await fetch(profileUrl);
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const profile = await response.json();
+    state.avatarRenderer.setDepthCalibrationReference(profile);
+    resetBodyValidation();
+  } catch (error) {
+    console.warn("Failed to load depth calibration profile.", profileUrl, error);
   }
 }
 
@@ -3179,9 +3202,18 @@ function buildDepthCalibrationReport(samples) {
   const gateRows = rows.filter((row) => DEPTH_CALIBRATION_GATE_SEGMENT_NAMES.has(row.name));
   const summary = summarizeLengthConsistency(gateRows.length > 0 ? gateRows : rows);
   const ready = snapshots.some((snapshot) => snapshot.ready);
+  const externalReferenceSegmentCount = latest?.externalReferenceSegmentCount ?? 0;
+  const profileAssisted = externalReferenceSegmentCount > 0;
+  const observableReliableSegmentCount = profileAssisted
+    ? Math.max(summary.cvReliableSegmentCount, externalReferenceSegmentCount)
+    : summary.cvReliableSegmentCount;
+  const reliableSegmentsPassed = observableReliableSegmentCount >= DEPTH_CALIBRATION_MIN_RELIABLE_CV_SEGMENTS;
+  const clampPassed = (summary.clampedRatio ?? 0) <= DEPTH_CALIBRATION_CLAMP_WARNING_RATIO;
+  const clampGatePassed = profileAssisted ? clampPassed : true;
   const passed = ready &&
     summary.score >= DEPTH_CALIBRATION_TARGET_SCORE &&
-    summary.cvReliableSegmentCount >= DEPTH_CALIBRATION_MIN_RELIABLE_CV_SEGMENTS &&
+    reliableSegmentsPassed &&
+    clampGatePassed &&
     summary.meanSegmentCv <= 0.05 &&
     summary.p95SegmentCv <= 0.08;
 
@@ -3204,6 +3236,17 @@ function buildDepthCalibrationReport(samples) {
     },
     passed,
     referenceSegmentCount: latest?.referenceSegmentCount ?? 0,
+    externalReferenceSegmentCount,
+    profileAssisted,
+    profileLocked: Boolean(latest?.profileLocked),
+    observableSegmentRule: {
+      mode: profileAssisted ? "external-profile-assisted" : "observed-cv-only",
+      observableReliableSegmentCount,
+      minReliableSegments: DEPTH_CALIBRATION_MIN_RELIABLE_CV_SEGMENTS,
+      reliableSegmentsPassed,
+      clampPassed,
+      clampGatePassed,
+    },
     poseQuality: latest?.poseQuality ?? null,
     score: summary.score,
     summary,
@@ -3211,7 +3254,11 @@ function buildDepthCalibrationReport(samples) {
     gateSegmentNames: [...DEPTH_CALIBRATION_GATE_SEGMENT_NAMES],
     byGroup: summarizeDepthCalibrationRowsByKey(rows, "group"),
     bySegment: summarizeDepthCalibrationRowsByKey(rows, "name"),
-    warnings: buildDepthCalibrationWarnings(summary, ready),
+    warnings: buildDepthCalibrationWarnings(summary, ready, {
+      profileAssisted,
+      reliableSegmentsPassed,
+      clampPassed,
+    }),
   };
 }
 
@@ -3229,6 +3276,7 @@ function collectDepthCalibrationRows(samples) {
         actualLength: segment.actualLength,
         targetLength: segment.targetLength,
         referenceRatio: segment.referenceRatio,
+        referenceSource: sample.depthCalibration.referenceRatioSources?.[segment.name] ?? null,
         relativeLengthError: segment.relativeLengthError,
         smoothnessDelta: segment.smoothnessDelta,
         smoothnessOk: Boolean(segment.smoothnessOk),
@@ -3238,14 +3286,14 @@ function collectDepthCalibrationRows(samples) {
   );
 }
 
-function buildDepthCalibrationWarnings(summary, ready) {
+function buildDepthCalibrationWarnings(summary, ready, options = {}) {
   const warnings = [];
 
   if (!ready) {
     warnings.push("dynamic depth calibration did not collect enough worldLandmarks reference samples");
   }
 
-  if ((summary.clampedRatio ?? 0) > DEPTH_CALIBRATION_CLAMP_WARNING_RATIO) {
+  if (!options.clampPassed) {
     warnings.push(`length solver clamped ${(summary.clampedRatio * 100).toFixed(1)}% of gated samples`);
   }
 
@@ -3253,8 +3301,10 @@ function buildDepthCalibrationWarnings(summary, ready) {
     warnings.push(`${summary.cvSparseSegmentCount} segment CV diagnostics had fewer than ${DEPTH_CALIBRATION_MIN_CV_SEGMENT_SAMPLES} unclamped samples`);
   }
 
-  if ((summary.cvReliableSegmentCount ?? 0) < DEPTH_CALIBRATION_MIN_RELIABLE_CV_SEGMENTS) {
+  if (!options.profileAssisted && (summary.cvReliableSegmentCount ?? 0) < DEPTH_CALIBRATION_MIN_RELIABLE_CV_SEGMENTS) {
     warnings.push(`only ${summary.cvReliableSegmentCount ?? 0} reliable CV segments collected; target is ${DEPTH_CALIBRATION_MIN_RELIABLE_CV_SEGMENTS}`);
+  } else if (options.profileAssisted && !options.reliableSegmentsPassed) {
+    warnings.push(`external profile did not provide enough observable segments; target is ${DEPTH_CALIBRATION_MIN_RELIABLE_CV_SEGMENTS}`);
   }
 
   return warnings;
@@ -3599,6 +3649,16 @@ function exposeDebugApi() {
       const nextMode = state.avatarRenderer?.setDepthCalibrationMode?.(value) ?? null;
       resetBodyValidation();
       return nextMode;
+    },
+    setDepthCalibrationReference: (profile) => {
+      const snapshot = state.avatarRenderer?.setDepthCalibrationReference?.(profile) ?? null;
+      resetBodyValidation();
+      return snapshot;
+    },
+    clearDepthCalibrationReference: () => {
+      const snapshot = state.avatarRenderer?.clearDepthCalibrationReference?.() ?? null;
+      resetBodyValidation();
+      return snapshot;
     },
     resetDepthCalibration: resetDepthCalibrationFromUi,
     getAvatarPerformanceReport: () => state.avatarRenderer?.getPerformanceSnapshot?.() ?? null,
@@ -4016,6 +4076,10 @@ function getInitialAvatarDepthCalibrationMode() {
   }
 
   return normalizeDepthCalibrationMode(value);
+}
+
+function getInitialDepthCalibrationProfileUrl() {
+  return new URLSearchParams(globalThis.location?.search ?? "").get("calibration-profile") ?? "";
 }
 
 function getInitialDetectionPumpMode() {

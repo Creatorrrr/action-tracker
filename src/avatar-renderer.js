@@ -24,6 +24,7 @@ import {
   estimateCalibrationPoseQuality,
   lengthConsistencyRow,
   normalizeDepthCalibrationMode,
+  normalizeDepthCalibrationReferenceProfile,
   resolveDepthCalibrationMinSegments,
   segmentLengthRatio,
   solveDistalDepth,
@@ -452,6 +453,10 @@ export function createAvatarRenderer(options = {}) {
     frozen: false,
     referenceSamples: new Map(),
     referenceRatios: {},
+    referenceRatioSources: {},
+    externalReferenceProfile: null,
+    externalReferenceRatios: {},
+    profileLocked: false,
     previousSegmentDz: new Map(),
     lastSolveDetails: new Map(),
     lastFrameKey: null,
@@ -900,6 +905,22 @@ export function createAvatarRenderer(options = {}) {
 
   function getDepthCalibrationMode() {
     return depthCalibrationMode;
+  }
+
+  function setDepthCalibrationReference(profile) {
+    const normalizedProfile = normalizeDepthCalibrationReferenceProfile(profile);
+
+    depthCalibration.externalReferenceProfile = normalizedProfile;
+    depthCalibration.externalReferenceRatios = { ...normalizedProfile.referenceRatios };
+    resetDepthCalibration();
+    return getDepthCalibrationSnapshot();
+  }
+
+  function clearDepthCalibrationReference() {
+    depthCalibration.externalReferenceProfile = null;
+    depthCalibration.externalReferenceRatios = {};
+    resetDepthCalibration();
+    return getDepthCalibrationSnapshot();
   }
 
   function getPerformanceSnapshot() {
@@ -1851,7 +1872,7 @@ export function createAvatarRenderer(options = {}) {
   }
 
   function updateDepthCalibrationReferences(points, worldLandmarks) {
-    if (depthCalibration.frozen || !isLandmarkList(worldLandmarks)) {
+    if ((depthCalibration.frozen && !depthCalibration.profileLocked) || !isLandmarkList(worldLandmarks)) {
       return;
     }
 
@@ -1901,7 +1922,10 @@ export function createAvatarRenderer(options = {}) {
   }
 
   function freezeDepthCalibrationReferences() {
-    const referenceRatios = {};
+    const referenceRatios = { ...depthCalibration.externalReferenceRatios };
+    const referenceRatioSources = Object.fromEntries(
+      Object.keys(referenceRatios).map((name) => [name, 'external-profile']),
+    );
 
     for (const segment of DEPTH_CALIBRATION_SEGMENTS) {
       const samples = depthCalibration.referenceSamples.get(segment.name) ?? [];
@@ -1911,10 +1935,13 @@ export function createAvatarRenderer(options = {}) {
       }
 
       referenceRatios[segment.name] = percentile(samples.slice().sort((a, b) => a - b), 0.5);
+      referenceRatioSources[segment.name] = 'observed';
     }
 
     depthCalibration.referenceRatios = referenceRatios;
+    depthCalibration.referenceRatioSources = referenceRatioSources;
     depthCalibration.frozen = Object.keys(referenceRatios).length >= depthCalibration.minimumReferenceSegments;
+    depthCalibration.profileLocked = Object.values(referenceRatioSources).includes('external-profile');
     depthCalibration.referenceSamples.clear();
   }
 
@@ -1984,6 +2011,9 @@ export function createAvatarRenderer(options = {}) {
       frames: depthCalibration.frames,
       warmupFrames: DEPTH_CALIBRATION_WARMUP_FRAMES,
       referenceSegmentCount,
+      externalReferenceSegmentCount: Object.keys(depthCalibration.externalReferenceRatios).length,
+      profileLocked: depthCalibration.profileLocked,
+      referenceRatioSources: { ...depthCalibration.referenceRatioSources },
       minimumReferenceSegments: depthCalibration.minimumReferenceSegments,
       coverage: { ...depthCalibration.lastCoverage },
       poseQuality,
@@ -2010,6 +2040,7 @@ export function createAvatarRenderer(options = {}) {
     depthCalibration.frozen = false;
     depthCalibration.referenceSamples.clear();
     depthCalibration.referenceRatios = {};
+    depthCalibration.referenceRatioSources = {};
     depthCalibration.previousSegmentDz.clear();
     depthCalibration.lastSolveDetails = new Map();
     depthCalibration.lastFrameKey = null;
@@ -2021,6 +2052,28 @@ export function createAvatarRenderer(options = {}) {
     depthCalibration.lastMode = depthCalibrationMode;
     depthCalibration.minimumReferenceSegments = DEPTH_CALIBRATION_MIN_FULL_BODY_SEGMENTS;
     depthCalibration.lastCoverage = depthCalibrationCoverage(null);
+    applyExternalDepthCalibrationReference();
+  }
+
+  function applyExternalDepthCalibrationReference() {
+    const referenceRatios = depthCalibration.externalReferenceRatios ?? {};
+    const referenceSegmentNames = Object.keys(referenceRatios);
+
+    if (referenceSegmentNames.length === 0) {
+      depthCalibration.profileLocked = false;
+      return;
+    }
+
+    depthCalibration.referenceRatios = { ...referenceRatios };
+    depthCalibration.referenceRatioSources = Object.fromEntries(
+      referenceSegmentNames.map((name) => [name, 'external-profile']),
+    );
+    depthCalibration.frozen = true;
+    depthCalibration.profileLocked = true;
+    depthCalibration.minimumReferenceSegments = Math.min(
+      depthCalibration.minimumReferenceSegments,
+      referenceSegmentNames.length,
+    );
   }
 
   function applyPose(landmarks, mirrored, delta, worldLandmarks = null, timestamp = 0) {
@@ -3383,6 +3436,8 @@ export function createAvatarRenderer(options = {}) {
     getDepthScale,
     setDepthCalibrationMode,
     getDepthCalibrationMode,
+    setDepthCalibrationReference,
+    clearDepthCalibrationReference,
     getDepthCalibrationSnapshot,
     resetDepthCalibration,
     getPerformanceSnapshot,

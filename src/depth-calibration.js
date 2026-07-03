@@ -90,6 +90,45 @@ export function segmentLengthRatio(points, segment, scale = bodyScale2D(points))
   return length / scale;
 }
 
+export function normalizeDepthCalibrationReferenceProfile(profile, segments = DEPTH_CALIBRATION_SEGMENTS) {
+  const sourceRatios = profile?.segmentRatios ?? profile?.referenceRatios ?? {};
+  const segmentRatios = {};
+  const referenceRatios = {};
+
+  for (const segment of segments) {
+    const source = sourceRatios[segment.name];
+    const ratio = Number(
+      typeof source === 'number'
+        ? source
+        : source?.ratio ?? source?.referenceRatio,
+    );
+
+    if (!Number.isFinite(ratio) || ratio <= 0) {
+      continue;
+    }
+
+    segmentRatios[segment.name] = {
+      ratio,
+      cv: Number.isFinite(Number(source?.cv)) ? Number(source.cv) : null,
+      samples: Number.isFinite(Number(source?.samples)) ? Number(source.samples) : 0,
+      group: source?.group ?? segment.group,
+      gated: Boolean(source?.gated ?? segment.gated),
+      source: source?.source ?? 'external-profile',
+    };
+    referenceRatios[segment.name] = ratio;
+  }
+
+  return {
+    version: 1,
+    source: profile?.source ?? profile?.sourceRecording ?? '',
+    extractor: profile?.extractor ?? 'external-profile',
+    createdAt: profile?.createdAt ?? null,
+    segmentRatios,
+    referenceRatios,
+    segmentCount: Object.keys(referenceRatios).length,
+  };
+}
+
 export function depthCalibrationCoverage(points, segments = DEPTH_CALIBRATION_SEGMENTS) {
   const scale = bodyScale2D(points);
   const coverage = {

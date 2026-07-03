@@ -114,6 +114,7 @@ async function main() {
         depthCalibrationP95MsBudget: defaults.depthCalibrationP95MsBudget,
         depthScale: args.depthScale ?? null,
         depthCalibration: args.depthCalibration ?? defaults.depthCalibration,
+        calibrationProfile: args.calibrationProfile ?? null,
         pump: args.pump ?? null,
         debugOverlay: args.debugOverlay ?? null,
         validation: "on",
@@ -181,6 +182,8 @@ function parseArgs(rawArgs) {
       parsed.depthScale = Number(rawArgs[++index]);
     } else if (arg === "--depth-calibration") {
       parsed.depthCalibration = rawArgs[++index];
+    } else if (arg === "--calibration-profile") {
+      parsed.calibrationProfile = rawArgs[++index];
     } else if (arg === "--pump") {
       parsed.pump = rawArgs[++index];
     } else if (arg === "--debug-overlay") {
@@ -239,6 +242,10 @@ function buildAppUrl(port, args) {
 
   if (args.depthCalibration) {
     url.searchParams.set("depth-calibration", args.depthCalibration);
+  }
+
+  if (args.calibrationProfile) {
+    url.searchParams.set("calibration-profile", args.calibrationProfile);
   }
 
   if (args.pump) {
@@ -309,6 +316,7 @@ Options:
   --timeout-ms <ms>          Per-model browser timeout.
   --depth-scale <n>          Set ?depth-scale for baseline measurements.
   --depth-calibration <mode> Set ?depth-calibration=dynamic|static.
+  --calibration-profile <p>  Set ?calibration-profile to an external segment-ratio JSON.
   --pump <auto|rvfc|raf>     Set ?pump frame scheduling mode.
   --debug-overlay <on|off>   Set ?debug-overlay for canvas skeleton drawing.
   --delegate <cpu|gpu>       Set ?delegate. Default CPU keeps headless validation stable.
@@ -1047,6 +1055,7 @@ function buildResultSummary(model, payload, options = {}) {
   const depthFrontBackGroups = payload.body?.depthValidation?.frontBackByGroup ?? {};
   const depthCalibration = payload.body?.depthCalibration ?? {};
   const depthCalibrationSummary = depthCalibration.summary ?? {};
+  const observableSegmentRule = depthCalibration.observableSegmentRule ?? {};
   const minFingerChainLength = minFingerLength(rig?.fingerChains);
 
   if (payload.avatarStatus !== "Ready") {
@@ -1109,17 +1118,18 @@ function buildResultSummary(model, payload, options = {}) {
     failuresForModel.push(`${model.label}: depth calibration p95 segment CV ${(depthCalibrationSummary.p95SegmentCv * 100).toFixed(1)}% > ${(defaults.depthCalibrationP95CvTarget * 100).toFixed(0)}%`);
   }
 
-  if (
-    enforceGates &&
-    !labelValidation &&
-    (depthCalibrationSummary.cvReliableSegmentCount ?? 0) < defaults.depthCalibrationReliableSegmentTarget
-  ) {
-    failuresForModel.push(`${model.label}: depth calibration reliable CV segments ${depthCalibrationSummary.cvReliableSegmentCount ?? 0} < ${defaults.depthCalibrationReliableSegmentTarget}`);
-  } else if (
-    labelValidation &&
-    (depthCalibrationSummary.cvReliableSegmentCount ?? 0) < defaults.depthCalibrationReliableSegmentTarget
-  ) {
-    warningsForModel.push(`${model.label}: keyframe-only run has sparse depth calibration CV segments (${depthCalibrationSummary.cvReliableSegmentCount ?? 0})`);
+  if (enforceGates && depthCalibration.profileAssisted && (depthCalibrationSummary.clampedRatio ?? 0) > 0.2) {
+    failuresForModel.push(`${model.label}: depth calibration clamp ratio ${(depthCalibrationSummary.clampedRatio * 100).toFixed(1)}% > 20%`);
+  }
+
+  const reliableSegmentCount = depthCalibration.profileAssisted
+    ? observableSegmentRule.observableReliableSegmentCount
+    : depthCalibrationSummary.cvReliableSegmentCount;
+
+  if (enforceGates && !labelValidation && (reliableSegmentCount ?? 0) < defaults.depthCalibrationReliableSegmentTarget) {
+    failuresForModel.push(`${model.label}: depth calibration observable segments ${reliableSegmentCount ?? 0} < ${defaults.depthCalibrationReliableSegmentTarget}`);
+  } else if (labelValidation && (reliableSegmentCount ?? 0) < defaults.depthCalibrationReliableSegmentTarget) {
+    warningsForModel.push(`${model.label}: keyframe-only run has sparse depth calibration observable segments (${reliableSegmentCount ?? 0})`);
   }
 
   for (const warning of depthCalibration.warnings ?? []) {
@@ -1208,6 +1218,8 @@ function buildResultSummary(model, payload, options = {}) {
       depthCalibrationCvReliableSegmentCount: depthCalibrationSummary.cvReliableSegmentCount ?? null,
       depthCalibrationCvSparseSegmentCount: depthCalibrationSummary.cvSparseSegmentCount ?? null,
       depthCalibrationClampedRatio: depthCalibrationSummary.clampedRatio ?? null,
+      depthCalibrationProfileLocked: depthCalibration.profileLocked ?? null,
+      depthCalibrationExternalReferenceSegmentCount: depthCalibration.externalReferenceSegmentCount ?? null,
       visualJointSanity: motion?.visualJointSanity?.matchRate ?? null,
       minFingerChainLength,
       framesWithPose: payload.body?.framesWithPose ?? 0,

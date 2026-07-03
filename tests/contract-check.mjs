@@ -264,8 +264,8 @@ function checkSyntax(relativePath) {
 
 function checkPackageContract(packageJson) {
   check(
-    packageJson?.scripts?.check === "node tests/contract-check.mjs && node tests/avatar-vrm-humanoid-check.mjs && node tests/avatar-vrm-expression-check.mjs && node tests/depth-calibration-check.mjs && node tests/motion-frame-check.mjs && node tests/motion-forwarding-check.mjs && node tests/facing-estimator-check.mjs && node tests/solver-synthetic-check.mjs && node tests/motion-recording-compare-check.mjs && node tests/mhr70-mapping-check.mjs && node tests/sam-reference-labeler-check.mjs && node tests/hmr-jsonl-adapter-check.mjs && node tests/clip-manifest-check.mjs",
-    "package.json: check script must run the contract, VRM humanoid, VRM expression, depth calibration, motion frame, forwarding, facing estimator, solver synthetic, recording compare, MHR70 mapping, SAM labeler, HMR adapter, and clip manifest checks",
+    packageJson?.scripts?.check === "node tests/contract-check.mjs && node tests/avatar-vrm-humanoid-check.mjs && node tests/avatar-vrm-expression-check.mjs && node tests/depth-calibration-check.mjs && node tests/motion-frame-check.mjs && node tests/motion-forwarding-check.mjs && node tests/facing-estimator-check.mjs && node tests/solver-synthetic-check.mjs && node tests/motion-recording-compare-check.mjs && node tests/mhr70-mapping-check.mjs && node tests/sam-reference-labeler-check.mjs && node tests/sam-calibration-profile-check.mjs && node tests/hmr-jsonl-adapter-check.mjs && node tests/clip-manifest-check.mjs",
+    "package.json: check script must run the contract, VRM humanoid, VRM expression, depth calibration, motion frame, forwarding, facing estimator, solver synthetic, recording compare, MHR70 mapping, SAM labeler, SAM profile, HMR adapter, and clip manifest checks",
   );
   check(
     packageJson?.scripts?.start === "python3 -m http.server 8000 --bind 127.0.0.1",
@@ -294,6 +294,14 @@ function checkPackageContract(packageJson) {
   check(
     packageJson?.scripts?.["compare:recordings"] === "node scripts/motion-recording-compare.mjs",
     "package.json: compare:recordings script must run the live/offline recording comparison CLI",
+  );
+  check(
+    packageJson?.scripts?.["sam:labels"] === "node scripts/sam-reference-labeler.mjs",
+    "package.json: sam:labels script must run the SAM reference labeler",
+  );
+  check(
+    packageJson?.scripts?.["sam:profile"] === "node scripts/sam-calibration-profile.mjs",
+    "package.json: sam:profile script must run the SAM calibration profile generator",
   );
   check(
     packageJson?.scripts?.["smoke:hud"] === "node scripts/motion-status-hud-smoke.mjs",
