@@ -32,6 +32,39 @@ const COCO17_TO_MEDIAPIPE33 = Object.freeze({
   15: 27,
   16: 28,
 });
+const MHR70_TO_MEDIAPIPE33 = Object.freeze({
+  0: 0,
+  1: 1,
+  2: 1,
+  3: 1,
+  4: 2,
+  5: 2,
+  6: 2,
+  7: 3,
+  8: 4,
+  11: 5,
+  12: 6,
+  13: 7,
+  14: 8,
+  15: 62,
+  16: 41,
+  17: 61,
+  18: 40,
+  19: 49,
+  20: 28,
+  21: 45,
+  22: 24,
+  23: 9,
+  24: 10,
+  25: 11,
+  26: 12,
+  27: 13,
+  28: 14,
+  29: 17,
+  30: 20,
+  31: 15,
+  32: 18,
+});
 
 if (!args.input || args.help) {
   printUsage();
@@ -40,6 +73,7 @@ if (!args.input || args.help) {
   const sourceText = await readFile(path.resolve(projectRoot, args.input), "utf8");
   const recording = parseInputRecording(sourceText, args.input, {
     jointFormat: args.jointFormat,
+    personIndex: args.personIndex,
   });
   const normalizedRecording = normalizeExternalMotionRecording(recording);
   const jsonl = serializeMotionRecordingJsonl(normalizedRecording);
@@ -65,6 +99,7 @@ function parseArgs(rawArgs) {
     input: "",
     output: "",
     jointFormat: "",
+    personIndex: 0,
     stdout: false,
     help: false,
   };
@@ -78,6 +113,8 @@ function parseArgs(rawArgs) {
       parsed.output = rawArgs[++index] ?? "";
     } else if (arg === "--joint-format") {
       parsed.jointFormat = rawArgs[++index] ?? "";
+    } else if (arg === "--person" || arg === "--person-index") {
+      parsed.personIndex = Number(rawArgs[++index] ?? parsed.personIndex);
     } else if (arg === "--stdout") {
       parsed.stdout = true;
     } else if (arg === "--help" || arg === "-h") {
@@ -87,6 +124,10 @@ function parseArgs(rawArgs) {
     } else {
       throw new Error(`Unknown argument: ${arg}`);
     }
+  }
+
+  if (!Number.isInteger(parsed.personIndex) || parsed.personIndex < 0) {
+    throw new Error("--person-index must be a non-negative integer.");
   }
 
   return parsed;
@@ -99,7 +140,17 @@ function parseInputRecording(sourceText, inputPath, options = {}) {
     throw new Error("External HMR recording input is empty.");
   }
 
-  if (inputPath.endsWith(".jsonl") || trimmed.startsWith("{\"type\":\"action-tracker-motion-recording\"")) {
+  if (trimmed.startsWith("{\"type\":\"action-tracker-motion-recording\"")) {
+    return parseMotionRecordingJsonl(sourceText);
+  }
+
+  if (inputPath.endsWith(".jsonl")) {
+    if (isSamMhr70Jsonl(trimmed, options)) {
+      return convertSamMhr70JsonlRecording(sourceText, {
+        personIndex: options.personIndex,
+      });
+    }
+
     return parseMotionRecordingJsonl(sourceText);
   }
 
@@ -136,6 +187,153 @@ function buildSummary(recording, outputPath) {
 
 function isMotionRecordingShape(value) {
   return value?.version === MOTION_RECORDING_VERSION && Array.isArray(value.frames);
+}
+
+function isSamMhr70Jsonl(trimmed, options = {}) {
+  const requestedFormat = maybeNormalizeJointFormat(options.jointFormat);
+
+  if (requestedFormat === "mhr70") {
+    return true;
+  }
+
+  const firstLine = trimmed.split(/\r?\n/, 1)[0];
+
+  try {
+    const firstFrame = JSON.parse(firstLine);
+    return Array.isArray(firstFrame?.persons) &&
+      firstFrame.persons.some((person) =>
+        Array.isArray(person?.keypoints_mhr70_2d) ||
+        Array.isArray(person?.keypoints_mhr70_3d)
+      );
+  } catch {
+    return false;
+  }
+}
+
+function convertSamMhr70JsonlRecording(sourceText, options = {}) {
+  const frames = [];
+  const lines = sourceText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  let droppedFrames = 0;
+  let firstSourceFrame = null;
+  let lastSourceFrame = null;
+
+  lines.forEach((line, lineIndex) => {
+    const sourceFrame = parseSamMhr70Line(line, lineIndex + 1);
+    firstSourceFrame ??= sourceFrame;
+    lastSourceFrame = sourceFrame;
+
+    const person = selectSamMhr70Person(sourceFrame, options.personIndex ?? 0);
+
+    if (!person) {
+      droppedFrames += 1;
+      return;
+    }
+
+    frames.push(convertSamMhr70Frame(sourceFrame, person, frames.length));
+  });
+
+  if (frames.length === 0) {
+    throw new Error("SAM MHR70 JSONL did not contain any frames with a selected person.");
+  }
+
+  const fps = estimateSamMhr70Fps(firstSourceFrame, lastSourceFrame, lines.length);
+
+  return {
+    version: MOTION_RECORDING_VERSION,
+    createdAt: new Date().toISOString(),
+    source: {
+      type: "external-hmr",
+      extractor: "sam3d-body",
+      jointFormat: "mhr70",
+      videoRef: typeof firstSourceFrame?.video === "string" ? firstSourceFrame.video : undefined,
+      fps,
+    },
+    droppedFrames,
+    frames,
+  };
+}
+
+function parseSamMhr70Line(line, lineNumber) {
+  try {
+    return JSON.parse(line);
+  } catch (error) {
+    throw new Error(`Invalid SAM MHR70 JSONL on line ${lineNumber}: ${error.message}`);
+  }
+}
+
+function selectSamMhr70Person(frame, personIndex) {
+  const persons = Array.isArray(frame?.persons) ? frame.persons : [];
+  const candidate = persons[personIndex] ?? null;
+
+  if (
+    candidate &&
+    Array.isArray(candidate.keypoints_mhr70_2d) &&
+    Array.isArray(candidate.keypoints_mhr70_3d)
+  ) {
+    return candidate;
+  }
+
+  return null;
+}
+
+function convertSamMhr70Frame(sourceFrame, person, outputIndex) {
+  const timestamp = Number.isFinite(Number(sourceFrame?.timestamp_sec))
+    ? Number(sourceFrame.timestamp_sec) * 1000
+    : Number.isFinite(Number(sourceFrame?.frame_index))
+      ? Number(sourceFrame.frame_index) * 1000 / 30
+      : outputIndex * 1000 / 30;
+  const imageSize = sourceFrame?.image_size ?? {};
+  const imageWidth = Number(imageSize.width);
+  const imageHeight = Number(imageSize.height);
+  const detectorScore = normalizeVisibility(person.detector_score);
+  const poseLandmarks = mhr70ToMediaPipe33(person.keypoints_mhr70_2d, {
+    screenSpace: true,
+    imageWidth,
+    imageHeight,
+    visibility: detectorScore,
+  });
+  const poseWorldLandmarks = mhr70ToMediaPipe33(person.keypoints_mhr70_3d, {
+    screenSpace: false,
+    visibility: detectorScore,
+  });
+
+  return {
+    version: MOTION_FRAME_VERSION,
+    timestamp,
+    mirrored: false,
+    poseLandmarks,
+    poseWorldLandmarks,
+    leftHandLandmarks: null,
+    leftHandWorldLandmarks: null,
+    rightHandLandmarks: null,
+    rightHandWorldLandmarks: null,
+    sourceMeta: {
+      extractor: "sam3d-body",
+      jointFormat: "mhr70",
+      sourceJointCount: person.keypoints_mhr70_3d.length,
+      frameIndex: Number.isFinite(Number(sourceFrame?.frame_index)) ? Number(sourceFrame.frame_index) : outputIndex,
+      sourceFrameIndex: Number.isFinite(Number(sourceFrame?.frame_index)) ? Number(sourceFrame.frame_index) : outputIndex,
+      personId: Number.isFinite(Number(person?.person_id)) ? Number(person.person_id) : 0,
+      detectorScore,
+      videoTime: timestamp / 1000,
+      imageWidth: Number.isFinite(imageWidth) ? imageWidth : null,
+      imageHeight: Number.isFinite(imageHeight) ? imageHeight : null,
+      mapping: "mhr70-to-mediapipe33",
+      worldAxisX: "native",
+      worldAxisY: "native",
+    },
+  };
+}
+
+function estimateSamMhr70Fps(firstFrame, lastFrame, lineCount) {
+  const firstTime = Number(firstFrame?.timestamp_sec);
+  const lastTime = Number(lastFrame?.timestamp_sec);
+
+  if (Number.isFinite(firstTime) && Number.isFinite(lastTime) && lastTime > firstTime && lineCount > 1) {
+    return (lineCount - 1) / (lastTime - firstTime);
+  }
+
+  return undefined;
 }
 
 function convertJointArrayRecording(input, options = {}) {
@@ -243,6 +441,17 @@ function convertJointList(joints, jointFormat, options = {}) {
     return coco17ToMediaPipe33(joints, { screenSpace: options.screenSpace });
   }
 
+  if (jointFormat === "mhr70") {
+    if (joints.length !== 70) {
+      throw new Error(`${options.label} requires 70 joints for mhr70 format.`);
+    }
+
+    return mhr70ToMediaPipe33(joints, {
+      screenSpace: options.screenSpace,
+      visibility: 1,
+    });
+  }
+
   throw new Error(`Unsupported external HMR joint format: ${jointFormat}`);
 }
 
@@ -280,6 +489,82 @@ function coco17ToMediaPipe33(joints, options = {}) {
   }
 
   return landmarks;
+}
+
+function mhr70ToMediaPipe33(joints, options = {}) {
+  const landmarks = Array.from({ length: MEDIAPIPE_POSE_LANDMARK_COUNT }, () => null);
+  const center = options.screenSpace ? null : midpointRawJoint(joints[9], joints[10]);
+
+  for (const [mediaPipeIndex, mhrIndex] of Object.entries(MHR70_TO_MEDIAPIPE33)) {
+    landmarks[Number(mediaPipeIndex)] = toMhr70Landmark(joints[Number(mhrIndex)], {
+      ...options,
+      center,
+      index: Number(mhrIndex),
+    });
+  }
+
+  const mouth = midpointLandmark(landmarks[0], landmarks[2], landmarks[5]);
+  landmarks[9] = mouth;
+  landmarks[10] = mouth ? { ...mouth } : null;
+
+  for (let index = 0; index < landmarks.length; index += 1) {
+    if (!landmarks[index]) {
+      landmarks[index] = nearestFallbackLandmark(landmarks, index);
+    }
+  }
+
+  return landmarks;
+}
+
+function toMhr70Landmark(joint, options = {}) {
+  if (!Array.isArray(joint)) {
+    throw new Error(`Invalid MHR70 joint at index ${options.index ?? "unknown"}.`);
+  }
+
+  const baseVisibility = normalizeVisibility(joint[3] ?? options.visibility);
+
+  if (options.screenSpace) {
+    const imageWidth = Number(options.imageWidth);
+    const imageHeight = Number(options.imageHeight);
+    const rawX = normalizeCoordinate(joint[0], 0);
+    const rawY = normalizeCoordinate(joint[1], 0);
+    const hasSize = imageWidth > 0 && imageHeight > 0;
+    const x = hasSize ? rawX / imageWidth : rawX;
+    const y = hasSize ? rawY / imageHeight : rawY;
+    const insideLooseBounds = x >= -0.2 && x <= 1.2 && y >= -0.2 && y <= 1.2;
+
+    return {
+      x: clamp(x, 0, 1),
+      y: clamp(y, 0, 1),
+      z: 0,
+      visibility: insideLooseBounds ? baseVisibility : Math.min(baseVisibility, 0.05),
+      presence: insideLooseBounds ? baseVisibility : Math.min(baseVisibility, 0.05),
+    };
+  }
+
+  const center = Array.isArray(options.center) ? options.center : [0, 0, 0];
+
+  return {
+    x: normalizeCoordinate(joint[0], 0) - normalizeCoordinate(center[0], 0),
+    y: normalizeCoordinate(joint[1], 0) - normalizeCoordinate(center[1], 0),
+    z: normalizeCoordinate(joint[2], 0) - normalizeCoordinate(center[2], 0),
+    visibility: baseVisibility,
+    presence: baseVisibility,
+  };
+}
+
+function midpointRawJoint(...joints) {
+  const valid = joints.filter((joint) => Array.isArray(joint));
+
+  if (valid.length === 0) {
+    return [0, 0, 0];
+  }
+
+  return [
+    valid.reduce((sum, joint) => sum + normalizeCoordinate(joint[0], 0), 0) / valid.length,
+    valid.reduce((sum, joint) => sum + normalizeCoordinate(joint[1], 0), 0) / valid.length,
+    valid.reduce((sum, joint) => sum + normalizeCoordinate(joint[2], 0), 0) / valid.length,
+  ];
 }
 
 function extractJointArray(frame, keys) {
@@ -354,7 +639,15 @@ function normalizeJointFormat(value) {
     return "coco17";
   }
 
+  if (normalized === "mhr70" || normalized === "sam3dbody" || normalized === "sam3dbodymhr70") {
+    return "mhr70";
+  }
+
   throw new Error(`Unsupported --joint-format ${value}`);
+}
+
+function maybeNormalizeJointFormat(value) {
+  return value ? normalizeJointFormat(value) : "";
 }
 
 function normalizeExtractor(value) {
@@ -369,16 +662,22 @@ function normalizeVisibility(value) {
   return Number.isFinite(Number(value)) ? Math.max(0, Math.min(1, Number(value))) : 1;
 }
 
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, Number(value)));
+}
+
 function printUsage() {
   console.log(`Usage:
   node scripts/hmr-jsonl-adapter.mjs --input external-recording.json --output output/external-recording.jsonl
   node scripts/hmr-jsonl-adapter.mjs --input coco17-joints.json --joint-format coco17 --output output/external-recording.jsonl
+  node scripts/hmr-jsonl-adapter.mjs --input skeletons_mhr70.jsonl --joint-format mhr70 --output output/sam-recording.jsonl
   node scripts/hmr-jsonl-adapter.mjs external-recording.jsonl --stdout > normalized.jsonl
 
 Input may use the action-tracker recording shape with source.type "external-hmr"
 or a generic external joint-array shape with frames[].joints3d/worldJoints and
-optional frames[].joints2d/imageJoints. Supported joint formats are mediapipe33
-and coco17. The adapter validates 33 pose landmarks, 33 pose world landmarks,
+optional frames[].joints2d/imageJoints. It may also be raw SAM 3D Body MHR70
+JSONL with frames[].persons[].keypoints_mhr70_2d/keypoints_mhr70_3d.
+Supported joint formats are mediapipe33, coco17, and mhr70. The adapter validates 33 pose landmarks, 33 pose world landmarks,
 optional 21-point hands, scalar metadata only, and then writes replayable motion
 recording JSONL.
 `);

@@ -72,6 +72,7 @@ function isMainModule() {
 function parseArgs(rawArgs) {
   const parsed = {
     suite: "all",
+    clipManifest: "",
     strictUnavailable: false,
     passthrough: [],
   };
@@ -81,6 +82,8 @@ function parseArgs(rawArgs) {
 
     if (arg === "--suite") {
       parsed.suite = rawArgs[++index] ?? "all";
+    } else if (arg === "--clip-manifest") {
+      parsed.clipManifest = rawArgs[++index] ?? "";
     } else if (arg === "--strict-unavailable") {
       parsed.strictUnavailable = true;
     } else if (arg === "--") {
@@ -157,7 +160,7 @@ async function runSuite(suite, options) {
     }
 
     if (suite === "clips") {
-      return await runClipSuite(startedAt);
+      return await runClipSuite(startedAt, options);
     }
   } catch (error) {
     return {
@@ -229,8 +232,10 @@ async function runCommandSuite({ suite, command, args, startedAt }) {
   };
 }
 
-async function runClipSuite(startedAt) {
-  const manifestPath = path.join(projectRoot, "tests/fixtures/clip-family/manifest.json");
+async function runClipSuite(startedAt, options = {}) {
+  const manifestPath = options.clipManifest
+    ? path.resolve(projectRoot, options.clipManifest)
+    : path.join(projectRoot, "tests/fixtures/clip-family/manifest.json");
 
   if (!existsSync(manifestPath)) {
     return {
@@ -1036,6 +1041,7 @@ function maxNumber(values) {
 function printUsage() {
   console.log(`Usage:
   node scripts/validation-cli.mjs --suite synthetic
+  node scripts/validation-cli.mjs --suite clips --clip-manifest output/local-clip-manifest.json
   node scripts/validation-cli.mjs --suite agreement -- --only-models --model Xbot=assets/models/Xbot.glb
   node scripts/validation-cli.mjs --suite all
 
@@ -1044,5 +1050,11 @@ Suites:
   agreement   Run the browser avatar motion agreement gate.
   clips       Inspect clip-family manifest availability.
   all         Run synthetic, clips, and agreement in order.
+
+Options:
+  --suite <name>            Validation suite. Default all.
+  --clip-manifest <path>    Clip-family manifest path for clips suite.
+  --strict-unavailable      Treat unavailable suites as command failure.
+  --                         Remaining arguments pass to agreement suite.
 `);
 }

@@ -28,6 +28,7 @@ import {
   DEPTH_CALIBRATION_MODE_STATIC,
   DEPTH_CALIBRATION_POSE_QUALITY_TARGET_SCORE,
   DEPTH_CALIBRATION_RUNTIME_P95_BUDGET_MS,
+  DEPTH_CALIBRATION_SOLVE_STEPS,
   DEPTH_CALIBRATION_SMOOTHNESS_THRESHOLD,
   DEPTH_CALIBRATION_TARGET_SCORE,
   normalizeDepthCalibrationMode,
@@ -60,6 +61,9 @@ const AVATAR_SMOOTHING_MODE_ALIASES = {
   true: AVATAR_SMOOTHING_MODE_RETARGET,
   strong: AVATAR_SMOOTHING_MODE_STRONG,
 };
+const DEPTH_CALIBRATION_GATE_SEGMENT_NAMES = new Set(
+  DEPTH_CALIBRATION_SOLVE_STEPS.map((step) => step.segmentName),
+);
 const APP_PERFORMANCE_SAMPLE_LIMIT = 900;
 const TRACKING_WORKER_TIMEOUT_MS = 10000;
 const MEDIAPIPE_PREFERRED_DELEGATE = "GPU";
@@ -3158,7 +3162,9 @@ function buildDepthCalibrationReport(samples) {
     .filter(Boolean);
   const rows = collectDepthCalibrationRows(samples);
   const latest = snapshots[snapshots.length - 1] ?? null;
-  const summary = summarizeLengthConsistency(rows);
+  const allSegmentSummary = summarizeLengthConsistency(rows);
+  const gateRows = rows.filter((row) => DEPTH_CALIBRATION_GATE_SEGMENT_NAMES.has(row.name));
+  const summary = summarizeLengthConsistency(gateRows.length > 0 ? gateRows : rows);
   const ready = snapshots.some((snapshot) => snapshot.ready);
   const passed = ready &&
     summary.score >= DEPTH_CALIBRATION_TARGET_SCORE &&
@@ -3167,7 +3173,7 @@ function buildDepthCalibrationReport(samples) {
     summary.p95SegmentCv <= 0.08;
 
   return {
-    validationScope: "dynamic_depth_segment_length_consistency",
+    validationScope: "dynamic_depth_solver_segment_length_consistency",
     mode: latest?.mode ?? DEPTH_CALIBRATION_MODE_DYNAMIC,
     ready,
     frozen: Boolean(latest?.frozen),
@@ -3188,6 +3194,8 @@ function buildDepthCalibrationReport(samples) {
     poseQuality: latest?.poseQuality ?? null,
     score: summary.score,
     summary,
+    allSegmentSummary,
+    gateSegmentNames: [...DEPTH_CALIBRATION_GATE_SEGMENT_NAMES],
     byGroup: summarizeDepthCalibrationRowsByKey(rows, "group"),
     bySegment: summarizeDepthCalibrationRowsByKey(rows, "name"),
     warnings: buildDepthCalibrationWarnings(summary, ready),

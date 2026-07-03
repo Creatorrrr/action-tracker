@@ -28,6 +28,7 @@ async function main() {
   const offline = await loadRecording(args.offline);
   const report = compareRecordings(live, offline, {
     maxTimestampDeltaMs: args.maxTimestampDeltaMs,
+    timestampSource: args.timestampSource,
   });
 
   if (args.output) {
@@ -61,6 +62,7 @@ function parseArgs(rawArgs) {
     output: "",
     html: "",
     maxTimestampDeltaMs: 50,
+    timestampSource: "timestamp",
     help: false,
   };
 
@@ -77,6 +79,8 @@ function parseArgs(rawArgs) {
       parsed.html = rawArgs[++index] ?? "";
     } else if (arg === "--max-timestamp-delta-ms") {
       parsed.maxTimestampDeltaMs = Number(rawArgs[++index] ?? parsed.maxTimestampDeltaMs);
+    } else if (arg === "--timestamp-source") {
+      parsed.timestampSource = rawArgs[++index] ?? parsed.timestampSource;
     } else if (arg === "--help" || arg === "-h") {
       parsed.help = true;
     } else {
@@ -86,6 +90,9 @@ function parseArgs(rawArgs) {
 
   if (!Number.isFinite(parsed.maxTimestampDeltaMs) || parsed.maxTimestampDeltaMs < 0) {
     throw new Error("--max-timestamp-delta-ms must be a non-negative number.");
+  }
+  if (!["timestamp", "sourceMeta.videoTime"].includes(parsed.timestampSource)) {
+    throw new Error("--timestamp-source must be timestamp or sourceMeta.videoTime.");
   }
 
   return parsed;
@@ -103,8 +110,9 @@ export async function loadRecording(inputPath) {
 
 export function compareRecordings(live, offline, options = {}) {
   const maxTimestampDeltaMs = Number(options.maxTimestampDeltaMs ?? 50);
-  const liveSolved = solveRecordingFrames(live.frames);
-  const offlineSolved = solveRecordingFrames(offline.frames);
+  const timestampSource = options.timestampSource ?? "timestamp";
+  const liveSolved = solveRecordingFrames(live.frames, { timestampSource });
+  const offlineSolved = solveRecordingFrames(offline.frames, { timestampSource });
   const pairs = pairSolvedFrames(liveSolved, offlineSolved, maxTimestampDeltaMs);
   const targetAngleRows = [];
   const hingeFlexRows = [];
@@ -118,6 +126,7 @@ export function compareRecordings(live, offline, options = {}) {
     generatedAt: new Date().toISOString(),
     comparisonType: "live-vs-offline-motion-recording",
     maxTimestampDeltaMs,
+    timestampSource,
     live: summarizeRecordingSource(live),
     offline: summarizeRecordingSource(offline),
     summary: {
@@ -245,7 +254,7 @@ export function renderComparisonHtml(report) {
   <main>
     <header>
       <h1>${escapeHtml(title)}</h1>
-      <div class="muted">Generated ${escapeHtml(report?.generatedAt ?? "")} · max timestamp delta ${formatNumber(report?.maxTimestampDeltaMs)}ms</div>
+      <div class="muted">Generated ${escapeHtml(report?.generatedAt ?? "")} · timestamp ${escapeHtml(report?.timestampSource ?? "timestamp")} · max delta ${formatNumber(report?.maxTimestampDeltaMs)}ms</div>
     </header>
     <div class="summary">
       ${renderMetricCard("Paired Frames", summary.pairedFrames)}
@@ -290,8 +299,9 @@ export function renderComparisonHtml(report) {
 `;
 }
 
-function solveRecordingFrames(frames) {
+function solveRecordingFrames(frames, options = {}) {
   let previousState = {};
+  const timestampSource = options.timestampSource ?? "timestamp";
 
   return frames.map((frame, index) => {
     const solved = solvePoseFrame(frame, previousState);
@@ -299,11 +309,23 @@ function solveRecordingFrames(frames) {
 
     return {
       index,
-      timestamp: Number(frame.timestamp ?? 0),
+      timestamp: readFrameTimestampMs(frame, timestampSource),
       frame,
       solved,
     };
   });
+}
+
+function readFrameTimestampMs(frame, timestampSource) {
+  if (timestampSource === "sourceMeta.videoTime") {
+    const videoTime = Number(frame?.sourceMeta?.videoTime);
+
+    if (Number.isFinite(videoTime)) {
+      return videoTime * 1000;
+    }
+  }
+
+  return Number(frame?.timestamp ?? 0);
 }
 
 function buildComparisonTimeline(pairs, targetAngleRows, hingeFlexRows) {
@@ -609,6 +631,8 @@ function printUsage() {
 Both inputs must be action-tracker motion recordings in JSON or JSONL form.
 The report pairs frames by timestamp, solves both recordings through the pure
 pose solver, summarizes target direction and hinge flexion differences, and can
-write a static HTML timeline report with --html.
+write a static HTML timeline report with --html. Use
+--timestamp-source sourceMeta.videoTime when comparing recordings captured from
+the same source video by different runtimes.
 `);
 }

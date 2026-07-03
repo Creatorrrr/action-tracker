@@ -34,6 +34,17 @@ assert.ok(differentHtml.includes("Live vs Offline Motion Comparison"));
 assert.ok(differentHtml.includes("Target Angle Delta Timeline"));
 assert.ok(differentHtml.includes("<polyline"));
 
+const sourceTimedLive = withVideoTime(identityRecording, 10_000);
+const sourceTimedOffline = withVideoTime(identityRecording, 0);
+const runtimeTimestampReport = compareRecordings(sourceTimedLive, sourceTimedOffline);
+assert.equal(runtimeTimestampReport.summary.pairedFrames, 0);
+const sourceTimeReport = compareRecordings(sourceTimedLive, sourceTimedOffline, {
+  timestampSource: "sourceMeta.videoTime",
+});
+assert.equal(sourceTimeReport.timestampSource, "sourceMeta.videoTime");
+assert.equal(sourceTimeReport.summary.pairedFrames, identityRecording.frames.length);
+assert.equal(sourceTimeReport.summary.targetAngle.max, 0);
+
 const livePath = path.join(tempDir, "live.jsonl");
 const offlinePath = path.join(tempDir, "offline.jsonl");
 const reportPath = path.join(tempDir, "report.json");
@@ -83,5 +94,21 @@ function createSyntheticRecording(scenario) {
     },
     frames: sequence.frames,
     createdAt: "2026-07-02T00:00:00.000Z",
+  });
+}
+
+function withVideoTime(recording, timestampOffsetMs) {
+  return createMotionRecording({
+    source: recording.source,
+    createdAt: recording.createdAt,
+    droppedFrames: recording.droppedFrames,
+    frames: recording.frames.map((frame, index) => ({
+      ...frame,
+      timestamp: frame.timestamp + timestampOffsetMs,
+      sourceMeta: {
+        ...frame.sourceMeta,
+        videoTime: index / 30,
+      },
+    })),
   });
 }

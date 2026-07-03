@@ -568,7 +568,7 @@ function checkAvatarAppContract(app) {
     ["builds strict validation report", /function\s+buildStrictValidationReport\s*\([^)]*\)[\s\S]*strictValidation|strictValidation\s*=\s*buildStrictValidationReport\s*\(/],
     ["builds depth validation report", /function\s+buildDepthValidationReport\s*\([^)]*\)[\s\S]*mediapipe_relative_depth/],
     ["includes depth length consistency in depth validation", /function\s+buildDepthValidationReport\s*\([^)]*\)[\s\S]*lengthConsistency\s*:\s*summarizeLengthConsistency/],
-    ["builds depth calibration report", /function\s+buildDepthCalibrationReport\s*\([^)]*\)[\s\S]*dynamic_depth_segment_length_consistency/],
+    ["builds depth calibration report", /function\s+buildDepthCalibrationReport\s*\([^)]*\)[\s\S]*dynamic_depth_solver_segment_length_consistency/],
     ["marks depth validation self-reference", /selfReferential[\s\S]*retarget residual/],
     ["exposes avatar depth scale debug API", /getAvatarDepthScale[\s\S]*setAvatarDepthScale/],
     ["exposes dynamic depth calibration debug API", /getDepthCalibrationReport[\s\S]*setDepthCalibrationMode/],
