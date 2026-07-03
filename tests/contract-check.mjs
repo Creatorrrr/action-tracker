@@ -15,6 +15,7 @@ const files = {
   app: "src/app.js",
   avatarRenderer: "src/avatar-renderer.js",
   retargetOrientation: "src/retarget-orientation.js",
+  strictRetarget: "src/retarget/skeleton-fk-retarget.js",
   depthCalibration: "src/depth-calibration.js",
   motionFrame: "src/motion-frame.js",
   motionWorker: "src/motion-worker.js",
@@ -37,6 +38,7 @@ const files = {
   validationCliScript: "scripts/validation-cli.mjs",
   hmrJsonlAdapterScript: "scripts/hmr-jsonl-adapter.mjs",
   motionRecordingCompareScript: "scripts/motion-recording-compare.mjs",
+  retargetModeCompareScript: "scripts/retarget-mode-compare.mjs",
   samManualLabelsScript: "scripts/sam-manual-labels.mjs",
   samReferenceLabelerScript: "scripts/sam-reference-labeler.mjs",
   samRegressionOracleScript: "scripts/sam-regression-oracle.mjs",
@@ -46,6 +48,7 @@ const files = {
   avatarVrmHumanoidCheck: "tests/avatar-vrm-humanoid-check.mjs",
   avatarVrmExpressionCheck: "tests/avatar-vrm-expression-check.mjs",
   retargetOrientationCheck: "tests/retarget-orientation-check.mjs",
+  strictRetargetCheck: "tests/strict-retarget-check.mjs",
   depthCalibrationCheck: "tests/depth-calibration-check.mjs",
   motionFrameCheck: "tests/motion-frame-check.mjs",
   motionForwardingCheck: "tests/motion-forwarding-check.mjs",
@@ -54,6 +57,7 @@ const files = {
   solverSyntheticCheck: "tests/solver-synthetic-check.mjs",
   samManualLabelsCheck: "tests/sam-manual-labels-check.mjs",
   motionRecordingCompareCheck: "tests/motion-recording-compare-check.mjs",
+  retargetModeCompareCheck: "tests/retarget-mode-compare-check.mjs",
   mhr70MappingCheck: "tests/mhr70-mapping-check.mjs",
   mhr70HandsCheck: "tests/mhr70-hands-check.mjs",
   gestureClassifierCheck: "tests/gesture-classifier-check.mjs",
@@ -277,8 +281,8 @@ function checkSyntax(relativePath) {
 
 function checkPackageContract(packageJson) {
   check(
-    packageJson?.scripts?.check === "node tests/contract-check.mjs && node tests/avatar-vrm-humanoid-check.mjs && node tests/avatar-vrm-expression-check.mjs && node tests/retarget-orientation-check.mjs && node tests/depth-calibration-check.mjs && node tests/motion-frame-check.mjs && node tests/motion-forwarding-check.mjs && node tests/presence-state-check.mjs && node tests/facing-estimator-check.mjs && node tests/solver-synthetic-check.mjs && node tests/sam-manual-labels-check.mjs && node tests/motion-recording-compare-check.mjs && node tests/mhr70-mapping-check.mjs && node tests/mhr70-hands-check.mjs && node tests/gesture-classifier-check.mjs && node tests/sam-reference-labeler-check.mjs && node tests/sam-calibration-profile-check.mjs && node tests/sam-regression-oracle-check.mjs && node tests/hmr-jsonl-adapter-check.mjs && node tests/clip-manifest-check.mjs",
-    "package.json: check script must run the contract, VRM humanoid, VRM expression, retarget orientation, depth calibration, motion frame, forwarding, presence state, facing estimator, solver synthetic, manual labels, recording compare, MHR70 mapping/hands, gesture classifier, SAM labeler/profile/oracle, HMR adapter, and clip manifest checks",
+    packageJson?.scripts?.check === "node tests/contract-check.mjs && node tests/avatar-vrm-humanoid-check.mjs && node tests/avatar-vrm-expression-check.mjs && node tests/retarget-orientation-check.mjs && node tests/strict-retarget-check.mjs && node tests/depth-calibration-check.mjs && node tests/motion-frame-check.mjs && node tests/motion-forwarding-check.mjs && node tests/presence-state-check.mjs && node tests/facing-estimator-check.mjs && node tests/solver-synthetic-check.mjs && node tests/sam-manual-labels-check.mjs && node tests/motion-recording-compare-check.mjs && node tests/retarget-mode-compare-check.mjs && node tests/mhr70-mapping-check.mjs && node tests/mhr70-hands-check.mjs && node tests/gesture-classifier-check.mjs && node tests/sam-reference-labeler-check.mjs && node tests/sam-calibration-profile-check.mjs && node tests/sam-regression-oracle-check.mjs && node tests/hmr-jsonl-adapter-check.mjs && node tests/clip-manifest-check.mjs",
+    "package.json: check script must run the contract, VRM humanoid, VRM expression, retarget orientation, strict retarget, depth calibration, motion frame, forwarding, presence state, facing estimator, solver synthetic, manual labels, recording compare, retarget compare, MHR70 mapping/hands, gesture classifier, SAM labeler/profile/oracle, HMR adapter, and clip manifest checks",
   );
   check(
     packageJson?.scripts?.start === "python3 -m http.server 8000 --bind 127.0.0.1",
@@ -309,6 +313,10 @@ function checkPackageContract(packageJson) {
     "package.json: compare:recordings script must run the live/offline recording comparison CLI",
   );
   check(
+    packageJson?.scripts?.["compare:retarget"] === "node scripts/retarget-mode-compare.mjs",
+    "package.json: compare:retarget script must run the retarget mode report comparison CLI",
+  );
+  check(
     packageJson?.scripts?.["sam:labels"] === "node scripts/sam-reference-labeler.mjs",
     "package.json: sam:labels script must run the SAM reference labeler",
   );
@@ -325,7 +333,7 @@ function checkPackageContract(packageJson) {
     "package.json: sam:oracle script must run the SAM regression oracle",
   );
   check(
-    packageJson?.scripts?.["sam:oracle:csi"] === "node scripts/sam-regression-oracle.mjs --profile tests/fixtures/sam-oracle-profiles/csi-pose.json --report output/reports/tracker-vs-sam-csi-pose-v1.json --output output/reports/tracker-vs-sam-csi-pose-v1-oracle.json",
+    packageJson?.scripts?.["sam:oracle:csi"] === "node scripts/sam-regression-oracle.mjs --profile tests/fixtures/sam-oracle-profiles/csi-pose.json --report output/reports/tracker-vs-sam-csi-pose-strict-direct-v4.json --output output/reports/tracker-vs-sam-csi-pose-strict-direct-v4-oracle.json",
     "package.json: sam:oracle:csi script must run the csi-pose SAM oracle profile",
   );
   check(
@@ -815,6 +823,7 @@ const [
   app,
   avatarRenderer,
   retargetOrientation,
+  strictRetarget,
   depthCalibration,
   motionFrame,
   motionWorker,
@@ -825,6 +834,7 @@ const [
   validationCliScript,
   hmrJsonlAdapterScript,
   motionRecordingCompareScript,
+  retargetModeCompareScript,
   samRegressionOracleScript,
   motionStatusHudSmokeScript,
   motionGoalAuditScript,
@@ -844,6 +854,7 @@ const [
     readProjectFile(files.app),
     readProjectFile(files.avatarRenderer),
     readProjectFile(files.retargetOrientation),
+    readProjectFile(files.strictRetarget),
     readProjectFile(files.depthCalibration),
     readProjectFile(files.motionFrame),
     readProjectFile(files.motionWorker),
@@ -854,6 +865,7 @@ const [
     readProjectFile(files.validationCliScript),
     readProjectFile(files.hmrJsonlAdapterScript),
     readProjectFile(files.motionRecordingCompareScript),
+    readProjectFile(files.retargetModeCompareScript),
     readProjectFile(files.samRegressionOracleScript),
     readProjectFile(files.motionStatusHudSmokeScript),
     readProjectFile(files.motionGoalAuditScript),
@@ -882,6 +894,9 @@ checkAvatarModelContract(avatarModelJson);
 check(retargetOrientation.includes("resolveHandPalmNormal"), `${files.retargetOrientation}: expected hand palm normal resolver`);
 check(retargetOrientation.includes("resolveAvatarYawDeg"), `${files.retargetOrientation}: expected avatar yaw resolver`);
 check(retargetOrientation.includes("DEFAULT_PALM_NORMAL_SIGNS"), `${files.retargetOrientation}: expected explicit palm normal signs`);
+check(strictRetarget.includes("buildStrictRetargetFrame"), `${files.strictRetarget}: expected strict retarget frame builder`);
+check(strictRetarget.includes("buildSourceAvatarDivergenceSummary"), `${files.strictRetarget}: expected source/avatar divergence summary builder`);
+check(strictRetarget.includes("RETARGET_MODE_STRICT"), `${files.strictRetarget}: expected strict retarget mode constant`);
 check(vrmHumanoidMapping.includes("parseVrmHumanoid"), `${files.vrmHumanoidMapping}: expected VRM humanoid parser`);
 check(vrmHumanoidMapping.includes("createVrmHumanoidMapping"), `${files.vrmHumanoidMapping}: expected VRM humanoid mapper`);
 check(vrmExpressionMapping.includes("parseVrmExpressionMetadata"), `${files.vrmExpressionMapping}: expected VRM expression parser`);
@@ -919,6 +934,9 @@ check(avatarMotionAgreementScript.includes("trackingWorkerFallbackReason"), `${f
 check(avatarMotionAgreementScript.includes("--smoothing"), `${files.avatarMotionAgreementScript}: expected smoothing query flag support`);
 check(avatarMotionAgreementScript.includes('"smoothing"'), `${files.avatarMotionAgreementScript}: expected smoothing URL parameter`);
 check(avatarMotionAgreementScript.includes("avatarSmoothingMode"), `${files.avatarMotionAgreementScript}: expected smoothing summary field`);
+check(avatarMotionAgreementScript.includes("--avatar-retarget"), `${files.avatarMotionAgreementScript}: expected avatar retarget query flag support`);
+check(avatarMotionAgreementScript.includes('"avatar-retarget"'), `${files.avatarMotionAgreementScript}: expected avatar-retarget URL parameter`);
+check(avatarMotionAgreementScript.includes("avatarRetargetMode"), `${files.avatarMotionAgreementScript}: expected avatar retarget summary field`);
 check(avatarMotionAgreementScript.includes("--delegate"), `${files.avatarMotionAgreementScript}: expected delegate query flag support`);
 check(avatarMotionAgreementScript.includes("normalizeDelegateArg"), `${files.avatarMotionAgreementScript}: expected delegate normalization`);
 check(avatarMotionAgreementScript.includes("detectorDelegateAttempts"), `${files.avatarMotionAgreementScript}: expected delegate attempt summary field`);
@@ -954,6 +972,12 @@ check(motionRecordingCompareScript.includes("targetAngle"), `${files.motionRecor
 check(motionRecordingCompareScript.includes("hingeFlex"), `${files.motionRecordingCompareScript}: expected hinge flexion delta summary`);
 check(motionRecordingCompareScript.includes("renderComparisonHtml"), `${files.motionRecordingCompareScript}: expected static HTML comparison report renderer`);
 check(motionRecordingCompareScript.includes("--html"), `${files.motionRecordingCompareScript}: expected HTML output option`);
+check(retargetModeCompareScript.includes("compareRetargetReports"), `${files.retargetModeCompareScript}: expected retarget report comparison function`);
+check(retargetModeCompareScript.includes("renderRetargetComparisonHtml"), `${files.retargetModeCompareScript}: expected retarget comparison HTML renderer`);
+check(retargetModeCompareScript.includes("strictImprovedAngularP90"), `${files.retargetModeCompareScript}: expected strict angular improvement summary`);
+check(retargetModeCompareScript.includes("strictImprovedAngularMax"), `${files.retargetModeCompareScript}: expected strict angular max improvement summary`);
+check(retargetModeCompareScript.includes("strictImprovedPalmInversion"), `${files.retargetModeCompareScript}: expected strict palm improvement summary`);
+check(retargetModeCompareScript.includes("strictImprovedRootYaw"), `${files.retargetModeCompareScript}: expected strict root yaw improvement summary`);
 check(samRegressionOracleScript.includes("evaluateSamRegressionOracle"), `${files.samRegressionOracleScript}: expected SAM oracle evaluator`);
 check(samRegressionOracleScript.includes("minPairedRatio"), `${files.samRegressionOracleScript}: expected paired-ratio regression threshold`);
 check(samRegressionOracleScript.includes("maxOcclusionArmP95Deg"), `${files.samRegressionOracleScript}: expected occlusion-window arm threshold`);
@@ -979,6 +1003,7 @@ check(
 checkSyntax(files.app);
 checkSyntax(files.avatarRenderer);
 checkSyntax(files.retargetOrientation);
+checkSyntax(files.strictRetarget);
 checkSyntax(files.depthCalibration);
 checkSyntax(files.motionFrame);
 checkSyntax(files.motionWorker);
@@ -994,6 +1019,7 @@ checkSyntax(files.syntheticGeneratorScript);
 checkSyntax(files.validationCliScript);
 checkSyntax(files.hmrJsonlAdapterScript);
 checkSyntax(files.motionRecordingCompareScript);
+checkSyntax(files.retargetModeCompareScript);
 checkSyntax(files.samManualLabelsScript);
 checkSyntax(files.samReferenceLabelerScript);
 checkSyntax(files.samRegressionOracleScript);
@@ -1006,6 +1032,7 @@ checkSyntax(files.avatarVrmPerformanceScript);
 checkSyntax(files.avatarVrmHumanoidCheck);
 checkSyntax(files.avatarVrmExpressionCheck);
 checkSyntax(files.retargetOrientationCheck);
+checkSyntax(files.strictRetargetCheck);
 checkSyntax(files.depthCalibrationCheck);
 checkSyntax(files.motionFrameCheck);
 checkSyntax(files.motionForwardingCheck);
@@ -1014,6 +1041,7 @@ checkSyntax(files.facingEstimatorCheck);
 checkSyntax(files.solverSyntheticCheck);
 checkSyntax(files.samManualLabelsCheck);
 checkSyntax(files.motionRecordingCompareCheck);
+checkSyntax(files.retargetModeCompareCheck);
 checkSyntax(files.mhr70MappingCheck);
 checkSyntax(files.mhr70HandsCheck);
 checkSyntax(files.gestureClassifierCheck);

@@ -44,6 +44,13 @@ import {
   resolveAvatarYawDeg,
   resolveHandPalmNormal,
 } from './retarget-orientation.js';
+import {
+  RETARGET_MODE_LEGACY,
+  RETARGET_MODE_STRICT,
+  buildSourceAvatarDivergenceSummary,
+  buildStrictRetargetFrame,
+  normalizeAvatarRetargetMode,
+} from './retarget/skeleton-fk-retarget.js';
 
 const DEFAULT_MODEL_URL = './assets/models/Xbot.glb';
 const DEFAULT_XBOT_MODEL_YAW_RAD = 0;
@@ -419,6 +426,7 @@ export function createAvatarRenderer(options = {}) {
   let landmarkDepthScale = normalizeDepthScale(options.depthScale ?? DEFAULT_LANDMARK_DEPTH_SCALE);
   let depthCalibrationMode = normalizeDepthCalibrationMode(options.depthCalibrationMode);
   let activeSmoothingMode = normalizeAvatarSmoothingMode(options.smoothingMode);
+  let activeRetargetMode = normalizeAvatarRetargetMode(options.retargetMode, RETARGET_MODE_LEGACY);
   let orbitControlsAttached = false;
   const orbitCamera = {
     target: new THREE.Vector3(0, 1, 0),
@@ -507,6 +515,13 @@ export function createAvatarRenderer(options = {}) {
     facing: 'front',
     mode: 'lost',
   };
+  const strictPoseSolverState = {
+    facing: 'front',
+    mode: 'lost',
+  };
+  let strictRetargetState = {};
+  let lastStrictRetargetFrame = null;
+  let lastSourceAvatarDivergence = null;
   const trackingRecovery = {
     lost: false,
     lastLostAt: 0,
@@ -876,6 +891,12 @@ export function createAvatarRenderer(options = {}) {
     resetDepthCalibration();
     resetRootMotion(true);
     resetPoseSolverMetrics();
+    strictPoseSolverState.facing = 'front';
+    strictPoseSolverState.mode = 'lost';
+    strictPoseSolverState.targetMemory = {};
+    strictRetargetState = {};
+    lastStrictRetargetFrame = null;
+    lastSourceAvatarDivergence = null;
     resetTrackingRecoveryState();
     resetBodyOcclusionState();
     resetFaceExpressions();
@@ -940,6 +961,7 @@ export function createAvatarRenderer(options = {}) {
         kind: activeModelKind,
         proportionCalibration: activeModelProfile.proportionCalibration,
       },
+      retargetMode: activeRetargetMode,
       retargetSmoothing: {
         mode: activeSmoothingMode,
         enabled: activeSmoothingMode !== AVATAR_SMOOTHING_MODE_OFF,
@@ -980,6 +1002,8 @@ export function createAvatarRenderer(options = {}) {
         orientationMetrics: rootMotion.orientationMetrics,
       },
       handOrientation: { ...handOrientation },
+      strictRetarget: lastStrictRetargetFrame,
+      sourceAvatarDivergence: getSourceAvatarDivergenceSnapshot(),
       poseSolver: lastPoseSolverSnapshot,
       poseSolverMetrics: getPoseSolverMetricsSnapshot(),
       occlusion: getOcclusionSnapshot(),
@@ -993,6 +1017,7 @@ export function createAvatarRenderer(options = {}) {
         kind: activeModelKind,
         label: modelLabel,
       },
+      retargetMode: activeRetargetMode,
       rootMotion: {
         frames: rootMotion.frames,
         frozen: rootMotion.frozen,
@@ -1008,6 +1033,8 @@ export function createAvatarRenderer(options = {}) {
         orientationMetrics: rootMotion.orientationMetrics,
       },
       handOrientation: { ...handOrientation },
+      strictRetarget: lastStrictRetargetFrame,
+      sourceAvatarDivergence: getSourceAvatarDivergenceSnapshot(),
       poseSolver: lastPoseSolverSnapshot,
       poseSolverMetrics: getPoseSolverMetricsSnapshot(),
       occlusion: getOcclusionSnapshot(),
@@ -1024,6 +1051,27 @@ export function createAvatarRenderer(options = {}) {
     performanceStats.poseSolverMs.length = 0;
     resetPoseSolverMetrics();
     return getPerformanceSnapshot();
+  }
+
+  function setRetargetMode(value) {
+    const nextMode = normalizeAvatarRetargetMode(value, activeRetargetMode);
+
+    if (nextMode !== activeRetargetMode) {
+      activeRetargetMode = nextMode;
+      strictPoseSolverState.facing = 'front';
+      strictPoseSolverState.mode = 'lost';
+      strictPoseSolverState.targetMemory = {};
+      strictRetargetState = {};
+      lastStrictRetargetFrame = null;
+      lastSourceAvatarDivergence = null;
+      resetBodyOcclusionState();
+    }
+
+    return activeRetargetMode;
+  }
+
+  function getRetargetMode() {
+    return activeRetargetMode;
   }
 
   function setSkeletonVisible(value) {
@@ -1121,6 +1169,26 @@ export function createAvatarRenderer(options = {}) {
       missingAimAxes,
       byBone,
     };
+  }
+
+  function buildStrictRigBasis() {
+    const byBone = {};
+
+    for (const target of BODY_RETARGETS) {
+      const bone = getBone(target.bone);
+      const rest = getBoneRest(bone);
+
+      if (!bone || !rest?.axisLocal) {
+        continue;
+      }
+
+      byBone[target.bone] = {
+        restAxis: vectorToArray(rest.axisLocal),
+        secondaryAxis: rest.secondaryAxisLocal ? vectorToArray(rest.secondaryAxisLocal) : null,
+      };
+    }
+
+    return { bones: byBone };
   }
 
   function resize() {
@@ -2096,21 +2164,51 @@ export function createAvatarRenderer(options = {}) {
     recordPerformanceSample(performanceStats.poseSolverMs, nowMs() - solverStartedAt);
     Object.assign(poseSolverState, solvedPose.state);
     recordPoseSolverMetrics(solvedPose);
-    const solverSnapshot = createPoseSolverSnapshot(solvedPose);
-    const solvedTargetsByBone = new Map(solvedPose.targets.map((target) => [target.bone, target]));
-    const reacquireBlend = updateTrackingRecoveryState(solvedPose.meta.mode, timestamp);
+    const strictModeActive = activeRetargetMode === RETARGET_MODE_STRICT;
+    const retargetSolvedPose = strictModeActive
+      ? solvePoseTargetsFromPoints(points, strictPoseSolverState, {
+          timestamp,
+          targetStabilization: false,
+        })
+      : solvedPose;
 
-    if (solvedPose.meta.mode === 'lost') {
+    if (strictModeActive) {
+      Object.assign(strictPoseSolverState, retargetSolvedPose.state);
+      lastStrictRetargetFrame = buildStrictRetargetFrame({
+        points,
+        solvedPose: retargetSolvedPose,
+        previousState: strictRetargetState,
+        rigBasis: buildStrictRigBasis(),
+        yawSign: DEFAULT_AVATAR_YAW_SIGN,
+      });
+      strictRetargetState = lastStrictRetargetFrame.state;
+    } else {
+      lastStrictRetargetFrame = null;
+    }
+
+    const solverSnapshot = createPoseSolverSnapshot(solvedPose);
+    const solvedTargetsByBone = new Map(retargetSolvedPose.targets.map((target) => [target.bone, target]));
+    const reacquireBlend = updateTrackingRecoveryState(retargetSolvedPose.meta.mode, timestamp);
+
+    if (retargetSolvedPose.meta.mode === 'lost') {
       applyLostTrackingBodyPose(timestamp, delta);
+      updateSourceAvatarDivergence(points);
       lastPoseSolverSnapshot = {
         ...solverSnapshot,
+        retargetMode: activeRetargetMode,
+        strictRetarget: lastStrictRetargetFrame,
+        sourceAvatarDivergence: getSourceAvatarDivergenceSnapshot(),
         occlusion: getOcclusionSnapshot(),
         trackingRecovery: getTrackingRecoverySnapshot(),
       };
       return;
     }
 
-    applyRootOrientation(points, delta, solvedPose);
+    if (strictModeActive) {
+      applyStrictRootOrientation(points, delta, retargetSolvedPose, lastStrictRetargetFrame);
+    } else {
+      applyRootOrientation(points, delta, solvedPose);
+    }
 
     for (const target of BODY_RETARGETS) {
       const solvedTarget = solvedTargetsByBone.get(target.bone);
@@ -2120,7 +2218,7 @@ export function createAvatarRenderer(options = {}) {
         continue;
       }
 
-      if (solvedPose.meta.mode === 'upper-body' && (target.group === 'legs' || target.group === 'feet')) {
+      if (retargetSolvedPose.meta.mode === 'upper-body' && (solvedTarget?.group === 'legs' || solvedTarget?.group === 'feet')) {
         applyOccludedBodyBone(target.bone, timestamp, delta, {
           holdMs: 0,
           decayMs: RETARGET_LOST_TRACKING_DECAY_MS,
@@ -2128,34 +2226,53 @@ export function createAvatarRenderer(options = {}) {
         continue;
       }
 
-      const direction = resolveSolvedTargetDirection(solvedTarget);
+      const direction = strictModeActive
+        ? resolveStrictTargetDirection(solvedTarget)
+        : resolveSolvedTargetDirection(solvedTarget);
       const profile = target.profileKey ? activeModelProfile[target.profileKey] : null;
       const smoothingMs = (RETARGET_SMOOTHING_MS[target.smoothing] ?? RETARGET_SMOOTHING_MS.foreArm)
         * (target.profileKey ? activeModelProfile.smoothingScale : 1);
       const alpha = smoothingAlpha(delta, smoothingMs);
       const confidence = solvedTarget.confidence;
-      const secondaryWorld = resolveBodySecondaryAxis(target, points) ?? limbPlaneNormals[target.bone] ?? null;
+      const secondaryWorld = strictModeActive
+        ? null
+        : resolveBodySecondaryAxis(target, points) ?? limbPlaneNormals[target.bone] ?? null;
 
-      if (confidence <= RETARGET_LOW_CONFIDENCE_HOLD) {
+      if (!strictModeActive && confidence <= RETARGET_LOW_CONFIDENCE_HOLD) {
         applyOccludedBodyBone(target.bone, timestamp, delta);
         continue;
       }
 
       clearBodyOcclusionState(target.bone);
-      applyAimToBone(target.bone, direction, alpha * reacquireBlend * confidence * target.strength * (profile?.strengthScale ?? 1), target.maxAngle * (profile?.maxAngleScale ?? 1), {
-        maxTwist: target.profileKey ? target.maxTwist * (profile?.maxTwistScale ?? 1) : undefined,
+      const targetAlpha = strictModeActive
+        ? 1
+        : alpha * reacquireBlend * target.strength * (profile?.strengthScale ?? 1) * confidence;
+      applyAimToBone(target.bone, direction, targetAlpha, strictModeActive ? undefined : target.maxAngle * (profile?.maxAngleScale ?? 1), {
+        maxTwist: strictModeActive ? undefined : target.profileKey ? target.maxTwist * (profile?.maxTwistScale ?? 1) : undefined,
         secondaryWorld,
-        deadband: profile?.deadband,
-        hysteresis: profile?.hysteresis,
+        deadband: strictModeActive ? undefined : profile?.deadband,
+        hysteresis: strictModeActive ? undefined : profile?.hysteresis,
       });
     }
 
     applyRootMotion(landmarks, mirrored, delta);
+    updateSourceAvatarDivergence(points);
     lastPoseSolverSnapshot = {
       ...solverSnapshot,
+      retargetMode: activeRetargetMode,
+      strictRetarget: lastStrictRetargetFrame,
+      sourceAvatarDivergence: getSourceAvatarDivergenceSnapshot(),
       occlusion: getOcclusionSnapshot(),
       trackingRecovery: getTrackingRecoverySnapshot(),
     };
+  }
+
+  function resolveStrictTargetDirection(solvedTarget) {
+    return tmpVectorC.set(
+      solvedTarget.direction.x,
+      solvedTarget.direction.y,
+      solvedTarget.direction.z,
+    );
   }
 
   function resolveSolvedTargetDirection(solvedTarget) {
@@ -2408,6 +2525,53 @@ export function createAvatarRenderer(options = {}) {
     };
   }
 
+  function updateSourceAvatarDivergence(points) {
+    if (!model) {
+      lastSourceAvatarDivergence = null;
+      return;
+    }
+
+    model.updateWorldMatrix(true, true);
+    const segments = BODY_VALIDATION_SEGMENTS
+      .map((segment) => getValidationSegment(segment, points))
+      .filter(Boolean);
+
+    lastSourceAvatarDivergence = {
+      retargetMode: activeRetargetMode,
+      segments,
+      updatedAt: nowMs(),
+    };
+  }
+
+  function getSourceAvatarDivergenceSnapshot() {
+    const segments = lastSourceAvatarDivergence?.segments ?? [];
+
+    return {
+      ...buildSourceAvatarDivergenceSummary({
+        segments,
+        handOrientation,
+        rootMotion: getRootMotionDivergenceContext(),
+        retargetMode: activeRetargetMode,
+      }),
+      updatedAt: lastSourceAvatarDivergence?.updatedAt ?? null,
+      segments: segments.map((segment) => ({
+        name: segment.name,
+        group: segment.group,
+        bone: segment.bone,
+        errorDeg: segment.errorDeg,
+        targetDirection: segment.targetDirection,
+        avatarDirection: segment.avatarDirection,
+      })),
+    };
+  }
+
+  function getRootMotionDivergenceContext() {
+    return {
+      yawOffsetDeg: THREE.MathUtils.radToDeg(rootMotion.yawOffset),
+      orientationMetrics: rootMotion.orientationMetrics,
+    };
+  }
+
   function incrementNamedMetric(target, name, amount = 1) {
     target[name] = (target[name] ?? 0) + amount;
   }
@@ -2544,6 +2708,49 @@ export function createAvatarRenderer(options = {}) {
     if (Math.abs(yawDelta) < 0.004) {
       rootMotion.yawOffset = targetYawOffset;
     }
+
+    model.rotation.y = rootMotion.baseModelRotationY + rootMotion.yawOffset;
+    model.updateWorldMatrix(true, true);
+  }
+
+  function applyStrictRootOrientation(points, delta, solvedPose = null, strictFrame = null) {
+    if (!model) {
+      return;
+    }
+
+    const metrics = sourceTorsoFacingMetrics(points);
+    updateRootOrientationCalibration(metrics);
+    const solverYawDeg = Number(strictFrame?.root?.yawUnwrappedDeg ?? solvedPose?.meta?.facingUnwrappedYawDeg ?? solvedPose?.meta?.facingYawDeg);
+    const avatarYawDeg = Number.isFinite(solverYawDeg)
+      ? solverYawDeg * DEFAULT_AVATAR_YAW_SIGN
+      : null;
+    const normalizedAvatarYawDeg = Number.isFinite(avatarYawDeg)
+      ? resolveAvatarYawDeg(solverYawDeg)
+      : null;
+    const targetYawOffset = Number.isFinite(avatarYawDeg)
+      ? THREE.MathUtils.degToRad(avatarYawDeg)
+      : rootMotion.targetYawOffset;
+    const yawDelta = targetYawOffset - rootMotion.yawOffset;
+
+    rootMotion.facing = solvedPose?.meta?.facing ?? rootMotion.facing;
+    rootMotion.candidateFacing = rootMotion.facing;
+    rootMotion.candidateFacingFrames = 0;
+    rootMotion.targetYawOffset = targetYawOffset;
+    rootMotion.orientationMetrics = {
+      ...metrics,
+      solverFacing: solvedPose?.meta?.facingDetail ?? rootMotion.facing,
+      solverYawDeg: Number.isFinite(Number(solvedPose?.meta?.facingYawDeg))
+        ? Number(solvedPose.meta.facingYawDeg)
+        : null,
+      solverUnwrappedYawDeg: Number.isFinite(solverYawDeg) ? solverYawDeg : null,
+      avatarTargetYawDeg: Number.isFinite(normalizedAvatarYawDeg) ? normalizedAvatarYawDeg : null,
+      avatarTargetUnwrappedYawDeg: Number.isFinite(avatarYawDeg) ? avatarYawDeg : null,
+      avatarYawSign: DEFAULT_AVATAR_YAW_SIGN,
+      strictNumericYaw: true,
+      solverRawYawJump: Boolean(solvedPose?.meta?.facingRawYawJump),
+      solverSideOrderFlip: Boolean(solvedPose?.meta?.facingSideOrderFlip),
+    };
+    rootMotion.yawOffset = targetYawOffset;
 
     model.rotation.y = rootMotion.baseModelRotationY + rootMotion.yawOffset;
     model.updateWorldMatrix(true, true);
@@ -3079,23 +3286,26 @@ export function createAvatarRenderer(options = {}) {
     const palmOrientation = worldPalmOrientation?.valid ? worldPalmOrientation : imagePalmOrientation;
     const handAlpha = smoothingAlpha(delta, RETARGET_SMOOTHING_MS.hand);
     const fingerAlpha = smoothingAlpha(delta, RETARGET_SMOOTHING_MS.finger);
+    const strictHandAlpha = activeRetargetMode === RETARGET_MODE_STRICT ? 1 : null;
     const palmNormal = palmOrientation?.normal
       ? plainVectorToThree(palmOrientation.normal, tmpVectorD)
       : null;
+
+    if (wrist && middleBase) {
+      tmpVectorC.subVectors(middleBase, wrist);
+      applyAimToBone(`${side}Hand`, tmpVectorC, strictHandAlpha ?? handAlpha * 0.65, activeRetargetMode === RETARGET_MODE_STRICT ? undefined : 1.05, {
+        maxTwist: activeRetargetMode === RETARGET_MODE_STRICT ? undefined : 0.62,
+        secondaryWorld: palmNormal,
+      });
+    }
+
     handOrientation[side] = buildHandOrientationSnapshot({
       side,
       mirrored,
       source: worldPalmOrientation?.valid ? 'worldLandmarks' : imagePalmOrientation.valid ? 'imageLandmarks' : 'none',
       orientation: palmOrientation,
+      actualPalmNormal: getBoneWorldSecondaryAxis(`${side}Hand`),
     });
-
-    if (wrist && middleBase) {
-      tmpVectorC.subVectors(middleBase, wrist);
-      applyAimToBone(`${side}Hand`, tmpVectorC, handAlpha * 0.65, 1.05, {
-        maxTwist: 0.62,
-        secondaryWorld: palmNormal,
-      });
-    }
 
     for (const [fingerName, indices] of Object.entries(HAND_FINGERS)) {
       const chain = fingerChains[side].get(fingerName) ?? [];
@@ -3114,8 +3324,8 @@ export function createAvatarRenderer(options = {}) {
           ? smoothingAlpha(delta, RETARGET_SMOOTHING_MS.fingerBase)
           : fingerAlpha;
         tmpVectorC.subVectors(to, from);
-        applyAimToBone(chain[i], tmpVectorC, segmentAlpha * spreadStrength, fingerName === 'Thumb' ? 1.1 : 1.25, {
-          maxTwist: fingerName === 'Thumb' ? 0.52 : 0.38,
+        applyAimToBone(chain[i], tmpVectorC, strictHandAlpha ?? segmentAlpha * spreadStrength, activeRetargetMode === RETARGET_MODE_STRICT ? undefined : fingerName === 'Thumb' ? 1.1 : 1.25, {
+          maxTwist: activeRetargetMode === RETARGET_MODE_STRICT ? undefined : fingerName === 'Thumb' ? 0.52 : 0.38,
         });
       }
     }
@@ -3175,7 +3385,9 @@ export function createAvatarRenderer(options = {}) {
     );
   }
 
-  function buildHandOrientationSnapshot({ side, mirrored, source, orientation }) {
+  function buildHandOrientationSnapshot({ side, mirrored, source, orientation, actualPalmNormal = null }) {
+    const targetPalmNormal = orientation?.normal ? vectorToArray(orientation.normal) : null;
+
     return {
       side,
       tracked: Boolean(orientation?.valid),
@@ -3183,8 +3395,24 @@ export function createAvatarRenderer(options = {}) {
       mirrored,
       palmNormalSign: orientation?.sign ?? DEFAULT_PALM_NORMAL_SIGNS[side] ?? -1,
       rawPalmNormal: orientation?.rawNormal ? vectorToArray(orientation.rawNormal) : null,
-      avatarPalmNormal: orientation?.normal ? vectorToArray(orientation.normal) : null,
+      targetPalmNormal,
+      avatarPalmNormal: actualPalmNormal ? vectorToArray(actualPalmNormal) : targetPalmNormal,
     };
+  }
+
+  function getBoneWorldSecondaryAxis(boneNameKey) {
+    const bone = getBone(boneNameKey);
+    const rest = getBoneRest(bone);
+
+    if (!bone || !rest?.secondaryAxisLocal) {
+      return null;
+    }
+
+    return rest.secondaryAxisLocal
+      .clone()
+      .normalize()
+      .applyQuaternion(bone.getWorldQuaternion(new THREE.Quaternion()))
+      .normalize();
   }
 
   function applyAimToBone(boneOrName, directionWorld, alpha, maxAngle, options = {}) {
@@ -3564,6 +3792,8 @@ export function createAvatarRenderer(options = {}) {
     resetDepthCalibration,
     getPerformanceSnapshot,
     getMotionStateSnapshot,
+    setRetargetMode,
+    getRetargetMode,
     clearPerformanceSamples,
     getModelDiagnostics,
     resetView,

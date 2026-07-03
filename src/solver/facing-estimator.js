@@ -328,6 +328,16 @@ function chooseYawHypothesis(rawYawDeg, previous, estimate, hasPrevious) {
     return normalizeAngleDeg(rawYawDeg);
   }
 
+  const sideOrderFlip =
+    Number(estimate?.sideOrderConfidence ?? 0) >= DEFAULT_LOW_CONFIDENCE &&
+    Math.abs(previous.sideOrderSign) === 1 &&
+    Math.abs(estimate?.sideOrderSign) === 1 &&
+    previous.sideOrderSign !== Math.sign(Number(estimate.sideOrderSign));
+
+  if (sideOrderFlip) {
+    return normalizeAngleDeg(rawYawDeg);
+  }
+
   const hypotheses = [
     normalizeAngleDeg(rawYawDeg),
     normalizeAngleDeg(rawYawDeg + 180),

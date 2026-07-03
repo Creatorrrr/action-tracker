@@ -122,6 +122,7 @@ async function main() {
         delegate: normalizeDelegateArg(args.delegate),
         trackingWorker: args.trackingWorker ?? null,
         smoothing: args.smoothing ?? null,
+        avatarRetarget: args.avatarRetarget ?? null,
         measurementOnly: Boolean(args.measurementOnly),
         minPoseFrames: args.minPoseFrames ?? defaults.minPoseFrames,
         warmupPoseFrames: args.warmupPoseFrames ?? defaults.warmupPoseFrames,
@@ -199,6 +200,8 @@ function parseArgs(rawArgs) {
       parsed.trackingWorker = rawArgs[++index];
     } else if (arg === "--smoothing") {
       parsed.smoothing = rawArgs[++index];
+    } else if (arg === "--avatar-retarget" || arg === "--retarget-mode") {
+      parsed.avatarRetarget = rawArgs[++index];
     } else if (arg === "--measurement-only") {
       parsed.measurementOnly = true;
     } else if (arg === "--labels") {
@@ -271,6 +274,10 @@ function buildAppUrl(port, args) {
     url.searchParams.set("smoothing", args.smoothing);
   }
 
+  if (args.avatarRetarget) {
+    url.searchParams.set("avatar-retarget", args.avatarRetarget);
+  }
+
   return url.href;
 }
 
@@ -327,6 +334,7 @@ Options:
   --face-tracking <on|off>   Set ?face-tracking for optional FaceLandmarker smoke checks.
   --tracking-worker <on|off> Set ?tracking-worker opt-in worker detection mode.
   --smoothing <mode>         Set ?smoothing=off|retarget|strong avatar retarget smoothing mode.
+  --avatar-retarget <mode>   Set ?avatar-retarget=legacy|strict.
   --labels <path>            Keyframe label JSON with videoPath/time/expected root-facing labels.
   --recording-output <path>  Save the captured tracker motion recording JSONL.
   --measurement-only         Keep readiness checks but skip numeric pass/fail gates.
@@ -1257,6 +1265,11 @@ function buildResultSummary(model, payload, options = {}) {
       avatarSmoothingMode: retargetSmoothing.mode ?? null,
       avatarSmoothingEnabled: retargetSmoothing.enabled ?? null,
       avatarSmoothingScale: retargetSmoothing.scale ?? null,
+      avatarRetargetMode: payload.motionState?.retargetMode ?? performance?.retargetMode ?? null,
+      sourceAvatarAngularP90Deg: payload.body?.sourceAvatarDivergence?.angularError?.p90ErrorDeg ?? null,
+      sourceAvatarAngularMaxDeg: payload.body?.sourceAvatarDivergence?.angularError?.maxErrorDeg ?? null,
+      sourceAvatarPalmInversionRatio: payload.body?.sourceAvatarDivergence?.handPalm?.inversionRatio ?? null,
+      sourceAvatarRootYawTargetP90Deg: payload.body?.sourceAvatarDivergence?.rootYaw?.targetError?.p90ErrorDeg ?? null,
       poseSolverFacing: poseSolver?.facing ?? null,
       poseSolverMode: poseSolver?.mode ?? null,
       poseSolverTargetCount: poseSolver?.targetCount ?? null,
@@ -1572,6 +1585,7 @@ function printModelSummary(result, videoLabel = "") {
     + `finger min ${summary.minFingerChainLength}, `
     + `${summary.framesWithPose} pose frames, `
     + `solver ${summary.poseSolverMode ?? "unknown"}/${summary.poseSolverFacing ?? "unknown"}, `
+    + `retarget ${summary.avatarRetargetMode ?? "legacy"}, `
     + `solver p95 ${formatNullableMs(summary.poseSolverP95Ms)}, `
     + `hinge diag ${summary.poseSolverHingeViolations ?? "n/a"}/${summary.poseSolverHingeViolationFrames ?? "n/a"}f, `
     + `warn ${summary.poseSolverHingeLimitWarningFrames ?? "n/a"}f`

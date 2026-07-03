@@ -47,10 +47,11 @@ suddenState = estimateFacingState(createPoints(180), suddenState, {
   maxYawRateDegPerSec: 360,
 });
 assert.equal(suddenState.legacyState, "front");
-assert.ok(Math.abs(normalizeAngleDeg(suddenState.yawDeg)) <= 0.001);
+assert.ok(Math.abs(normalizeAngleDeg(suddenState.yawDeg)) > 1);
+assert.ok(Math.abs(normalizeAngleDeg(suddenState.yawDeg)) <= 12.1);
 assert.equal(Math.abs(suddenState.rawYawDeg), 180);
-assert.equal(suddenState.rawYawJump, false);
-assert.equal(suddenState.yawFlipCount, 0);
+assert.equal(suddenState.rawYawJump, true);
+assert.equal(suddenState.yawFlipCount, 1);
 assert.equal(suddenState.sideOrderFlip, true);
 assert.equal(Math.abs(suddenState.sideOrderSign), 1);
 

@@ -4,7 +4,7 @@ import {
   HandLandmarker,
   PoseLandmarker,
 } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/vision_bundle.mjs";
-import { createAvatarRenderer } from "./avatar-renderer.js?v=20260704-retarget-orientation-1";
+import { createAvatarRenderer } from "./avatar-renderer.js?v=20260704-strict-retarget-1";
 import {
   MOTION_RECORDING_FRAME_LIMIT,
   createMotionFrame,
@@ -65,6 +65,17 @@ const AVATAR_SMOOTHING_MODE_ALIASES = {
   "1": AVATAR_SMOOTHING_MODE_RETARGET,
   true: AVATAR_SMOOTHING_MODE_RETARGET,
   strong: AVATAR_SMOOTHING_MODE_STRONG,
+};
+const AVATAR_RETARGET_MODE_LEGACY = "legacy";
+const AVATAR_RETARGET_MODE_STRICT = "strict";
+const AVATAR_RETARGET_MODE_ALIASES = {
+  legacy: AVATAR_RETARGET_MODE_LEGACY,
+  default: AVATAR_RETARGET_MODE_LEGACY,
+  retarget: AVATAR_RETARGET_MODE_LEGACY,
+  strict: AVATAR_RETARGET_MODE_STRICT,
+  "skeleton-direct": AVATAR_RETARGET_MODE_STRICT,
+  skeleton: AVATAR_RETARGET_MODE_STRICT,
+  fk: AVATAR_RETARGET_MODE_STRICT,
 };
 const DEPTH_CALIBRATION_GATE_SEGMENT_NAMES = new Set(
   DEPTH_CALIBRATION_SOLVE_STEPS.map((step) => step.segmentName),
@@ -313,6 +324,7 @@ const state = {
   errorCode: null,
   debugOverlayEnabled: true,
   avatarSmoothingMode: getInitialAvatarSmoothingMode(),
+  avatarRetargetMode: getInitialAvatarRetargetMode(),
   detectionPump: {
     requestedMode: DETECTION_PUMP_AUTO,
     activeMode: DETECTION_PUMP_RAF,
@@ -539,6 +551,7 @@ function initAvatarRenderer() {
       depthScale: getInitialAvatarDepthScale(),
       depthCalibrationMode: getInitialAvatarDepthCalibrationMode(),
       smoothingMode: state.avatarSmoothingMode,
+      retargetMode: state.avatarRetargetMode,
     });
     syncAvatarDebugOptions();
     void applyInitialDepthCalibrationProfile();
@@ -1719,6 +1732,9 @@ function recordBodyValidation(input, fallbackTimestamp = 0) {
       depthMeasurementMode: depthSnapshot?.measurementMode ?? null,
       depthCalibration: depthCalibrationSnapshot ?? depthSnapshot?.depthCalibration ?? null,
       rootMotion: motionStateSnapshot?.rootMotion ?? null,
+      retargetMode: motionStateSnapshot?.retargetMode ?? null,
+      handOrientation: motionStateSnapshot?.handOrientation ?? null,
+      sourceAvatarDivergence: motionStateSnapshot?.sourceAvatarDivergence ?? null,
     };
 
     state.bodyValidation.lastSample = sample;
@@ -2980,6 +2996,7 @@ function getBodyValidationReport() {
     projectedSegmentByName: summarizeProjectedSegmentRowsByKey(projectedSegmentRows, "name"),
     motionAgreement,
     strictValidation,
+    sourceAvatarDivergence: buildSourceAvatarDivergenceReport(samples),
     depthValidation,
     depthCalibration,
     visualWorstSamples: visualRows
@@ -3054,6 +3071,108 @@ function buildStrictValidationReport(samples) {
       .sort((a, b) => b.motionError - a.motionError)
       .slice(0, 12),
     sideOrderMismatches: sideOrderRows.filter((row) => !row.matched).slice(0, 12),
+  };
+}
+
+function buildSourceAvatarDivergenceReport(samples) {
+  const segmentRows = samples.flatMap((sample) =>
+    (sample.sourceAvatarDivergence?.segments ?? [])
+      .filter((segment) => Number.isFinite(segment.errorDeg))
+      .map((segment) => ({
+        videoTime: sample.videoTime,
+        retargetMode: sample.retargetMode ?? sample.sourceAvatarDivergence?.retargetMode ?? "unknown",
+        name: segment.name,
+        group: segment.group,
+        bone: segment.bone,
+        errorDeg: segment.errorDeg,
+        targetDirection: segment.targetDirection,
+        avatarDirection: segment.avatarDirection,
+      })),
+  );
+  const rootYawRows = samples
+    .map((sample) => ({
+      videoTime: sample.videoTime,
+      retargetMode: sample.retargetMode ?? "unknown",
+      yawOffsetDeg: sample.sourceAvatarDivergence?.rootYaw?.yawOffsetDeg,
+      targetYawDeg: sample.sourceAvatarDivergence?.rootYaw?.targetYawDeg,
+      solverYawDeg: sample.sourceAvatarDivergence?.rootYaw?.solverYawDeg,
+      rawJump: sample.sourceAvatarDivergence?.rootYaw?.rawJump,
+      sideOrderFlip: sample.sourceAvatarDivergence?.rootYaw?.sideOrderFlip,
+    }))
+    .filter((row) => Number.isFinite(row.yawOffsetDeg) || Number.isFinite(row.targetYawDeg) || Number.isFinite(row.solverYawDeg));
+  const palmRows = samples.flatMap((sample) =>
+    (sample.sourceAvatarDivergence?.handPalm?.bySide ?? [])
+      .filter((row) => row.tracked || Number.isFinite(row.palmDot))
+      .map((row) => ({
+        videoTime: sample.videoTime,
+        retargetMode: sample.retargetMode ?? sample.sourceAvatarDivergence?.retargetMode ?? "unknown",
+        side: row.side,
+        source: row.source,
+        palmDot: row.palmDot,
+        inverted: row.inverted,
+      })),
+  );
+
+  return {
+    validationScope: "source_skeleton_vs_avatar_3d_axes",
+    limitations: [
+      "Compares source skeleton segment directions to current avatar bone axes, not absolute human motion truth.",
+      "Hand palm dot uses available hand landmark plane diagnostics and may be absent when hands are untracked.",
+    ],
+    retargetModes: countByValue(segmentRows, "retargetMode"),
+    angularError: summarizeErrors(segmentRows),
+    angularErrorByMode: summarizeRowsByKey(segmentRows, "retargetMode"),
+    angularErrorByGroup: summarizeRowsByKey(segmentRows, "group"),
+    angularErrorBySegment: summarizeRowsByKey(segmentRows, "name"),
+    rootYaw: summarizeSourceAvatarRootYawRows(rootYawRows),
+    handPalm: summarizeSourceAvatarPalmRows(palmRows),
+    worstSegments: segmentRows
+      .slice()
+      .sort((a, b) => b.errorDeg - a.errorDeg)
+      .slice(0, 16),
+  };
+}
+
+function summarizeSourceAvatarRootYawRows(rows) {
+  const yawTargetErrors = rows
+    .filter((row) => Number.isFinite(row.yawOffsetDeg) && Number.isFinite(row.targetYawDeg))
+    .map((row) => ({
+      ...row,
+      errorDeg: angularDistanceDeg(row.yawOffsetDeg, row.targetYawDeg),
+    }));
+  const jumps = rows.filter((row) => row.rawJump).length;
+  const sideOrderFlips = rows.filter((row) => row.sideOrderFlip).length;
+
+  return {
+    count: rows.length,
+    targetError: summarizeErrors(yawTargetErrors),
+    rawJumpCount: jumps,
+    sideOrderFlipCount: sideOrderFlips,
+    byMode: summarizeRowsByKey(yawTargetErrors, "retargetMode"),
+  };
+}
+
+function summarizeSourceAvatarPalmRows(rows) {
+  const validRows = rows.filter((row) => Number.isFinite(row.palmDot));
+  const inverted = validRows.filter((row) => row.inverted).length;
+  const dotRows = validRows.map((row) => ({
+    ...row,
+    error: 1 - row.palmDot,
+    matched: row.palmDot >= 0,
+  }));
+
+  return {
+    count: rows.length,
+    trackedCount: validRows.length,
+    inversionCount: inverted,
+    inversionRatio: validRows.length > 0 ? inverted / validRows.length : 0,
+    dot: summarizeStrictRows(dotRows, "palmDot"),
+    bySide: summarizeStrictRowsByKey(dotRows, "side", "palmDot"),
+    byMode: summarizeStrictRowsByKey(dotRows, "retargetMode", "palmDot"),
+    worst: validRows
+      .slice()
+      .sort((a, b) => a.palmDot - b.palmDot)
+      .slice(0, 12),
   };
 }
 
@@ -3758,6 +3877,14 @@ function exposeDebugApi() {
     },
     getDebugOverlayEnabled: () => state.debugOverlayEnabled,
     getAvatarMotionState: () => state.avatarRenderer?.getMotionStateSnapshot?.() ?? null,
+    getAvatarRetargetMode: () => state.avatarRenderer?.getRetargetMode?.() ?? state.avatarRetargetMode,
+    setAvatarRetargetMode: (value) => {
+      const nextMode = normalizeAvatarRetargetMode(value);
+      state.avatarRetargetMode = nextMode;
+      const applied = state.avatarRenderer?.setRetargetMode?.(nextMode) ?? nextMode;
+      resetBodyValidation();
+      return applied;
+    },
     clearAvatarPerformanceSamples: () => state.avatarRenderer?.clearPerformanceSamples?.() ?? null,
     getAvatarRigReport: () => state.avatarRenderer?.getModelDiagnostics?.() ?? null,
     getTrackedChannelReport,
@@ -3862,6 +3989,14 @@ function summarizeDepthCalibrationRowsByKey(rows, key) {
   }, {});
 }
 
+function countByValue(rows, key) {
+  return (rows ?? []).reduce((result, row) => {
+    const value = String(row?.[key] ?? "unknown");
+    result[value] = (result[value] ?? 0) + 1;
+    return result;
+  }, {});
+}
+
 function summarizeStrictRows(rows, valueKey) {
   const values = rows
     .map((row) => row[valueKey])
@@ -3878,6 +4013,23 @@ function summarizeStrictRows(rows, valueKey) {
     p90: percentile(values, 0.9),
     max: values.length > 0 ? values[values.length - 1] : 0,
   };
+}
+
+function angularDistanceDeg(a, b) {
+  return Math.abs(normalizeAngleDeg(Number(a) - Number(b)));
+}
+
+function normalizeAngleDeg(value) {
+  let angle = Number(value) % 360;
+
+  if (angle > 180) {
+    angle -= 360;
+  }
+  if (angle <= -180) {
+    angle += 360;
+  }
+
+  return angle;
 }
 
 function summarizeDepthErrors(rows) {
@@ -4180,6 +4332,18 @@ function getInitialAvatarSmoothingMode() {
   const value = new URLSearchParams(globalThis.location?.search ?? "").get("smoothing");
   const normalized = String(value ?? AVATAR_SMOOTHING_MODE_OFF).toLowerCase();
   return AVATAR_SMOOTHING_MODE_ALIASES[normalized] ?? AVATAR_SMOOTHING_MODE_OFF;
+}
+
+function getInitialAvatarRetargetMode() {
+  const params = new URLSearchParams(globalThis.location?.search ?? "");
+  return normalizeAvatarRetargetMode(
+    params.get("avatar-retarget") ?? params.get("retarget-mode") ?? params.get("retarget"),
+  );
+}
+
+function normalizeAvatarRetargetMode(value) {
+  const normalized = String(value ?? AVATAR_RETARGET_MODE_LEGACY).trim().toLowerCase();
+  return AVATAR_RETARGET_MODE_ALIASES[normalized] ?? AVATAR_RETARGET_MODE_LEGACY;
 }
 
 function getInitialDebugOverlayEnabled() {

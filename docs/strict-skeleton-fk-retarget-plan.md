@@ -88,8 +88,8 @@ flowchart LR
   MotionFrame --> Solver["pose-solver: canonical source skeleton"]
   Solver --> Legacy["legacy retarget mode"]
   Solver --> Strict["strict skeleton/FK retarget mode"]
-  Strict --> Frame["RetargetFrame: root + local bone quaternions + diagnostics"]
-  Frame --> Avatar["avatar renderer applies local transforms"]
+  Strict --> Frame["RetargetFrame: root + source directions + diagnostic local rotations"]
+  Frame --> Avatar["avatar renderer applies final parent-space local transforms"]
   MotionFrame --> Compare["source-vs-avatar diagnostics"]
   Avatar --> Compare
   Compare --> Report["JSON/HTML reports and oracle gates"]
@@ -122,12 +122,19 @@ flowchart LR
 출력 `RetargetFrame`:
 
 - `root.position`, `root.rotation`, `root.yawDeg`, `root.yawUnwrappedDeg`
-- `bones[boneName].localRotation`
-- `bones[boneName].confidence`
 - `bones[boneName].sourceDirection`
+- `bones[boneName].localRotation` diagnostic: pure module 기준 rest axis -> source direction swing quaternion
+- `bones[boneName].confidence`
 - `bones[boneName].avatarDirection`
 - `hands[side].palmNormalSource`, `hands[side].palmNormalAvatar`, `hands[side].palmDot`
 - diagnostics: `yawJumpDeg`, `yawDirectionMismatch`, `boneAngularErrorDeg`, `heldBones`, `safetyClampedBones`
+
+런타임 적용 메모:
+
+- `RetargetFrame.localRotation`은 Three.js scene parent transform을 모르는 pure diagnostic output이다.
+- 실제 browser runtime에서는 renderer가 `sourceDirection`을 bone parent world inverse로 변환해 최종 local bone quaternion을 적용한다.
+- strict mode의 해석 최소화는 이 final transform layer 안에서 smoothing, semantic facing/gesture override, broad clamp, low-confidence body hold를 제거하는 방식으로 보장한다.
+- future cleanup에서 parent-space rig basis를 pure module 입력으로 넘길 수 있게 되면 `localRotation`을 runtime source로 승격할 수 있다.
 
 ### Canonical body frame
 
@@ -290,6 +297,79 @@ Strict mode should make the following logic optional or removable after validati
 - 각 체크포인트마다 현재 단계, 변경 파일, 생성 report, 검증 명령/결과, 남은 blocker를 짧게 기록한다.
 - 실패한 gate는 "실패 원인", "수정 방향", "다음 검증 명령"을 같이 기록한다.
 - `sam:oracle:csi` 실패는 coverage blocker와 strict 품질 실패를 구분해서 기록한다.
+
+## 진행 로그
+
+### 2026-07-04 체크포인트 0-3
+
+- 변경:
+  - `src/retarget/skeleton-fk-retarget.js` 추가. strict retarget mode normalization, source-direction-first `RetargetFrame`, source-vs-avatar divergence summary helper를 제공한다.
+  - `src/avatar-renderer.js`에 `legacy|strict` retarget mode 상태, `setRetargetMode`, `getRetargetMode`, `strictRetarget`, `sourceAvatarDivergence` snapshot을 추가했다.
+  - `src/app.js`에 `?avatar-retarget=legacy|strict`, `window.motionTrackerDebug.setAvatarRetargetMode()`, source-vs-avatar 3D axes report를 추가했다.
+  - `scripts/avatar-motion-agreement-check.mjs`에 `--avatar-retarget` 옵션과 source/avatar divergence summary fields를 추가했다.
+  - `scripts/retarget-mode-compare.mjs`를 추가해 legacy/strict avatar-motion reports를 JSON/HTML로 비교한다.
+  - `tests/strict-retarget-check.mjs`, `tests/retarget-mode-compare-check.mjs`를 추가하고 `npm run check`에 연결했다.
+- 검증:
+  - `npm run check`: 통과.
+  - `npm run smoke:hud`: 통과, `output/reports/motion-status-hud-smoke-latest.json`.
+  - strict opt-in smoke: `node scripts/avatar-motion-agreement-check.mjs --video output/test-videos/dance-16x9-padded.mp4 --only-models --model Xbot=assets/models/Xbot.glb --min-pose-frames 90 --warmup-pose-frames 20 --timeout-ms 180000 --playback-rate 0.5 --pump rvfc --debug-overlay off --smoothing retarget --avatar-retarget strict --measurement-only --output output/reports/avatar-motion-strict-smoke.json`: 통과.
+  - legacy-vs-strict smoke compare: `npm run compare:retarget -- --legacy output/reports/avatar-motion-legacy-smoke.json --strict output/reports/avatar-motion-strict-smoke.json --output output/reports/retarget-mode-smoke-compare.json --html output/reports/retarget-mode-smoke-compare.html`: 통과.
+- 관찰:
+  - 짧은 smoke 기준 strict angular P90은 `8.033deg -> 3.354deg`로 개선.
+  - root yaw target P90은 `1.704deg -> 1.180deg`로 개선.
+  - palm inversion ratio는 두 모드 모두 `0`.
+  - angular max는 `36.908deg -> 48.653deg`로 악화되어 csi/SAM window에서 추가 확인이 필요하다.
+- 남은 작업:
+  - csi-pose/SAM 기준 legacy-vs-strict 긴 report 생성.
+  - strict 손/팔 max spike 원인 분리.
+  - `sam:oracle:csi`가 coverage blocker 외 새 strict 품질 gate로 실패하지 않는지 확인.
+
+### 2026-07-04 체크포인트 4-6
+
+- 변경:
+  - strict root yaw에서 `resolveAvatarYawDeg()`의 `[-180, 180]` normalization을 경유하지 않고 unwrapped yaw를 유지하도록 수정했다. 연속 회전 중 179도/-179도 경계에서 avatar가 반대 방향으로 도는 문제를 줄인다.
+  - strict body retarget은 source target이 존재하면 smoothing alpha를 `1`로 적용하고 body secondary-plane/twist clamp/low-confidence hold를 제거했다. missing target만 hold/decay 경로로 보낸다.
+  - strict hand/finger retarget도 high-confidence landmark가 있으면 alpha `1`로 적용하도록 줄였다.
+  - palm divergence는 raw palm normal이 아니라 side sign이 반영된 target palm normal과 실제 avatar palm normal을 비교하도록 수정했다. raw dot은 진단값으로 남긴다.
+  - `src/solver/facing-estimator.js`의 yaw hypothesis 선택에서 image side-order가 강하게 뒤집힌 경우 raw yaw를 우선하도록 수정했다. 실제 뒤돌기 회전을 continuity heuristic이 front로 지우는 문제를 줄인다.
+- 검증:
+  - `npm run check`: 통과.
+  - `npm run smoke:hud`: 통과, `output/reports/motion-status-hud-smoke-latest.json`, `framesWithPose=62`, solver `0.2ms`.
+  - `npm run perf:pump`: 통과, `output/reports/frame-pump-comparison-latest.json`; RAF motion `99.4%`, rVFC motion `99.4%`, rVFC frame p95 `110.70ms`, age p95 `16.20ms`.
+  - strict simple smoke: `output/reports/avatar-motion-strict-smoke-direct-v2.json`; source-vs-avatar angular p90 `0.000032deg`, max `0.000044deg`, palm inversion `0`, root yaw p90 `0`.
+  - csi strict direct: `output/reports/csi-pose-avatar-motion-strict-direct-v3.json`; overall `99.316%`, direction `100%`, source-vs-avatar angular p90 `0.000032deg`, max `0.000046deg`, palm inversion `0`, root yaw p90 `0`.
+  - csi legacy 재측정: `output/reports/csi-pose-avatar-motion-legacy-v2.json`; overall `73.4%`, direction `70.7%`.
+  - csi retarget compare: `output/reports/csi-pose-retarget-mode-compare-v3.json`, `output/reports/csi-pose-retarget-mode-compare-v3.html`; status `passed`.
+  - csi tracker-vs-SAM compare: `output/reports/tracker-vs-sam-csi-pose-strict-direct-v4.json`, `output/reports/tracker-vs-sam-csi-pose-strict-direct-v4.html`; comparison generation 통과.
+  - csi SAM oracle: `output/reports/tracker-vs-sam-csi-pose-strict-direct-v4-oracle.json`; status `failed`, remaining failures are coverage/sparse-back-side blockers.
+- 주요 개선:
+  - legacy 대비 csi source-vs-avatar angular p90 `58.166deg` 감소.
+  - legacy 대비 angular max `154.091deg` 감소.
+  - legacy 대비 palm inversion ratio `0.342593` 감소.
+  - legacy 대비 root yaw target p90 `0.197deg` 감소.
+  - facing estimator compare에서 yaw p95 `175.29deg -> 18.205deg`, yaw flips `1 -> 0`, agreement `0.873016 -> 0.984127`로 개선.
+- 남은 blocker:
+  - `sam:oracle:csi`의 `offlineUsageRatio=0.197613 < 0.95`, `expectedAbsentFrames=0 < 90`, `excludedPairs=46 < 90`은 현재 360-frame partial browser recording이 전체 95초 csi 영상과 absent windows까지 커버하지 못해서 발생한다.
+  - back/side oracle rows도 `backSideCount=7`뿐이라 `backSideAgreementRatio`, `stableBackSideAgreementRatio`, `yawBackSideAgreementRatio`가 sparse coverage blocker로 남는다.
+  - 이 blocker는 strict retarget 신규 yaw/palm/bone 품질 실패가 아니라 recording coverage 문제다. threshold는 낮추지 않았다.
+
+### 2026-07-04 독립 검증 반영
+
+- 독립 검증 결과:
+  - legacy default와 strict opt-in 구조, source-vs-avatar report wiring, strict 품질 지표는 조건부 통과.
+  - 지적 1: `RetargetFrame.localRotation`이 runtime source가 아니라 renderer final aim layer가 적용한다.
+  - 지적 2: retarget compare가 angular p90만으로 pass 처리할 수 있다.
+  - 지적 3: `sam:oracle:csi`가 오래된 v1 report를 가리킨다.
+- 반영:
+  - 문서에 `RetargetFrame.localRotation`은 pure diagnostic output이고 runtime은 parent-space final transform layer가 적용한다고 명시했다.
+  - `scripts/retarget-mode-compare.mjs` pass 조건을 angular p90, angular max, palm inversion, root yaw, poseSolver budget 모두 통과해야 하도록 강화했다.
+  - `tests/retarget-mode-compare-check.mjs`에 palm/root 악화 시 `passed=false`가 되는 회귀 테스트를 추가했다.
+  - `package.json`의 `sam:oracle:csi`와 `tests/contract-check.mjs`를 현재 strict direct v4 evidence 경로로 갱신했다.
+- 최종 검증:
+  - `npm run check`: 통과.
+  - `git diff --check`: 통과.
+  - `npm run compare:retarget -- --legacy output/reports/csi-pose-avatar-motion-legacy-v2.json --strict output/reports/csi-pose-avatar-motion-strict-direct-v3.json --output output/reports/csi-pose-retarget-mode-compare-v4.json --html output/reports/csi-pose-retarget-mode-compare-v4.html`: 통과, `passed=true`.
+  - `npm run sam:oracle:csi`: expected failure, remaining failures are `offlineUsageRatio`, sparse back/side agreement, `excludedPairs`, `expectedAbsentFrames`.
 
 ## 계획 자체 점검
 
