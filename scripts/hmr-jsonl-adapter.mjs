@@ -9,10 +9,18 @@ import {
   parseMotionRecordingJsonl,
   serializeMotionRecordingJsonl,
 } from "../src/motion-frame.js";
+import {
+  MEDIAPIPE_POSE_LANDMARK_COUNT,
+  MHR70_MAPPING_NOTES,
+  MHR70_TO_MEDIAPIPE33,
+  auditMhr70AxisFrame,
+  buildMhr70WorldVisibilityCaps,
+  mapMhr70ToMediaPipe33,
+  summarizeMhr70AxisAudit,
+} from "../src/skeleton/mhr70-mapping.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const args = parseArgs(process.argv.slice(2));
-const MEDIAPIPE_POSE_LANDMARK_COUNT = 33;
 const COCO17_TO_MEDIAPIPE33 = Object.freeze({
   0: 0,
   1: 2,
@@ -31,39 +39,6 @@ const COCO17_TO_MEDIAPIPE33 = Object.freeze({
   14: 26,
   15: 27,
   16: 28,
-});
-const MHR70_TO_MEDIAPIPE33 = Object.freeze({
-  0: 0,
-  1: 1,
-  2: 1,
-  3: 1,
-  4: 2,
-  5: 2,
-  6: 2,
-  7: 3,
-  8: 4,
-  11: 5,
-  12: 6,
-  13: 7,
-  14: 8,
-  15: 62,
-  16: 41,
-  17: 61,
-  18: 40,
-  19: 49,
-  20: 28,
-  21: 45,
-  22: 24,
-  23: 9,
-  24: 10,
-  25: 11,
-  26: 12,
-  27: 13,
-  28: 14,
-  29: 17,
-  30: 20,
-  31: 15,
-  32: 18,
 });
 
 if (!args.input || args.help) {
@@ -216,6 +191,7 @@ function convertSamMhr70JsonlRecording(sourceText, options = {}) {
   let droppedFrames = 0;
   let firstSourceFrame = null;
   let lastSourceFrame = null;
+  const axisSamples = [];
 
   lines.forEach((line, lineIndex) => {
     const sourceFrame = parseSamMhr70Line(line, lineIndex + 1);
@@ -229,6 +205,7 @@ function convertSamMhr70JsonlRecording(sourceText, options = {}) {
       return;
     }
 
+    axisSamples.push(auditMhr70AxisFrame(person.keypoints_mhr70_3d));
     frames.push(convertSamMhr70Frame(sourceFrame, person, frames.length));
   });
 
@@ -237,6 +214,7 @@ function convertSamMhr70JsonlRecording(sourceText, options = {}) {
   }
 
   const fps = estimateSamMhr70Fps(firstSourceFrame, lastSourceFrame, lines.length);
+  const axisAudit = summarizeMhr70AxisAudit(axisSamples);
 
   return {
     version: MOTION_RECORDING_VERSION,
@@ -247,6 +225,19 @@ function convertSamMhr70JsonlRecording(sourceText, options = {}) {
       jointFormat: "mhr70",
       videoRef: typeof firstSourceFrame?.video === "string" ? firstSourceFrame.video : undefined,
       fps,
+      mapping: "mhr70-to-mediapipe33",
+      mappingNotes: [
+        MHR70_MAPPING_NOTES.wrist,
+        MHR70_MAPPING_NOTES.fingers,
+        MHR70_MAPPING_NOTES.axes,
+      ].join(" "),
+      axisAuditSamples: axisAudit.samples,
+      axisAuditYDownRatio: axisAudit.yDownRatio,
+      axisAuditZCameraNegativeRatio: axisAudit.zCameraNegativeRatio,
+      axisAuditForwardNoseDotMean: axisAudit.forwardNoseDotMean,
+      worldAxisX: axisAudit.worldAxisX,
+      worldAxisY: axisAudit.worldAxisY,
+      worldAxisZ: axisAudit.worldAxisZ,
     },
     droppedFrames,
     frames,
@@ -286,16 +277,22 @@ function convertSamMhr70Frame(sourceFrame, person, outputIndex) {
   const imageWidth = Number(imageSize.width);
   const imageHeight = Number(imageSize.height);
   const detectorScore = normalizeVisibility(person.detector_score);
-  const poseLandmarks = mhr70ToMediaPipe33(person.keypoints_mhr70_2d, {
+  const worldVisibilityCaps = buildMhr70WorldVisibilityCaps(person.keypoints_mhr70_2d, {
+    imageWidth,
+    imageHeight,
+  });
+  const poseLandmarks = mapMhr70ToMediaPipe33(person.keypoints_mhr70_2d, {
     screenSpace: true,
     imageWidth,
     imageHeight,
     visibility: detectorScore,
   });
-  const poseWorldLandmarks = mhr70ToMediaPipe33(person.keypoints_mhr70_3d, {
+  const poseWorldLandmarks = mapMhr70ToMediaPipe33(person.keypoints_mhr70_3d, {
     screenSpace: false,
     visibility: detectorScore,
+    visibilityCaps: worldVisibilityCaps,
   });
+  const axisFrame = auditMhr70AxisFrame(person.keypoints_mhr70_3d);
 
   return {
     version: MOTION_FRAME_VERSION,
@@ -319,8 +316,12 @@ function convertSamMhr70Frame(sourceFrame, person, outputIndex) {
       imageWidth: Number.isFinite(imageWidth) ? imageWidth : null,
       imageHeight: Number.isFinite(imageHeight) ? imageHeight : null,
       mapping: "mhr70-to-mediapipe33",
+      mappedJointCount: Object.keys(MHR70_TO_MEDIAPIPE33).length,
       worldAxisX: "native",
       worldAxisY: "native",
+      worldAxisZ: "native",
+      axisAuditYDown: axisFrame ? Boolean(axisFrame.yDown) : null,
+      axisAuditZCameraNegative: axisFrame ? Boolean(axisFrame.zCameraNegative) : null,
     },
   };
 }
@@ -446,7 +447,7 @@ function convertJointList(joints, jointFormat, options = {}) {
       throw new Error(`${options.label} requires 70 joints for mhr70 format.`);
     }
 
-    return mhr70ToMediaPipe33(joints, {
+    return mapMhr70ToMediaPipe33(joints, {
       screenSpace: options.screenSpace,
       visibility: 1,
     });
@@ -489,82 +490,6 @@ function coco17ToMediaPipe33(joints, options = {}) {
   }
 
   return landmarks;
-}
-
-function mhr70ToMediaPipe33(joints, options = {}) {
-  const landmarks = Array.from({ length: MEDIAPIPE_POSE_LANDMARK_COUNT }, () => null);
-  const center = options.screenSpace ? null : midpointRawJoint(joints[9], joints[10]);
-
-  for (const [mediaPipeIndex, mhrIndex] of Object.entries(MHR70_TO_MEDIAPIPE33)) {
-    landmarks[Number(mediaPipeIndex)] = toMhr70Landmark(joints[Number(mhrIndex)], {
-      ...options,
-      center,
-      index: Number(mhrIndex),
-    });
-  }
-
-  const mouth = midpointLandmark(landmarks[0], landmarks[2], landmarks[5]);
-  landmarks[9] = mouth;
-  landmarks[10] = mouth ? { ...mouth } : null;
-
-  for (let index = 0; index < landmarks.length; index += 1) {
-    if (!landmarks[index]) {
-      landmarks[index] = nearestFallbackLandmark(landmarks, index);
-    }
-  }
-
-  return landmarks;
-}
-
-function toMhr70Landmark(joint, options = {}) {
-  if (!Array.isArray(joint)) {
-    throw new Error(`Invalid MHR70 joint at index ${options.index ?? "unknown"}.`);
-  }
-
-  const baseVisibility = normalizeVisibility(joint[3] ?? options.visibility);
-
-  if (options.screenSpace) {
-    const imageWidth = Number(options.imageWidth);
-    const imageHeight = Number(options.imageHeight);
-    const rawX = normalizeCoordinate(joint[0], 0);
-    const rawY = normalizeCoordinate(joint[1], 0);
-    const hasSize = imageWidth > 0 && imageHeight > 0;
-    const x = hasSize ? rawX / imageWidth : rawX;
-    const y = hasSize ? rawY / imageHeight : rawY;
-    const insideLooseBounds = x >= -0.2 && x <= 1.2 && y >= -0.2 && y <= 1.2;
-
-    return {
-      x: clamp(x, 0, 1),
-      y: clamp(y, 0, 1),
-      z: 0,
-      visibility: insideLooseBounds ? baseVisibility : Math.min(baseVisibility, 0.05),
-      presence: insideLooseBounds ? baseVisibility : Math.min(baseVisibility, 0.05),
-    };
-  }
-
-  const center = Array.isArray(options.center) ? options.center : [0, 0, 0];
-
-  return {
-    x: normalizeCoordinate(joint[0], 0) - normalizeCoordinate(center[0], 0),
-    y: normalizeCoordinate(joint[1], 0) - normalizeCoordinate(center[1], 0),
-    z: normalizeCoordinate(joint[2], 0) - normalizeCoordinate(center[2], 0),
-    visibility: baseVisibility,
-    presence: baseVisibility,
-  };
-}
-
-function midpointRawJoint(...joints) {
-  const valid = joints.filter((joint) => Array.isArray(joint));
-
-  if (valid.length === 0) {
-    return [0, 0, 0];
-  }
-
-  return [
-    valid.reduce((sum, joint) => sum + normalizeCoordinate(joint[0], 0), 0) / valid.length,
-    valid.reduce((sum, joint) => sum + normalizeCoordinate(joint[1], 0), 0) / valid.length,
-    valid.reduce((sum, joint) => sum + normalizeCoordinate(joint[2], 0), 0) / valid.length,
-  ];
 }
 
 function extractJointArray(frame, keys) {

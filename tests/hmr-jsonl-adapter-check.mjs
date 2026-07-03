@@ -79,6 +79,9 @@ const mhr70Recording = parseMotionRecordingJsonl(await readFile(mhr70OutputPath,
 assert.equal(mhr70Recording.source.type, "external-hmr");
 assert.equal(mhr70Recording.source.extractor, "sam3d-body");
 assert.equal(mhr70Recording.source.jointFormat, "mhr70");
+assert.equal(mhr70Recording.source.mapping, "mhr70-to-mediapipe33");
+assert.equal(mhr70Recording.source.axisAuditSamples, 2);
+assert.equal(mhr70Recording.source.worldAxisZ, "native");
 assert.equal(mhr70Recording.frames.length, 2);
 assert.equal(mhr70Recording.frames[0].poseLandmarks[11].x, 0.9);
 assert.equal(mhr70Recording.frames[0].poseLandmarks[11].y, 0.25);
@@ -87,6 +90,9 @@ assert.equal(mhr70Recording.frames[0].poseWorldLandmarks[12].x, -0.4);
 assert.equal(mhr70Recording.frames[0].poseWorldLandmarks[11].y, -0.5);
 assert.equal(mhr70Recording.frames[0].poseWorldLandmarks[23].x, 0.2);
 assert.equal(mhr70Recording.frames[0].sourceMeta.mapping, "mhr70-to-mediapipe33");
+assert.equal(mhr70Recording.frames[0].sourceMeta.worldAxisZ, "native");
+assert.equal(mhr70Recording.frames[0].sourceMeta.axisAuditYDown, true);
+assert.equal(mhr70Recording.frames[0].sourceMeta.axisAuditZCameraNegative, true);
 assert.equal(mhr70Recording.frames[0].sourceMeta.sourceFrameIndex, 0);
 assert.equal(mhr70Recording.frames[1].timestamp, 16.666666666666668);
 

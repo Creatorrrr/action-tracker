@@ -32,6 +32,7 @@ const files = {
   validationCliScript: "scripts/validation-cli.mjs",
   hmrJsonlAdapterScript: "scripts/hmr-jsonl-adapter.mjs",
   motionRecordingCompareScript: "scripts/motion-recording-compare.mjs",
+  samReferenceLabelerScript: "scripts/sam-reference-labeler.mjs",
   motionStatusHudSmokeScript: "scripts/motion-status-hud-smoke.mjs",
   motionGoalAuditScript: "scripts/motion-goal-audit.mjs",
   avatarVrmPerformanceScript: "scripts/avatar-vrm-performance-check.mjs",
@@ -42,6 +43,8 @@ const files = {
   motionForwardingCheck: "tests/motion-forwarding-check.mjs",
   solverSyntheticCheck: "tests/solver-synthetic-check.mjs",
   motionRecordingCompareCheck: "tests/motion-recording-compare-check.mjs",
+  mhr70MappingCheck: "tests/mhr70-mapping-check.mjs",
+  samReferenceLabelerCheck: "tests/sam-reference-labeler-check.mjs",
   hmrJsonlAdapterCheck: "tests/hmr-jsonl-adapter-check.mjs",
   clipManifestCheck: "tests/clip-manifest-check.mjs",
   clipFamilyManifest: "tests/fixtures/clip-family/manifest.json",
@@ -260,8 +263,8 @@ function checkSyntax(relativePath) {
 
 function checkPackageContract(packageJson) {
   check(
-    packageJson?.scripts?.check === "node tests/contract-check.mjs && node tests/avatar-vrm-humanoid-check.mjs && node tests/avatar-vrm-expression-check.mjs && node tests/depth-calibration-check.mjs && node tests/motion-frame-check.mjs && node tests/motion-forwarding-check.mjs && node tests/solver-synthetic-check.mjs && node tests/motion-recording-compare-check.mjs && node tests/hmr-jsonl-adapter-check.mjs && node tests/clip-manifest-check.mjs",
-    "package.json: check script must run the contract, VRM humanoid, VRM expression, depth calibration, motion frame, forwarding, solver synthetic, recording compare, HMR adapter, and clip manifest checks",
+    packageJson?.scripts?.check === "node tests/contract-check.mjs && node tests/avatar-vrm-humanoid-check.mjs && node tests/avatar-vrm-expression-check.mjs && node tests/depth-calibration-check.mjs && node tests/motion-frame-check.mjs && node tests/motion-forwarding-check.mjs && node tests/solver-synthetic-check.mjs && node tests/motion-recording-compare-check.mjs && node tests/mhr70-mapping-check.mjs && node tests/sam-reference-labeler-check.mjs && node tests/hmr-jsonl-adapter-check.mjs && node tests/clip-manifest-check.mjs",
+    "package.json: check script must run the contract, VRM humanoid, VRM expression, depth calibration, motion frame, forwarding, solver synthetic, recording compare, MHR70 mapping, SAM labeler, HMR adapter, and clip manifest checks",
   );
   check(
     packageJson?.scripts?.start === "python3 -m http.server 8000 --bind 127.0.0.1",
@@ -938,6 +941,7 @@ checkSyntax(files.syntheticGeneratorScript);
 checkSyntax(files.validationCliScript);
 checkSyntax(files.hmrJsonlAdapterScript);
 checkSyntax(files.motionRecordingCompareScript);
+checkSyntax(files.samReferenceLabelerScript);
 checkSyntax(files.motionStatusHudSmokeScript);
 checkSyntax(files.motionGoalAuditScript);
 checkSyntax(files.vrmHumanoidMapping);
@@ -951,6 +955,8 @@ checkSyntax(files.motionFrameCheck);
 checkSyntax(files.motionForwardingCheck);
 checkSyntax(files.solverSyntheticCheck);
 checkSyntax(files.motionRecordingCompareCheck);
+checkSyntax(files.mhr70MappingCheck);
+checkSyntax(files.samReferenceLabelerCheck);
 checkSyntax(files.hmrJsonlAdapterCheck);
 checkSyntax(files.clipManifestCheck);
 
