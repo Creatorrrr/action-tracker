@@ -1,3 +1,8 @@
+import {
+  estimateFacingState,
+  toLegacyFacing,
+} from "./facing-estimator.js";
+
 const SOLVER_VERSION = 1;
 const MIN_DIRECTION_LENGTH = 0.000001;
 const FULL_CONFIDENCE_VISIBILITY = 0.72;
@@ -112,7 +117,10 @@ function solvePoseFrame(motionFrame, previousState = {}) {
 
 function solvePoseTargetsFromPoints(points, previousState = {}, options = {}) {
   const mode = estimateTrackingMode(points);
-  const facing = estimateFacing(points, previousState.facing ?? "front");
+  const facingState = estimateFacingState(points, previousState.facing, {
+    lowConfidence: LOW_CONFIDENCE_VISIBILITY,
+  });
+  const facing = toLegacyFacing(facingState.state);
   const targets = BODY_TARGETS.map((target) => solveTarget(target, points))
     .filter(Boolean);
   const hinges = solveHinges(points);
@@ -126,11 +134,15 @@ function solvePoseTargetsFromPoints(points, previousState = {}, options = {}) {
     targets,
     hinges,
     state: {
-      facing,
+      facing: facingState,
       mode,
     },
     meta: {
       facing,
+      facingDetail: facingState.state,
+      facingYawDeg: facingState.yawDeg,
+      facingConfidence: facingState.confidence,
+      facingReason: facingState.reason,
       mode,
       targetCount: targets.length,
       lowConfidenceTargets: targets.filter((target) => target.confidence <= LOW_CONFIDENCE_VISIBILITY).length,
@@ -289,29 +301,9 @@ function estimateTrackingMode(points) {
 }
 
 function estimateFacing(points, fallback = "front") {
-  const leftShoulder = points.leftShoulder;
-  const rightShoulder = points.rightShoulder;
-  const faceConfidence = Math.max(
-    points.nose?.visibility ?? 0,
-    points.leftEar?.visibility ?? 0,
-    points.rightEar?.visibility ?? 0,
-  );
-
-  if (faceConfidence >= LOW_CONFIDENCE_VISIBILITY) {
-    return "front";
-  }
-
-  if (!leftShoulder || !rightShoulder) {
-    return fallback;
-  }
-
-  const width = Math.abs(leftShoulder.x - rightShoulder.x);
-
-  if (width < 0.05) {
-    return fallback === "back" ? "back" : "side";
-  }
-
-  return leftShoulder.x > rightShoulder.x ? "back" : "front";
+  return toLegacyFacing(estimateFacingState(points, fallback, {
+    lowConfidence: LOW_CONFIDENCE_VISIBILITY,
+  }).state);
 }
 
 function retargetConfidence(...points) {

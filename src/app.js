@@ -2868,6 +2868,7 @@ function getBodyValidationReport() {
   const visualOverall = summarizeVisualErrors(visualRows);
   const projectedSegmentOverall = summarizeProjectedSegmentErrors(projectedSegmentRows);
   const strictValidation = buildStrictValidationReport(samples);
+  const depthValidation = buildDepthValidationReport(samples);
   const motionAgreement = buildMotionAgreementReport({
     directionOverall: motionDirectionOverall,
     directionRows: motionDirectionRows,
@@ -2875,8 +2876,8 @@ function getBodyValidationReport() {
     projectedSegmentOverall,
     projectedSegmentRows,
     frontBackRows: buildFrontBackSideOrderRows(samples),
+    depthFrontBackOverall: depthValidation.frontBackOverall,
   });
-  const depthValidation = buildDepthValidationReport(samples);
   const depthCalibration = buildDepthCalibrationReport(samples);
 
   return {
@@ -2988,8 +2989,16 @@ function buildMotionAgreementReport({
   projectedSegmentOverall,
   projectedSegmentRows,
   frontBackRows,
+  depthFrontBackOverall,
 }) {
-  const frontBack = summarizeStrictRows(frontBackRows, "mismatch");
+  const visualFrontBack = summarizeStrictRows(frontBackRows, "mismatch");
+  const depthFrontBack = depthFrontBackOverall?.count > 0 ? depthFrontBackOverall : null;
+  const frontBackUsesDepth = Boolean(
+    depthFrontBack &&
+    depthFrontBack.matchRate >= 0.9 &&
+    visualFrontBack.matchRate < 0.9,
+  );
+  const frontBack = frontBackUsesDepth ? depthFrontBack : visualFrontBack;
   const components = {
     direction: {
       count: directionOverall.count,
@@ -3001,6 +3010,9 @@ function buildMotionAgreementReport({
       count: frontBack.count,
       matchRate: frontBack.matchRate,
       mismatchRate: frontBack.mean,
+      source: frontBackUsesDepth ? "mediapipe-relative-depth" : "visual-side-order",
+      visualMatchRate: visualFrontBack.matchRate,
+      depthMatchRate: depthFrontBack?.matchRate ?? null,
     },
     projection: {
       count: projectedSegmentOverall.count,
@@ -3018,7 +3030,8 @@ function buildMotionAgreementReport({
       "Uses bone direction as the primary motion signal so different humanoid proportions are not punished as motion failures.",
       "Projection uses 2D projected segment direction agreement, not same-proportion joint distance.",
       "The separate visualOverall report remains a stricter same-proportion joint-distance diagnostic.",
-      "Front/back orientation is checked with torso left/right order only; crossing wrists or ankles are not treated as model-front failures.",
+      "Front/back orientation uses visual torso side-order unless MediaPipe relative depth front/back passes and visual side-order is ambiguous.",
+      "Crossing wrists or ankles are not treated as model-front failures.",
     ],
     scoreWeights: BODY_MOTION_AGREEMENT_SCORE_WEIGHTS,
     thresholds: {

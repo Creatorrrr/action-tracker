@@ -10,6 +10,7 @@ import { solvePoseFrame } from "../src/solver/pose-solver.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const scriptPath = fileURLToPath(import.meta.url);
+const FACING_YAW_MATCH_THRESHOLD_DEG = 30;
 
 if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
   await main();
@@ -26,11 +27,14 @@ async function main() {
 
   const live = await loadRecording(args.live);
   const offline = await loadRecording(args.offline);
+  const labels = args.labels ? await loadLabels(args.labels) : null;
   const report = compareRecordings(live, offline, {
     maxTimestampDeltaMs: args.maxTimestampDeltaMs,
     timestampSource: args.timestampSource,
+    timestampWrap: args.timestampWrap,
     interpolate: args.interpolate,
     offsetMs: args.offsetMs,
+    labels,
   });
 
   if (args.output) {
@@ -63,8 +67,10 @@ function parseArgs(rawArgs) {
     offline: "",
     output: "",
     html: "",
+    labels: "",
     maxTimestampDeltaMs: 50,
     timestampSource: "timestamp",
+    timestampWrap: "none",
     interpolate: "none",
     offsetMs: 0,
     help: false,
@@ -81,10 +87,14 @@ function parseArgs(rawArgs) {
       parsed.output = rawArgs[++index] ?? "";
     } else if (arg === "--html") {
       parsed.html = rawArgs[++index] ?? "";
+    } else if (arg === "--labels") {
+      parsed.labels = rawArgs[++index] ?? "";
     } else if (arg === "--max-timestamp-delta-ms") {
       parsed.maxTimestampDeltaMs = Number(rawArgs[++index] ?? parsed.maxTimestampDeltaMs);
     } else if (arg === "--timestamp-source") {
       parsed.timestampSource = rawArgs[++index] ?? parsed.timestampSource;
+    } else if (arg === "--timestamp-wrap") {
+      parsed.timestampWrap = rawArgs[++index] ?? parsed.timestampWrap;
     } else if (arg === "--interpolate") {
       parsed.interpolate = rawArgs[++index] ?? parsed.interpolate;
     } else if (arg === "--offset-ms") {
@@ -101,6 +111,9 @@ function parseArgs(rawArgs) {
   }
   if (!["timestamp", "sourceMeta.videoTime"].includes(parsed.timestampSource)) {
     throw new Error("--timestamp-source must be timestamp or sourceMeta.videoTime.");
+  }
+  if (!["none", "offline-duration"].includes(parsed.timestampWrap)) {
+    throw new Error("--timestamp-wrap must be none or offline-duration.");
   }
   if (!["none", "offline"].includes(parsed.interpolate)) {
     throw new Error("--interpolate must be none or offline.");
@@ -125,11 +138,23 @@ export async function loadRecording(inputPath) {
   return normalizeMotionRecording(recording);
 }
 
+export async function loadLabels(inputPath) {
+  const absolutePath = path.resolve(projectRoot, inputPath);
+  return JSON.parse(await readFile(absolutePath, "utf8"));
+}
+
 export function compareRecordings(live, offline, options = {}) {
   const maxTimestampDeltaMs = Number(options.maxTimestampDeltaMs ?? 50);
   const timestampSource = options.timestampSource ?? "timestamp";
   const interpolate = options.interpolate ?? "none";
-  const liveSolved = solveRecordingFrames(live.frames, { timestampSource });
+  const timestampWrap = options.timestampWrap ?? "none";
+  const offlineDurationMs = timestampWrap === "offline-duration"
+    ? estimateRecordingDurationMs(offline.frames, timestampSource)
+    : 0;
+  const liveSolved = solveRecordingFrames(live.frames, {
+    timestampSource,
+    timestampWrapMs: offlineDurationMs,
+  });
   const offlineSolved = solveRecordingFrames(offline.frames, { timestampSource });
   const estimatedOffsetMs = options.offsetMs === "auto"
     ? estimateTimestampOffsetMs(liveSolved, offlineSolved, maxTimestampDeltaMs)
@@ -146,10 +171,13 @@ export function compareRecordings(live, offline, options = {}) {
     });
   const targetAngleRows = [];
   const hingeFlexRows = [];
+  const labels = normalizeReferenceLabels(options.labels);
+  const facingRows = [];
 
   for (const pair of pairs) {
     collectTargetAngleRows(targetAngleRows, pair);
     collectHingeFlexRows(hingeFlexRows, pair);
+    collectFacingRows(facingRows, pair, findReferenceLabelForPair(pair, labels, maxTimestampDeltaMs));
   }
 
   return {
@@ -157,6 +185,8 @@ export function compareRecordings(live, offline, options = {}) {
     comparisonType: "live-vs-offline-motion-recording",
     maxTimestampDeltaMs,
     timestampSource,
+    timestampWrap,
+    timestampWrapMs: round(offlineDurationMs, 3),
     interpolate,
     offsetMs: options.offsetMs ?? 0,
     estimatedOffsetMs: round(estimatedOffsetMs, 3),
@@ -176,10 +206,13 @@ export function compareRecordings(live, offline, options = {}) {
       })), "timestampDeltaMs"),
       targetAngle: summarizeRows(targetAngleRows, "angleDeltaDeg"),
       hingeFlex: summarizeRows(hingeFlexRows, "flexDeltaDeg"),
+      facingAgreement: summarizeFacingRows(facingRows),
     },
     timeline: buildComparisonTimeline(pairs, targetAngleRows, hingeFlexRows),
     byTarget: summarizeRowsByKey(targetAngleRows, "bone", "angleDeltaDeg"),
     byHinge: summarizeRowsByKey(hingeFlexRows, "name", "flexDeltaDeg"),
+    byReferenceFacing: summarizeFacingRowsByState(facingRows),
+    facingRows,
     worstTargets: targetAngleRows
       .slice()
       .sort((a, b) => b.angleDeltaDeg - a.angleDeltaDeg)
@@ -294,7 +327,7 @@ export function renderComparisonHtml(report) {
   <main>
     <header>
       <h1>${escapeHtml(title)}</h1>
-      <div class="muted">Generated ${escapeHtml(report?.generatedAt ?? "")} · timestamp ${escapeHtml(report?.timestampSource ?? "timestamp")} · max delta ${formatNumber(report?.maxTimestampDeltaMs)}ms · interpolation ${escapeHtml(report?.interpolate ?? "none")} · offset ${formatNumber(report?.estimatedOffsetMs)}ms</div>
+      <div class="muted">Generated ${escapeHtml(report?.generatedAt ?? "")} · timestamp ${escapeHtml(report?.timestampSource ?? "timestamp")} · wrap ${escapeHtml(report?.timestampWrap ?? "none")} · max delta ${formatNumber(report?.maxTimestampDeltaMs)}ms · interpolation ${escapeHtml(report?.interpolate ?? "none")} · offset ${formatNumber(report?.estimatedOffsetMs)}ms</div>
     </header>
     <div class="summary">
       ${renderMetricCard("Paired Frames", summary.pairedFrames)}
@@ -304,6 +337,8 @@ export function renderComparisonHtml(report) {
       ${renderMetricCard("Target Weighted Mean", `${formatNumber(summary.targetAngle?.weightedMean)} deg`)}
       ${renderMetricCard("Hinge Max", `${formatNumber(summary.hingeFlex?.max)} deg`)}
       ${renderMetricCard("Hinge P95", `${formatNumber(summary.hingeFlex?.p95)} deg`)}
+      ${renderMetricCard("Facing Agreement", `${formatNumber((summary.facingAgreement?.agreementRatio ?? 0) * 100, 1)}%`)}
+      ${renderMetricCard("Back/Side Facing", `${formatNumber((summary.facingAgreement?.backSideAgreementRatio ?? 0) * 100, 1)}%`)}
     </div>
     <div class="grid">
       <section>
@@ -344,14 +379,17 @@ export function renderComparisonHtml(report) {
 function solveRecordingFrames(frames, options = {}) {
   let previousState = {};
   const timestampSource = options.timestampSource ?? "timestamp";
+  const timestampWrapMs = Number(options.timestampWrapMs ?? 0);
 
   return frames.map((frame, index) => {
     const solved = solvePoseFrame(frame, previousState);
     previousState = solved.state;
+    const timestamp = readFrameTimestampMs(frame, timestampSource);
 
     return {
       index,
-      timestamp: readFrameTimestampMs(frame, timestampSource),
+      timestamp: timestampWrapMs > 0 ? wrapTimestampMs(timestamp, timestampWrapMs) : timestamp,
+      rawTimestamp: timestamp,
       frame,
       solved,
     };
@@ -368,6 +406,38 @@ function readFrameTimestampMs(frame, timestampSource) {
   }
 
   return Number(frame?.timestamp ?? 0);
+}
+
+function estimateRecordingDurationMs(frames, timestampSource) {
+  const timestamps = frames
+    .map((frame) => readFrameTimestampMs(frame, timestampSource))
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b);
+
+  if (timestamps.length < 2) {
+    return 0;
+  }
+
+  const gaps = [];
+
+  for (let index = 1; index < timestamps.length; index += 1) {
+    const gap = timestamps[index] - timestamps[index - 1];
+
+    if (gap > 0) {
+      gaps.push(gap);
+    }
+  }
+
+  const frameIntervalMs = gaps.length > 0 ? percentile(gaps.sort((a, b) => a - b), 0.5) : 0;
+  return (timestamps.at(-1) - timestamps[0]) + frameIntervalMs;
+}
+
+function wrapTimestampMs(timestamp, durationMs) {
+  if (!Number.isFinite(timestamp) || !Number.isFinite(durationMs) || durationMs <= 0) {
+    return timestamp;
+  }
+
+  return ((timestamp % durationMs) + durationMs) % durationMs;
 }
 
 function buildComparisonTimeline(pairs, targetAngleRows, hingeFlexRows) {
@@ -550,6 +620,50 @@ function collectHingeFlexRows(rows, pair) {
   }
 }
 
+function collectFacingRows(rows, pair, referenceLabel) {
+  if (!referenceLabel) {
+    return;
+  }
+
+  const liveFacing = normalizeFacing(pair.live.solved?.meta?.facingDetail ?? pair.live.solved?.meta?.facing);
+  const liveLegacyFacing = toLegacyFacing(pair.live.solved?.meta?.facing ?? liveFacing);
+  const referenceFacing = normalizeFacing(referenceLabel.facingState ?? referenceLabel.facing);
+  const referenceLegacyFacing = toLegacyFacing(referenceFacing);
+  const liveYawDeg = Number(pair.live.solved?.meta?.facingYawDeg);
+  const referenceYawDeg = Number(referenceLabel.facingYawDeg);
+  const yawErrorDeg = Number.isFinite(liveYawDeg) && Number.isFinite(referenceYawDeg)
+    ? angleDeltaDeg(liveYawDeg, referenceYawDeg)
+    : null;
+  const liveYawFacing = Number.isFinite(liveYawDeg) ? classifyFacingFromYaw(liveYawDeg) : liveFacing;
+  const liveYawLegacyFacing = toLegacyFacing(liveYawFacing);
+  const stableMatches = liveLegacyFacing === referenceLegacyFacing;
+  const yawStateMatches = liveYawLegacyFacing === referenceLegacyFacing;
+  const yawToleranceMatches = yawErrorDeg !== null && yawErrorDeg <= FACING_YAW_MATCH_THRESHOLD_DEG;
+
+  rows.push({
+    liveIndex: pair.live.index,
+    offlineIndex: pair.offline.index,
+    labelIndex: referenceLabel.index,
+    timestampDeltaMs: round(Math.abs((referenceLabel.timestamp ?? 0) - pair.live.timestamp), 3),
+    liveFacing,
+    liveLegacyFacing,
+    liveYawFacing,
+    liveYawLegacyFacing,
+    referenceFacing,
+    referenceLegacyFacing,
+    stableMatches,
+    yawStateMatches,
+    yawToleranceMatches,
+    matches: stableMatches || yawStateMatches || yawToleranceMatches,
+    liveYawDeg: Number.isFinite(liveYawDeg) ? round(liveYawDeg, 3) : null,
+    referenceYawDeg: Number.isFinite(referenceYawDeg) ? round(referenceYawDeg, 3) : null,
+    yawErrorDeg: yawErrorDeg === null ? null : round(yawErrorDeg, 3),
+    confidenceWeight: Number.isFinite(Number(pair.live.solved?.meta?.facingConfidence))
+      ? Number(pair.live.solved.meta.facingConfidence)
+      : 1,
+  });
+}
+
 function summarizeRecordingSource(recording) {
   return {
     source: recording.source ?? {},
@@ -610,6 +724,50 @@ function summarizeRowsByKey(rows, key, valueKey) {
 
     return result;
   }, {});
+}
+
+function summarizeFacingRows(rows) {
+  const matched = rows.filter((row) => row.matches).length;
+  const stableMatched = rows.filter((row) => row.stableMatches).length;
+  const yawStateMatched = rows.filter((row) => row.yawStateMatches).length;
+  const yawToleranceMatched = rows.filter((row) => row.yawToleranceMatches).length;
+  const backSideRows = rows.filter((row) =>
+    row.referenceLegacyFacing === "back" || row.referenceLegacyFacing === "side"
+  );
+  const backSideMatched = backSideRows.filter((row) => row.matches).length;
+  const stableBackSideMatched = backSideRows.filter((row) => row.stableMatches).length;
+  const yawBackSideMatched = backSideRows.filter((row) => row.yawStateMatches).length;
+  const yawToleranceBackSideMatched = backSideRows.filter((row) => row.yawToleranceMatches).length;
+
+  return {
+    count: rows.length,
+    matched,
+    agreementRatio: round(ratio(matched, rows.length), 6),
+    stableMatched,
+    stableAgreementRatio: round(ratio(stableMatched, rows.length), 6),
+    yawStateMatched,
+    yawStateAgreementRatio: round(ratio(yawStateMatched, rows.length), 6),
+    yawToleranceDeg: FACING_YAW_MATCH_THRESHOLD_DEG,
+    yawToleranceMatched,
+    yawToleranceAgreementRatio: round(ratio(yawToleranceMatched, rows.length), 6),
+    backSideCount: backSideRows.length,
+    backSideMatched,
+    backSideAgreementRatio: round(ratio(backSideMatched, backSideRows.length), 6),
+    stableBackSideMatched,
+    stableBackSideAgreementRatio: round(ratio(stableBackSideMatched, backSideRows.length), 6),
+    yawBackSideMatched,
+    yawBackSideAgreementRatio: round(ratio(yawBackSideMatched, backSideRows.length), 6),
+    yawToleranceBackSideMatched,
+    yawToleranceBackSideAgreementRatio: round(ratio(yawToleranceBackSideMatched, backSideRows.length), 6),
+    yawError: summarizeRows(rows.filter((row) => Number.isFinite(row.yawErrorDeg)), "yawErrorDeg"),
+  };
+}
+
+function summarizeFacingRowsByState(rows) {
+  const grouped = groupRowsByKey(rows, "referenceFacing");
+  return Object.fromEntries(
+    Object.entries(grouped).map(([state, stateRows]) => [state, summarizeFacingRows(stateRows)]),
+  );
 }
 
 function groupRowsByKey(rows, key) {
@@ -745,6 +903,69 @@ function estimateTimestampOffsetMs(liveSolved, offlineSolved, maxTimestampDeltaM
   }
 
   return best.offsetMs;
+}
+
+function normalizeReferenceLabels(labels) {
+  if (!labels || !Array.isArray(labels.frames)) {
+    return [];
+  }
+
+  return labels.frames
+    .map((frame, fallbackIndex) => ({
+      ...frame,
+      index: Number.isFinite(Number(frame.index)) ? Number(frame.index) : fallbackIndex,
+      timestamp: Number.isFinite(Number(frame.timestamp))
+        ? Number(frame.timestamp)
+        : Number.isFinite(Number(frame.videoTime))
+          ? Number(frame.videoTime) * 1000
+          : 0,
+    }))
+    .sort((a, b) => a.timestamp - b.timestamp);
+}
+
+function findReferenceLabelForPair(pair, labels, maxTimestampDeltaMs) {
+  if (!Array.isArray(labels) || labels.length === 0) {
+    return null;
+  }
+
+  const timestamp = Number(pair.live?.timestamp);
+  const insertionIndex = lowerBoundLabels(labels, timestamp);
+  const candidates = [
+    labels[insertionIndex - 1],
+    labels[insertionIndex],
+    labels[insertionIndex + 1],
+  ].filter(Boolean);
+  let best = null;
+
+  for (const candidate of candidates) {
+    const timestampDeltaMs = Math.abs(candidate.timestamp - timestamp);
+
+    if (timestampDeltaMs <= maxTimestampDeltaMs && (!best || timestampDeltaMs < best.timestampDeltaMs)) {
+      best = {
+        ...candidate,
+        timestampDeltaMs,
+      };
+    }
+  }
+
+  return best;
+}
+
+function lowerBoundLabels(labels, timestamp) {
+  let low = 0;
+  let high = labels.length;
+
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+
+    if (labels[mid].timestamp < timestamp) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+
+  return low;
 }
 
 function findNearestTimedFrame(timedFrames, timestamp, maxTimestampDeltaMs) {
@@ -909,6 +1130,44 @@ function confidenceWeight(...values) {
   return finiteValues.length > 0 ? round(Math.min(...finiteValues), 6) : 0;
 }
 
+function normalizeFacing(value) {
+  const normalized = String(value ?? "unknown").trim().toLowerCase();
+
+  if (normalized === "front" || normalized === "back" || normalized === "unknown") {
+    return normalized;
+  }
+  if (normalized === "side" || normalized === "side-left" || normalized === "left") {
+    return "side-left";
+  }
+  if (normalized === "side-right" || normalized === "right") {
+    return "side-right";
+  }
+  return "unknown";
+}
+
+function toLegacyFacing(value) {
+  const facing = normalizeFacing(value);
+
+  if (facing === "side-left" || facing === "side-right") {
+    return "side";
+  }
+
+  return facing;
+}
+
+function classifyFacingFromYaw(yawDeg) {
+  const normalizedYaw = normalizeAngleDeg(yawDeg);
+  const absYaw = Math.abs(normalizedYaw);
+
+  if (absYaw < 60) {
+    return "front";
+  }
+  if (absYaw > 120) {
+    return "back";
+  }
+  return normalizedYaw >= 0 ? "side-left" : "side-right";
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -937,6 +1196,29 @@ function directionAngleDeg(a, b) {
 
   const cosine = Math.max(-1, Math.min(1, dot / (aLength * bLength)));
   return Math.acos(cosine) * (180 / Math.PI);
+}
+
+function angleDeltaDeg(a, b) {
+  let delta = Math.abs(Number(a) - Number(b)) % 360;
+
+  if (delta > 180) {
+    delta = 360 - delta;
+  }
+
+  return delta;
+}
+
+function normalizeAngleDeg(value) {
+  let normalized = Number(value) % 360;
+
+  if (normalized > 180) {
+    normalized -= 360;
+  }
+  if (normalized < -180) {
+    normalized += 360;
+  }
+
+  return normalized;
 }
 
 function percentile(sortedValues, percentileValue) {
@@ -992,6 +1274,8 @@ write a static HTML timeline report with --html. Use
 --timestamp-source sourceMeta.videoTime when comparing recordings captured from
 the same source video by different runtimes. Use --interpolate offline to align
 dense offline recordings to sparse live frames, and --offset-ms auto to estimate
-a constant live/offline timestamp offset before pairing.
+a constant live/offline timestamp offset before pairing. Use
+--timestamp-wrap offline-duration for validation recordings that contain repeated
+plays of the same source video.
 `);
 }

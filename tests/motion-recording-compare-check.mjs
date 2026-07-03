@@ -23,6 +23,13 @@ assert.equal(identicalReport.summary.hingeFlex.max, 0);
 assert.equal(identicalReport.timeline.length, identityRecording.frames.length);
 assert.equal(identicalReport.timeline[0].targetAngleMaxDeg, 0);
 
+const labeledIdentityReport = compareRecordings(identityRecording, identityRecording, {
+  labels: labelsFromSyntheticRecording(identityRecording),
+});
+assert.equal(labeledIdentityReport.summary.facingAgreement.count, identityRecording.frames.length);
+assert.equal(labeledIdentityReport.summary.facingAgreement.agreementRatio, 1);
+assert.equal(labeledIdentityReport.summary.facingAgreement.yawError.max, 0);
+
 const differentReport = compareRecordings(identityRecording, turnRecording);
 assert.equal(differentReport.summary.pairedFrames, identityRecording.frames.length);
 assert.ok(
@@ -89,6 +96,19 @@ const loopedReport = compareRecordings(loopedLive, identityRecording, {
 });
 assert.equal(loopedReport.summary.pairedFrames, identityRecording.frames.length);
 assert.equal(loopedReport.summary.pairedRatio, 1);
+
+const repeatedLive = repeatRecordingWithTimestampOffset(identityRecording, 300);
+const repeatedNoWrapReport = compareRecordings(repeatedLive, identityRecording, {
+  maxTimestampDeltaMs: 1,
+});
+assert.equal(repeatedNoWrapReport.summary.pairedFrames, identityRecording.frames.length);
+const repeatedWrapReport = compareRecordings(repeatedLive, identityRecording, {
+  maxTimestampDeltaMs: 1,
+  timestampWrap: "offline-duration",
+});
+assert.equal(repeatedWrapReport.timestampWrap, "offline-duration");
+assert.equal(repeatedWrapReport.summary.pairedFrames, repeatedLive.frames.length);
+assert.equal(repeatedWrapReport.summary.pairedRatio, 1);
 
 const livePath = path.join(tempDir, "live.jsonl");
 const offlinePath = path.join(tempDir, "offline.jsonl");
@@ -158,6 +178,21 @@ function withTimestampOffset(recording, timestampOffsetMs) {
   });
 }
 
+function repeatRecordingWithTimestampOffset(recording, timestampOffsetMs) {
+  return createMotionRecording({
+    source: recording.source,
+    createdAt: recording.createdAt,
+    droppedFrames: recording.droppedFrames,
+    frames: [
+      ...recording.frames,
+      ...recording.frames.map((frame) => ({
+        ...frame,
+        timestamp: frame.timestamp + timestampOffsetMs,
+      })),
+    ],
+  });
+}
+
 function withVideoTime(recording, timestampOffsetMs) {
   return createMotionRecording({
     source: recording.source,
@@ -172,4 +207,16 @@ function withVideoTime(recording, timestampOffsetMs) {
       },
     })),
   });
+}
+
+function labelsFromSyntheticRecording(recording) {
+  return {
+    version: 1,
+    frames: recording.frames.map((frame, index) => ({
+      index,
+      timestamp: frame.timestamp,
+      facingState: frame.expected?.facing ?? "front",
+      facingYawDeg: frame.expected?.yawDeg ?? 0,
+    })),
+  };
 }

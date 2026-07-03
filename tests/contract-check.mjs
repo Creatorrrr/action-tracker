@@ -41,6 +41,7 @@ const files = {
   depthCalibrationCheck: "tests/depth-calibration-check.mjs",
   motionFrameCheck: "tests/motion-frame-check.mjs",
   motionForwardingCheck: "tests/motion-forwarding-check.mjs",
+  facingEstimatorCheck: "tests/facing-estimator-check.mjs",
   solverSyntheticCheck: "tests/solver-synthetic-check.mjs",
   motionRecordingCompareCheck: "tests/motion-recording-compare-check.mjs",
   mhr70MappingCheck: "tests/mhr70-mapping-check.mjs",
@@ -263,8 +264,8 @@ function checkSyntax(relativePath) {
 
 function checkPackageContract(packageJson) {
   check(
-    packageJson?.scripts?.check === "node tests/contract-check.mjs && node tests/avatar-vrm-humanoid-check.mjs && node tests/avatar-vrm-expression-check.mjs && node tests/depth-calibration-check.mjs && node tests/motion-frame-check.mjs && node tests/motion-forwarding-check.mjs && node tests/solver-synthetic-check.mjs && node tests/motion-recording-compare-check.mjs && node tests/mhr70-mapping-check.mjs && node tests/sam-reference-labeler-check.mjs && node tests/hmr-jsonl-adapter-check.mjs && node tests/clip-manifest-check.mjs",
-    "package.json: check script must run the contract, VRM humanoid, VRM expression, depth calibration, motion frame, forwarding, solver synthetic, recording compare, MHR70 mapping, SAM labeler, HMR adapter, and clip manifest checks",
+    packageJson?.scripts?.check === "node tests/contract-check.mjs && node tests/avatar-vrm-humanoid-check.mjs && node tests/avatar-vrm-expression-check.mjs && node tests/depth-calibration-check.mjs && node tests/motion-frame-check.mjs && node tests/motion-forwarding-check.mjs && node tests/facing-estimator-check.mjs && node tests/solver-synthetic-check.mjs && node tests/motion-recording-compare-check.mjs && node tests/mhr70-mapping-check.mjs && node tests/sam-reference-labeler-check.mjs && node tests/hmr-jsonl-adapter-check.mjs && node tests/clip-manifest-check.mjs",
+    "package.json: check script must run the contract, VRM humanoid, VRM expression, depth calibration, motion frame, forwarding, facing estimator, solver synthetic, recording compare, MHR70 mapping, SAM labeler, HMR adapter, and clip manifest checks",
   );
   check(
     packageJson?.scripts?.start === "python3 -m http.server 8000 --bind 127.0.0.1",
@@ -953,6 +954,7 @@ checkSyntax(files.avatarVrmExpressionCheck);
 checkSyntax(files.depthCalibrationCheck);
 checkSyntax(files.motionFrameCheck);
 checkSyntax(files.motionForwardingCheck);
+checkSyntax(files.facingEstimatorCheck);
 checkSyntax(files.solverSyntheticCheck);
 checkSyntax(files.motionRecordingCompareCheck);
 checkSyntax(files.mhr70MappingCheck);
