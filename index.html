@@ -65,6 +65,14 @@
                   <dt>Bones</dt>
                   <dd id="avatar-bone-count" aria-live="polite">0</dd>
                 </div>
+                <div>
+                  <dt>Face</dt>
+                  <dd id="avatar-face-status" aria-live="polite">On</dd>
+                </div>
+                <div>
+                  <dt>Expressions</dt>
+                  <dd id="avatar-expression-status" aria-live="polite">No targets</dd>
+                </div>
               </dl>
             </section>
           </div>
@@ -103,6 +111,11 @@
               <label class="toggle" for="mirror-toggle">
                 <input id="mirror-toggle" type="checkbox" checked>
                 <span>Mirror input</span>
+              </label>
+
+              <label class="toggle" for="face-tracking-toggle">
+                <input id="face-tracking-toggle" type="checkbox" checked>
+                <span>Face expressions</span>
               </label>
 
               <label class="toggle" for="avatar-skeleton-toggle">

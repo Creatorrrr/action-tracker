@@ -331,7 +331,7 @@ Options:
   --pump <auto|rvfc|raf>     Set ?pump frame scheduling mode.
   --debug-overlay <on|off>   Set ?debug-overlay for canvas skeleton drawing.
   --delegate <cpu|gpu>       Set ?delegate. Default CPU keeps headless validation stable.
-  --face-tracking <on|off>   Set ?face-tracking for optional FaceLandmarker smoke checks.
+  --face-tracking <on|off>   Override default-on ?face-tracking for FaceLandmarker smoke checks.
   --tracking-worker <on|off> Set ?tracking-worker opt-in worker detection mode.
   --smoothing <mode>         Set ?smoothing=off|retarget|strong avatar retarget smoothing mode.
   --avatar-retarget <mode>   Set ?avatar-retarget=legacy|strict.

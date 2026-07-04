@@ -104,6 +104,8 @@ async function main() {
         outputPath: path.relative(projectRoot, outputPath),
         screenshotPath: path.relative(projectRoot, screenshotPath),
         framesWithPose: payload.framesWithPose,
+        avatarFaceStatus: payload.avatarFaceStatus,
+        avatarExpressionStatus: payload.avatarExpressionStatus,
         hud: payload.hud,
         calibrationReset: {
           before: calibrationReset.before?.hud?.calibration,
@@ -147,6 +149,8 @@ async function readHudPayload(client) {
     return {
       appUrl: location.href,
       avatarStatus: read("#avatar-status"),
+      avatarFaceStatus: read("#avatar-face-status"),
+      avatarExpressionStatus: read("#avatar-expression-status"),
       cameraStatus: read("#camera-status"),
       modelStatus: read("#model-status"),
       error: read("#error-message"),
@@ -260,6 +264,14 @@ function validatePayload(payload, minPoseFrames, requestedDelegate) {
     failures.push(`avatar status is ${payload.avatarStatus || "empty"}, expected Ready`);
   }
 
+  if (!payload.avatarFaceStatus || payload.avatarFaceStatus === "Loading") {
+    failures.push(`avatar face status is ${payload.avatarFaceStatus || "empty"}, expected a resolved face state`);
+  }
+
+  if (!payload.avatarExpressionStatus || payload.avatarExpressionStatus === "Loading") {
+    failures.push(`avatar expression status is ${payload.avatarExpressionStatus || "empty"}, expected a resolved expression coverage state`);
+  }
+
   if (payload.error) {
     failures.push(`app error message is visible: ${payload.error}`);
   }
@@ -335,7 +347,7 @@ function validateDetectorDelegateTelemetry(payload, requestedDelegate) {
     failures.push(`detectorDelegates requested ${delegates.requested || "empty"} != ${expectedRequested}`);
   }
 
-  for (const detectorKey of ["hand", "pose"]) {
+  for (const detectorKey of ["hand", "pose", "face"]) {
     const activeDelegate = delegates[detectorKey];
     const attempts = delegates.attempted?.[detectorKey] ?? [];
 

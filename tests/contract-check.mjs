@@ -88,6 +88,7 @@ const requiredTrackerDomIds = [
   "avatar-default-button",
   "model-select",
   "mirror-toggle",
+  "face-tracking-toggle",
   "avatar-skeleton-toggle",
   "fps-value",
   "pose-count",
@@ -111,6 +112,8 @@ const requiredAvatarDomIds = [
   "avatar-view-reset",
   "avatar-status",
   "avatar-bone-count",
+  "avatar-face-status",
+  "avatar-expression-status",
 ];
 
 const requiredFingerBaseBones = [
@@ -546,7 +549,10 @@ function checkTrackerAppContract(app) {
     ["parses avatar smoothing opt-in flag", /function\s+getInitialAvatarSmoothingMode\s*\([^)]*\)[\s\S]*URLSearchParams[\s\S]*["']smoothing["']/],
     ["parses avatar retarget mode flag", /function\s+getInitialAvatarRetargetMode\s*\([^)]*\)[\s\S]*["']avatar-retarget["'][\s\S]*["']retarget-mode["']/],
     ["defaults avatar retarget mode to strict", /function\s+normalizeAvatarRetargetMode\s*\([^)]*\)[\s\S]*value\s*\?\?\s*AVATAR_RETARGET_MODE_STRICT/],
+    ["defaults face tracking on unless explicitly disabled", /function\s+getInitialFaceTrackingEnabled\s*\([^)]*\)\s*\{[\s\S]*!isFalsyQueryFlag\(["']face-tracking["']\)[\s\S]*getInitialFaceLandmarksEnabled\(\s*\)/],
     ["parses face landmark opt-in flag", /function\s+getInitialFaceLandmarksEnabled\s*\([^)]*\)[\s\S]*["']face-landmarks["']/],
+    ["parses explicit face tracking off flag", /function\s+isFalsyQueryFlag\s*\([^)]*\)[\s\S]*["']off["'][\s\S]*["']none["']/],
+    ["wires face tracking toggle", /faceTrackingToggle\?\.\s*addEventListener\(\s*["']change["'][\s\S]*?setFaceTrackingEnabled/],
     ["creates module tracking worker from local file", /new\s+Worker\s*\(\s*new\s+URL\s*\(\s*["']\.\/motion-worker\.js(?:\?[^"']+)?["']\s*,\s*import\.meta\.url\s*\)\s*,\s*\{\s*type\s*:\s*["']module["']\s*\}/],
     ["falls back to main-thread detection after worker failure", /trackingWorker[\s\S]*fallbackReason[\s\S]*detectMotionFrameOnMainThread/],
     ["cancels detection frames", /cancelAnimationFrame\s*\(\s*state\.animationFrameId\s*\)/],
@@ -591,7 +597,7 @@ function checkAvatarAppContract(app) {
     ["tracks avatar init promise", /avatarInitPromise\s*:\s*null/],
     [
       "keeps avatar required IDs separate",
-      /const\s+AVATAR_ELEMENT_KEYS\s*=\s*\[\s*["']avatarCanvas["']\s*,\s*["']avatarStatus["']\s*,\s*["']avatarBoneCount["']\s*\]/,
+      /const\s+AVATAR_ELEMENT_KEYS\s*=\s*\[[\s\S]*["']avatarCanvas["'][\s\S]*["']avatarStatus["'][\s\S]*["']avatarBoneCount["'][\s\S]*["']avatarFaceStatus["'][\s\S]*["']avatarExpressionStatus["'][\s\S]*\]/,
     ],
     ["initializes avatar during boot", /function\s+boot\s*\(\s*\)[\s\S]*?initAvatarRenderer\s*\(\s*\)/],
     [
@@ -643,6 +649,7 @@ function checkAvatarAppContract(app) {
     ["exposes tracking worker debug API", /getTrackingWorkerStatus/],
     ["exposes debug overlay toggle", /setDebugOverlayEnabled[\s\S]*getDebugOverlayEnabled/],
     ["exposes tracked channel report debug API", /getTrackedChannelReport[\s\S]*faceLandmarkCount[\s\S]*worldLandmarkCount/],
+    ["reports expression coverage groups", /expressionCoverageGroups[\s\S]*buildExpressionCoverageGroups/],
     ["exposes avatar view debug API", /getAvatarViewState[\s\S]*resetAvatarView/],
     ["checks strict segment agreement", /function\s+buildStrictSegmentRows\s*\([^)]*\)[\s\S]*angleErrorDeg[\s\S]*lengthErrorRatio/],
     ["checks strict side-order agreement", /function\s+buildStrictSideOrderRows\s*\([^)]*\)[\s\S]*sourceDelta[\s\S]*avatarDelta/],
@@ -1053,6 +1060,8 @@ check(samRegressionOracleScript.includes("minPairedRatio"), `${files.samRegressi
 check(samRegressionOracleScript.includes("maxOcclusionArmP95Deg"), `${files.samRegressionOracleScript}: expected occlusion-window arm threshold`);
 check(samRegressionOracleScript.includes("--max-target-p95-deg"), `${files.samRegressionOracleScript}: expected configurable target p95 threshold`);
 check(motionStatusHudSmokeScript.includes("getMotionStatusHudSnapshot"), `${files.motionStatusHudSmokeScript}: expected Motion State HUD snapshot validation`);
+check(motionStatusHudSmokeScript.includes("#avatar-face-status"), `${files.motionStatusHudSmokeScript}: expected avatar face status DOM validation`);
+check(motionStatusHudSmokeScript.includes("#avatar-expression-status"), `${files.motionStatusHudSmokeScript}: expected avatar expression status DOM validation`);
 check(motionStatusHudSmokeScript.includes("#motion-status-calibration-guide"), `${files.motionStatusHudSmokeScript}: expected calibration guide DOM validation`);
 check(motionStatusHudSmokeScript.includes("#motion-status-calibrate"), `${files.motionStatusHudSmokeScript}: expected calibration action DOM validation`);
 check(motionStatusHudSmokeScript.includes("resetCalibrationThroughHud"), `${files.motionStatusHudSmokeScript}: expected calibration reset smoke flow`);

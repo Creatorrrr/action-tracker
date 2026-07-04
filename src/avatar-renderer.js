@@ -138,7 +138,26 @@ const PERFORMANCE_BUDGETS_MS = {
   faceApplyP95: 0.5,
   poseSolverP95: 2,
 };
-const FACE_EXPRESSION_SMOOTHING_MS = 80;
+const FACE_EXPRESSION_SMOOTHING_MS = {
+  default: 80,
+  blink: 42,
+  blinkLeft: 42,
+  blinkRight: 42,
+  aa: 62,
+  ih: 70,
+  ou: 70,
+  ee: 70,
+  oh: 70,
+  happy: 118,
+  angry: 128,
+  sad: 128,
+  surprised: 96,
+  relaxed: 140,
+  lookUp: 86,
+  lookDown: 86,
+  lookLeft: 86,
+  lookRight: 86,
+};
 const RETARGET_SMOOTHING_MS = {
   torso: 72,
   neck: 92,
@@ -3244,13 +3263,20 @@ export function createAvatarRenderer(options = {}) {
         vrmExpressionMapping,
         targetScores,
         faceExpressionScores,
-        smoothingAlpha(delta, FACE_EXPRESSION_SMOOTHING_MS),
+        buildFaceExpressionSmoothingAlpha(delta),
       );
     } catch (error) {
       console.warn('Face expression update skipped', error);
     } finally {
       recordPerformanceSample(performanceStats.faceApplyMs, nowMs() - startedAt);
     }
+  }
+
+  function buildFaceExpressionSmoothingAlpha(delta) {
+    return Object.fromEntries(
+      Object.entries(FACE_EXPRESSION_SMOOTHING_MS)
+        .map(([preset, smoothingMs]) => [preset, smoothingAlpha(delta, smoothingMs)]),
+    );
   }
 
   function applyFaceHeadPose(face, mirrored, delta) {

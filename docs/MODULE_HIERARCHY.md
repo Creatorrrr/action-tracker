@@ -12,7 +12,7 @@ directly from `index.html` through ES modules and import maps. The central bound
 - `src/motion-worker.js` owns the optional module-worker MediaPipe detector used only when `?tracking-worker=on` is requested.
 - `src/motion-frame.js` owns the normalized motion-frame and recording JSON contracts shared by live tracking, replay, and forwarding.
 - `src/motion-forwarding.js` owns the optional browser WebSocket forwarding client.
-- `src/vrm-expression-mapping.js` owns VRM0/VRM1 expression metadata parsing and MediaPipe blendshape-to-VRM preset mapping.
+- `src/vrm-expression-mapping.js` owns VRM0/VRM1 expression metadata parsing and MediaPipe blendshape-to-VRM preset mapping, including response deadbands and gains.
 - `src/avatar-renderer.js` owns Three.js rendering, model loading, avatar retargeting, validation snapshots, view controls, and performance samples.
 - `src/solver/` is the emerging pure solver boundary. It must stay DOM-free and renderer-free so synthetic GT and future joint-rotation checks can run in Node before the renderer applies poses.
 - Everything under `scripts/` and `tests/` is validation/tooling, not runtime application code. `scripts/motion-recording-compare.mjs` compares live/browser recordings with offline/HMR recordings by solving both through the pure solver and reporting angle deltas.
@@ -70,7 +70,7 @@ Browser Motion Tracker
 │  └─ src/app.js
 │     ├─ MediaPipe model lifecycle
 │     ├─ optional module-worker detection lifecycle
-│     ├─ optional FaceLandmarker lifecycle
+│     ├─ default-on FaceLandmarker lifecycle
 │     ├─ camera/video input lifecycle
 │     ├─ rVFC/rAF frame detection pump
 │     ├─ motion-frame recording and replay lifecycle
@@ -206,7 +206,7 @@ Internal scope:
 - Boot sequence and event binding.
 - Camera and uploaded-video lifecycle.
 - MediaPipe model selection and loading.
-- Optional FaceLandmarker loading and inference.
+- Default-on FaceLandmarker loading and inference, with explicit `?face-tracking=off` opt-out.
 - Optional module-worker detection initialization, request tracking, and fallback.
 - Detection frame scheduling.
 - `requestVideoFrameCallback` / `requestAnimationFrame` pump selection.
@@ -301,7 +301,7 @@ Internal scope:
 - VRM0 preset alias normalization.
 - VRM1 expression preset parsing.
 - Morph target bind resolution.
-- MediaPipe/ARKit blendshape scoring heuristics.
+- MediaPipe/ARKit blendshape scoring heuristics, deadbands, and response gains.
 
 Rules:
 
@@ -352,7 +352,7 @@ Internal scope:
 - Pose and hand landmark normalization.
 - Normalized motion-frame consumption.
 - Body, finger, head, neck, and limb retargeting.
-- Face transform head/neck correction, face expression smoothing, and GLTF morph target influence application.
+- Face transform head/neck correction, preset-specific face expression smoothing, and GLTF morph target influence application.
 - Rest-pose, upper-body-aware depth, and proportion calibration.
 - Landmark-visibility retarget gating and limb-plane secondary-axis stabilization.
 - Retarget smoothing mode normalization and reporting.

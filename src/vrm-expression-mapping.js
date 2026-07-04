@@ -69,6 +69,27 @@ const BLEND_SHAPE_ALIASES = {
   lookRight: ["eyeLookInLeft", "eyeLookOutRight", "lookRight"],
 };
 
+const DEFAULT_EXPRESSION_RESPONSE = { gain: 1, deadband: 0 };
+const EXPRESSION_RESPONSE_PROFILES = {
+  blink: { gain: 1.35, deadband: 0.06 },
+  blinkLeft: { gain: 1.35, deadband: 0.06 },
+  blinkRight: { gain: 1.35, deadband: 0.06 },
+  aa: { gain: 1.15, deadband: 0.02 },
+  ih: { gain: 1.08, deadband: 0.03 },
+  ou: { gain: 1.08, deadband: 0.03 },
+  ee: { gain: 1.12, deadband: 0.03 },
+  oh: { gain: 1.12, deadband: 0.03 },
+  happy: { gain: 1.25, deadband: 0.04 },
+  angry: { gain: 1.18, deadband: 0.04 },
+  sad: { gain: 1.18, deadband: 0.04 },
+  surprised: { gain: 1.2, deadband: 0.04 },
+  relaxed: { gain: 1, deadband: 0.04 },
+  lookUp: { gain: 1.1, deadband: 0.03 },
+  lookDown: { gain: 1.1, deadband: 0.03 },
+  lookLeft: { gain: 1.1, deadband: 0.03 },
+  lookRight: { gain: 1.1, deadband: 0.03 },
+};
+
 export function parseVrmExpressionMetadata(json) {
   const vrm1Expressions = json?.extensions?.VRMC_vrm?.expressions?.preset;
 
@@ -184,7 +205,9 @@ export function mapMediaPipeBlendShapesToVrmPresets(blendShapes) {
   };
 
   return Object.fromEntries(
-    Object.entries(scores).filter(([, score]) => Number.isFinite(score) && score > 0),
+    Object.entries(scores)
+      .map(([preset, score]) => [preset, shapeExpressionScore(preset, score)])
+      .filter(([, score]) => Number.isFinite(score) && score > 0),
   );
 }
 
@@ -192,11 +215,11 @@ export function applyVrmExpressionScores(mapping, targetScores = {}, previousSco
   const presets = mapping?.presets ?? {};
   const nextScores = {};
   const contributions = new Map();
-  const smoothAlpha = clamp01(alpha);
 
   for (const [preset, expression] of Object.entries(presets)) {
     const previous = clamp01(Number(previousScores?.[preset] ?? 0));
     const target = clamp01(Number(targetScores?.[preset] ?? 0));
+    const smoothAlpha = resolveExpressionAlpha(alpha, preset);
     const score = previous + (target - previous) * smoothAlpha;
     nextScores[preset] = score;
 
@@ -219,6 +242,27 @@ export function applyVrmExpressionScores(mapping, targetScores = {}, previousSco
   }
 
   return nextScores;
+}
+
+function shapeExpressionScore(preset, score) {
+  const normalizedScore = clamp01(Number(score));
+  const response = EXPRESSION_RESPONSE_PROFILES[preset] ?? DEFAULT_EXPRESSION_RESPONSE;
+  const deadband = clamp01(Number(response.deadband ?? 0));
+
+  if (!Number.isFinite(normalizedScore) || normalizedScore <= deadband) {
+    return 0;
+  }
+
+  const scaled = (normalizedScore - deadband) / Math.max(1 - deadband, Number.EPSILON);
+  return clamp01(scaled * Number(response.gain ?? 1));
+}
+
+function resolveExpressionAlpha(alpha, preset) {
+  if (alpha && typeof alpha === "object") {
+    return clamp01(Number(alpha[preset] ?? alpha.default ?? 1));
+  }
+
+  return clamp01(Number(alpha ?? 1));
 }
 
 export function summarizeVrmExpressionMapping(mapping) {

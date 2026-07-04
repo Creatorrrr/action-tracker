@@ -171,6 +171,7 @@ const ELEMENT_IDS = {
   avatarFileInput: "avatar-file-input",
   avatarDefaultButton: "avatar-default-button",
   mirrorToggle: "mirror-toggle",
+  faceTrackingToggle: "face-tracking-toggle",
   avatarSkeletonToggle: "avatar-skeleton-toggle",
   modelSelect: "model-select",
   cameraStatus: "camera-status",
@@ -184,6 +185,8 @@ const ELEMENT_IDS = {
   avatarViewReset: "avatar-view-reset",
   avatarStatus: "avatar-status",
   avatarBoneCount: "avatar-bone-count",
+  avatarFaceStatus: "avatar-face-status",
+  avatarExpressionStatus: "avatar-expression-status",
   motionStatusFacing: "motion-status-facing",
   motionStatusMode: "motion-status-mode",
   motionStatusQuality: "motion-status-quality",
@@ -204,6 +207,7 @@ const REQUIRED_ELEMENT_KEYS = [
   "stopButton",
   "videoFileInput",
   "mirrorToggle",
+  "faceTrackingToggle",
   "avatarSkeletonToggle",
   "modelSelect",
   "cameraStatus",
@@ -224,7 +228,20 @@ const REQUIRED_ELEMENT_KEYS = [
   "motionStatusCalibration",
   "motionStatusCalibrationGuide",
 ];
-const AVATAR_ELEMENT_KEYS = ["avatarCanvas", "avatarStatus", "avatarBoneCount"];
+const AVATAR_ELEMENT_KEYS = [
+  "avatarCanvas",
+  "avatarStatus",
+  "avatarBoneCount",
+  "avatarFaceStatus",
+  "avatarExpressionStatus",
+];
+
+const EXPRESSION_COVERAGE_GROUPS = [
+  { label: "Blink", presets: ["blink", "blinkLeft", "blinkRight"] },
+  { label: "Mouth", presets: ["aa", "ih", "ou", "ee", "oh"] },
+  { label: "Emotion", presets: ["happy", "angry", "sad", "surprised", "relaxed"] },
+  { label: "Look", presets: ["lookUp", "lookDown", "lookLeft", "lookRight"] },
+];
 
 const POSE_CONNECTIONS = [
   [0, 1],
@@ -463,6 +480,9 @@ function boot() {
       clearCanvas();
     }
   });
+  state.elements.faceTrackingToggle?.addEventListener("change", () => {
+    void setFaceTrackingEnabled(Boolean(state.elements.faceTrackingToggle?.checked));
+  });
   state.elements.avatarSkeletonToggle?.addEventListener("change", () => {
     syncAvatarDebugOptions();
   });
@@ -493,6 +513,8 @@ function boot() {
   });
 
   exposeDebugApi();
+  syncFaceTrackingControl();
+  updateFaceExpressionStatus();
   resetMetrics();
   setText("cameraStatus", "Stopped");
   setText("modelStatus", "Not loaded");
@@ -568,6 +590,7 @@ function initAvatarRenderer() {
       })
       .finally(() => {
         if (loadToken === state.avatarLoadToken) {
+          updateFaceExpressionStatus();
           state.avatarInitPromise = null;
         }
       });
@@ -1608,6 +1631,7 @@ function processMotionFrame(motionFrame, options = {}) {
   if (presence.shouldUpdateAvatar) {
     updateAvatarRendererFromMotionFrame(processedFrame);
   }
+  updateFaceExpressionStatus(processedFrame);
 
   if (state.bodyValidation.enabled) {
     recordBodyValidation(processedFrame);
@@ -2602,10 +2626,12 @@ function getCurrentMotionSourceMeta(trackingRuntime = shouldUseTrackingWorker() 
 async function setFaceTrackingEnabled(enabled) {
   state.faceTracking.enabled = Boolean(enabled);
   state.faceTracking.lastError = "";
+  syncFaceTrackingControl();
 
   if (!state.faceTracking.enabled) {
     state.faceTracking.landmarksEnabled = false;
     state.faceTracking.status = "disabled";
+    syncFaceTrackingControl();
     return getFaceTrackingStatus();
   }
 
@@ -2616,6 +2642,13 @@ async function setFaceTrackingEnabled(enabled) {
   }
 
   return getFaceTrackingStatus();
+}
+
+function syncFaceTrackingControl() {
+  if (state.elements.faceTrackingToggle) {
+    state.elements.faceTrackingToggle.checked = state.faceTracking.enabled;
+  }
+  updateFaceExpressionStatus();
 }
 
 async function setFaceLandmarksEnabled(enabled) {
@@ -2690,6 +2723,7 @@ function getTrackedChannelReport() {
       expressionPresetCount: rigReport?.expressions?.expressionPresetCount ?? 0,
       resolvedExpressionMorphTargets: rigReport?.expressions?.resolvedMorphTargetCount ?? 0,
       missingExpressionPresets: rigReport?.expressions?.missingPresets ?? [],
+      expressionCoverageGroups: buildExpressionCoverageGroups(rigReport?.expressions),
       eyeBones: rigReport?.eyeBones ?? null,
       fingerChains: rigReport?.fingerChains ?? null,
     },
@@ -4206,6 +4240,10 @@ function updateControls() {
     state.elements.avatarSkeletonToggle.disabled = false;
   }
 
+  if (state.elements.faceTrackingToggle) {
+    state.elements.faceTrackingToggle.disabled = false;
+  }
+
   if (state.elements.modelSelect) {
     state.elements.modelSelect.disabled = state.starting || state.active || replayActive;
   }
@@ -4359,7 +4397,7 @@ function getInitialDebugOverlayEnabled() {
 }
 
 function getInitialFaceTrackingEnabled() {
-  return isTruthyQueryFlag("face-tracking") || getInitialFaceLandmarksEnabled();
+  return !isFalsyQueryFlag("face-tracking") || getInitialFaceLandmarksEnabled();
 }
 
 function getInitialFaceLandmarksEnabled() {
@@ -4384,6 +4422,11 @@ function getInitialMediaPipeDelegate() {
 function isTruthyQueryFlag(name) {
   const value = new URLSearchParams(globalThis.location?.search ?? "").get(name);
   return ["1", "true", "on", "yes"].includes(String(value).toLowerCase());
+}
+
+function isFalsyQueryFlag(name) {
+  const value = new URLSearchParams(globalThis.location?.search ?? "").get(name);
+  return ["0", "false", "off", "no", "none"].includes(String(value).toLowerCase());
 }
 
 function isLikelyVideoFile(file) {
@@ -4479,6 +4522,92 @@ function setAvatarStatus(value) {
 
 function setAvatarBoneCount(value) {
   setText("avatarBoneCount", String(value));
+}
+
+function setAvatarFaceStatus(value) {
+  setText("avatarFaceStatus", value);
+}
+
+function setAvatarExpressionStatus(value) {
+  setText("avatarExpressionStatus", value);
+}
+
+function updateFaceExpressionStatus(frame = state.latestMotionFrame) {
+  setAvatarFaceStatus(buildFaceStatusLabel(frame));
+  setAvatarExpressionStatus(buildExpressionStatusLabel(state.avatarRenderer?.getModelDiagnostics?.()?.expressions));
+}
+
+function buildFaceStatusLabel(frame) {
+  const status = getFaceTrackingStatus();
+
+  if (!status.enabled) {
+    return "Off";
+  }
+
+  if (status.status === "failed") {
+    return "Failed";
+  }
+
+  const blendShapeCount = Array.isArray(frame?.face?.blendShapes) ? frame.face.blendShapes.length : 0;
+
+  if (blendShapeCount > 0) {
+    return `Tracked ${blendShapeCount}`;
+  }
+
+  if (!status.modelLoaded || status.status === "loading" || status.status === "enabled") {
+    return "Loading";
+  }
+
+  if (status.detectFrames > 0) {
+    return "No face";
+  }
+
+  return "Ready";
+}
+
+function buildExpressionStatusLabel(expressions) {
+  const targetCount = Number(expressions?.resolvedMorphTargetCount ?? 0);
+  const presetCount = Number(expressions?.expressionPresetCount ?? 0);
+
+  if (!Number.isFinite(targetCount) || targetCount <= 0) {
+    return "No targets";
+  }
+
+  const coverage = buildExpressionCoverageGroups(expressions);
+  const coverageLabel = coverage
+    .filter((entry) => entry.supported)
+    .map((entry) => entry.label);
+  const compactCoverage = coverageLabel.length > 3
+    ? `${coverageLabel.slice(0, 3).join("/")} +${coverageLabel.length - 3}`
+    : coverageLabel.join("/");
+
+  return compactCoverage
+    ? `${compactCoverage} (${targetCount})`
+    : `${presetCount} presets`;
+}
+
+function buildExpressionCoverageGroups(expressions) {
+  if (!expressions || Number(expressions.expressionPresetCount ?? 0) <= 0) {
+    return EXPRESSION_COVERAGE_GROUPS.map((group) => ({
+      label: group.label,
+      supported: false,
+      supportedPresets: [],
+      missingPresets: group.presets.slice(),
+    }));
+  }
+
+  const missing = new Set(expressions?.missingPresets ?? []);
+
+  return EXPRESSION_COVERAGE_GROUPS.map((group) => {
+    const supportedPresets = group.presets.filter((preset) => !missing.has(preset));
+
+    return {
+      label: group.label,
+      supported: supportedPresets.length > 0,
+      supportedPresets,
+      missingPresets: group.presets.filter((preset) => missing.has(preset)),
+    };
+  });
 }
 
 function setError(message, code = "ERROR") {
