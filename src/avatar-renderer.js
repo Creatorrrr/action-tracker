@@ -58,6 +58,13 @@ import {
   buildStrictRetargetFrame,
   normalizeAvatarRetargetMode,
 } from './retarget/skeleton-fk-retarget.js';
+import {
+  computeFaceHeadDelta,
+  createFaceHeadPoseTrackerState,
+  readFaceTransformQuaternion,
+  resetFaceHeadPoseTrackerState,
+  updateFaceHeadPoseTracker,
+} from './face-head-pose.js';
 
 const DEFAULT_MODEL_URL = './assets/models/Xbot.glb';
 const DEFAULT_XBOT_MODEL_YAW_RAD = 0;
@@ -85,6 +92,7 @@ const ROOT_MOTION_MAX_Y_RATIO = 0.24;
 const ROOT_ORIENTATION_SIDE_ORDER_EPSILON = 0.025;
 const ROOT_ORIENTATION_SWITCH_FRAMES = 6;
 const ROOT_ORIENTATION_SMOOTHING_MS = 45;
+const ROOT_ORIENTATION_MAX_YAW_RATE_DEG_PER_SEC = 540;
 const ROOT_ORIENTATION_SIDE_WIDTH_RATIO = 0.72;
 const ROOT_ORIENTATION_NARROW_SIDE_WIDTH_RATIO = 0.52;
 const ROOT_ORIENTATION_SIDE_ASPECT_RATIO = 0.18;
@@ -101,6 +109,9 @@ const FACE_HEAD_POSE_MAX_ANGLE = 0.85;
 const FACE_NECK_POSE_MAX_ANGLE = 0.48;
 const FACE_HEAD_POSE_STRENGTH = 0.56;
 const FACE_NECK_POSE_STRENGTH = 0.24;
+const FACE_HEAD_TRACKING_GRACE_MS = 400;
+const FACE_HEAD_REACQUIRE_BLEND_MS = 260;
+const FACE_HEAD_JUMP_THRESHOLD_DEG_PER_SEC = 600;
 const HEAD_CROWN_NOSE_OFFSET_BLEND = 0.72;
 const HEAD_CROWN_MAX_NOSE_OFFSET_SCALE = 0.9;
 const PERFORMANCE_SAMPLE_LIMIT = 240;
@@ -467,6 +478,7 @@ const tmpQuaternionD = new THREE.Quaternion();
 const tmpQuaternionE = new THREE.Quaternion();
 const tmpQuaternionF = new THREE.Quaternion();
 const tmpQuaternionG = new THREE.Quaternion();
+const tmpQuaternionH = new THREE.Quaternion();
 const tmpMatrixA = new THREE.Matrix4();
 const tmpMatrixB = new THREE.Matrix4();
 const tmpMatrixC = new THREE.Matrix4();
@@ -619,8 +631,20 @@ export function createAvatarRenderer(options = {}) {
   const occludedBodyBones = new Map();
   let lastPoseSolverSnapshot = null;
   const faceHeadPose = {
-    baseQuaternion: null,
-    lastQuaternion: null,
+    ...createFaceHeadPoseTrackerState(),
+    lastStatus: 'idle',
+    lastTracked: false,
+    lastWithinGrace: false,
+    lastGapMs: null,
+    lastReacquireBlend: 0,
+    lastLayout: 'unknown',
+    lastMatrixDiagnostics: null,
+    lastEulerDeg: null,
+    lastBoneEulerDeg: null,
+    lastBoneAngularVelocityDegPerSec: null,
+    lastJumpReason: null,
+    jumpCount: 0,
+    lastBoneQuaternion: null,
   };
   const performanceStats = {
     updateMs: [],
@@ -731,7 +755,7 @@ export function createAvatarRenderer(options = {}) {
         relaxBody(relaxAlpha * 0.45);
       }
 
-      applyFaceHeadPose(frame?.face ?? null, frameMirrored, delta);
+      applyFaceHeadPose(frame?.face ?? null, frameMirrored, delta, frameTimestamp);
       applyHands(hands, frameMirrored, delta);
       applyFaceExpressions(frame?.face ?? null, delta);
     } catch (error) {
@@ -1096,6 +1120,7 @@ export function createAvatarRenderer(options = {}) {
       strictRetarget: lastStrictRetargetFrame,
       sourceAvatarDivergence: getSourceAvatarDivergenceSnapshot(),
       poseSolver: lastPoseSolverSnapshot,
+      faceHeadPose: getFaceHeadPoseSnapshot(),
       poseSolverMetrics: getPoseSolverMetricsSnapshot(),
       occlusion: getOcclusionSnapshot(),
       trackingRecovery: getTrackingRecoverySnapshot(),
@@ -1127,6 +1152,7 @@ export function createAvatarRenderer(options = {}) {
       strictRetarget: lastStrictRetargetFrame,
       sourceAvatarDivergence: getSourceAvatarDivergenceSnapshot(),
       poseSolver: lastPoseSolverSnapshot,
+      faceHeadPose: getFaceHeadPoseSnapshot(),
       poseSolverMetrics: getPoseSolverMetricsSnapshot(),
       occlusion: getOcclusionSnapshot(),
       trackingRecovery: getTrackingRecoverySnapshot(),
@@ -1253,6 +1279,7 @@ export function createAvatarRenderer(options = {}) {
         present: Boolean(bone),
         axisLocal: axisLocal ? vectorToArray(axisLocal) : null,
         secondaryAxisLocal: secondaryAxisLocal ? vectorToArray(secondaryAxisLocal) : null,
+        restForwardDot: bone && secondaryAxisLocal ? computeRestSecondaryForwardDot(bone, rest) : null,
       };
     }
 
@@ -1261,6 +1288,27 @@ export function createAvatarRenderer(options = {}) {
       missingAimAxes,
       byBone,
     };
+  }
+
+  function computeRestSecondaryForwardDot(bone, rest) {
+    if (!model || !bone || !rest?.secondaryAxisLocal) {
+      return null;
+    }
+
+    const parentWorldQuaternion = bone.parent
+      ? bone.parent.getWorldQuaternion(tmpQuaternionA)
+      : tmpQuaternionA.identity();
+    const secondaryWorld = tmpVectorA
+      .copy(rest.secondaryAxisLocal)
+      .applyQuaternion(rest.quaternion)
+      .applyQuaternion(parentWorldQuaternion)
+      .normalize();
+    const modelForwardWorld = tmpVectorB
+      .set(0, 0, 1)
+      .applyQuaternion(model.getWorldQuaternion(tmpQuaternionB))
+      .normalize();
+
+    return secondaryWorld.dot(modelForwardWorld);
   }
 
   function buildStrictRigBasis() {
@@ -1663,7 +1711,7 @@ export function createAvatarRenderer(options = {}) {
           quaternion: bone.quaternion.clone(),
           position: bone.position.clone(),
           axisLocal,
-          secondaryAxisLocal: inferSecondaryAxisLocal(axisLocal),
+          secondaryAxisLocal: inferRestSecondaryAxisLocal(bone, baseName, axisLocal),
         };
         restPoseByBone.set(bone, rest);
         restPose.set(bone.name, rest);
@@ -1671,6 +1719,33 @@ export function createAvatarRenderer(options = {}) {
 
       restPose.set(name, rest);
     }
+  }
+
+  function inferRestSecondaryAxisLocal(bone, baseName, axisLocal) {
+    const resolvedBaseName = baseName || avatarBoneBaseName(bone.name);
+
+    if ((resolvedBaseName === 'Head' || resolvedBaseName === 'Neck') && model && axisLocal) {
+      const modelForwardWorld = tmpVectorA
+        .set(0, 0, 1)
+        .applyQuaternion(model.getWorldQuaternion(tmpQuaternionA))
+        .normalize();
+      const parentWorldQuaternion = bone.parent
+        ? bone.parent.getWorldQuaternion(tmpQuaternionB)
+        : tmpQuaternionB.identity();
+      const secondaryLocal = tmpVectorB
+        .copy(modelForwardWorld)
+        .applyQuaternion(tmpQuaternionC.copy(parentWorldQuaternion).invert())
+        .applyQuaternion(tmpQuaternionD.copy(bone.quaternion).invert())
+        .normalize();
+
+      secondaryLocal.addScaledVector(axisLocal, -secondaryLocal.dot(axisLocal));
+
+      if (secondaryLocal.lengthSq() > 0.000001) {
+        return secondaryLocal.clone().normalize();
+      }
+    }
+
+    return inferSecondaryAxisLocal(axisLocal);
   }
 
   function buildRetargetMaps() {
@@ -2386,7 +2461,9 @@ export function createAvatarRenderer(options = {}) {
 
       clearBodyOcclusionState(target.bone);
       const targetAlpha = strictModeActive
-        ? 1
+        ? profile
+          ? alpha * reacquireBlend * target.strength * (profile.strengthScale ?? 1) * confidence
+          : 1
         : alpha * reacquireBlend * target.strength * (profile?.strengthScale ?? 1) * confidence;
       applyAimToBone(target.bone, direction, targetAlpha, maxAngle, {
         maxTwist,
@@ -2872,6 +2949,9 @@ export function createAvatarRenderer(options = {}) {
       ? THREE.MathUtils.degToRad(avatarYawDeg)
       : rootMotion.targetYawOffset;
     const yawDelta = targetYawOffset - rootMotion.yawOffset;
+    const smoothing = smoothingAlpha(delta, ROOT_ORIENTATION_SMOOTHING_MS);
+    const maxYawStep = THREE.MathUtils.degToRad(ROOT_ORIENTATION_MAX_YAW_RATE_DEG_PER_SEC) * Math.max(0.001, delta / 1000);
+    const yawStep = clamp(yawDelta * smoothing, -maxYawStep, maxYawStep);
 
     rootMotion.facing = solvedPose?.meta?.facing ?? rootMotion.facing;
     rootMotion.candidateFacing = rootMotion.facing;
@@ -2888,10 +2968,16 @@ export function createAvatarRenderer(options = {}) {
       avatarTargetUnwrappedYawDeg: Number.isFinite(avatarYawDeg) ? avatarYawDeg : null,
       avatarYawSign: DEFAULT_AVATAR_YAW_SIGN,
       strictNumericYaw: true,
+      strictYawSmoothingAlpha: smoothing,
+      strictMaxYawRateDegPerSec: ROOT_ORIENTATION_MAX_YAW_RATE_DEG_PER_SEC,
       solverRawYawJump: Boolean(solvedPose?.meta?.facingRawYawJump),
       solverSideOrderFlip: Boolean(solvedPose?.meta?.facingSideOrderFlip),
     };
-    rootMotion.yawOffset = targetYawOffset;
+    rootMotion.yawOffset += yawStep;
+
+    if (Math.abs(targetYawOffset - rootMotion.yawOffset) < 0.004) {
+      rootMotion.yawOffset = targetYawOffset;
+    }
 
     model.rotation.y = rootMotion.baseModelRotationY + rootMotion.yawOffset;
     model.updateWorldMatrix(true, true);
@@ -3301,69 +3387,140 @@ export function createAvatarRenderer(options = {}) {
     );
   }
 
-  function applyFaceHeadPose(face, mirrored, delta) {
-    const sourceQuaternion = faceTransformQuaternion(face?.transformMatrix);
+  function applyFaceHeadPose(face, mirrored, delta, timestamp = 0) {
+    const transform = faceTransformQuaternion(face?.transformMatrix);
+    const tracker = updateFaceHeadPoseTracker(faceHeadPose, transform.quaternion, timestamp, {
+      trackingGraceMs: FACE_HEAD_TRACKING_GRACE_MS,
+      reacquireBlendMs: FACE_HEAD_REACQUIRE_BLEND_MS,
+    });
 
-    if (!sourceQuaternion) {
-      resetFaceHeadPose();
+    faceHeadPose.lastStatus = tracker.status;
+    faceHeadPose.lastTracked = tracker.tracked;
+    faceHeadPose.lastWithinGrace = tracker.withinGrace;
+    faceHeadPose.lastGapMs = Number.isFinite(tracker.gapMs) ? tracker.gapMs : null;
+    faceHeadPose.lastReacquireBlend = tracker.reacquireBlend;
+
+    if (transform.valid) {
+      faceHeadPose.lastLayout = transform.layout;
+      faceHeadPose.lastMatrixDiagnostics = transform.diagnostics;
+    }
+
+    if (!tracker.apply) {
+      recordFaceHeadPoseTelemetry(null, delta, tracker, 0);
       return;
     }
 
-    if (!faceHeadPose.baseQuaternion) {
-      faceHeadPose.baseQuaternion = sourceQuaternion.clone();
-      faceHeadPose.lastQuaternion = sourceQuaternion.clone();
+    const poseDelta = computeFaceHeadDelta({
+      baseQuaternion: faceHeadPose.baseQuaternion,
+      sourceQuaternion: tracker.sourceQuaternion,
+      mirrored,
+      maxAngleRad: FACE_HEAD_POSE_MAX_ANGLE,
+    });
+
+    if (!poseDelta.valid) {
+      recordFaceHeadPoseTelemetry(null, delta, tracker, 0);
       return;
     }
 
-    const relativeQuaternion = tmpQuaternionG
-      .copy(faceHeadPose.baseQuaternion)
-      .invert()
-      .multiply(sourceQuaternion)
-      .normalize();
-    tmpEulerA.setFromQuaternion(relativeQuaternion, 'YXZ');
-
-    const pitch = clamp(tmpEulerA.x, -FACE_HEAD_POSE_MAX_ANGLE, FACE_HEAD_POSE_MAX_ANGLE);
-    const yaw = clamp(
-      mirrored ? -tmpEulerA.y : tmpEulerA.y,
-      -FACE_HEAD_POSE_MAX_ANGLE,
-      FACE_HEAD_POSE_MAX_ANGLE,
-    );
-    const roll = clamp(
-      mirrored ? -tmpEulerA.z : tmpEulerA.z,
-      -FACE_HEAD_POSE_MAX_ANGLE,
-      FACE_HEAD_POSE_MAX_ANGLE,
-    );
-    const deltaQuaternion = tmpQuaternionF.setFromEuler(tmpEulerA.set(pitch, yaw, roll, 'YXZ'));
-    const alpha = smoothingAlpha(delta, FACE_HEAD_POSE_SMOOTHING_MS);
+    const deltaQuaternion = plainQuaternionToThree(poseDelta.quaternion, tmpQuaternionF);
+    const alpha = smoothingAlpha(delta, FACE_HEAD_POSE_SMOOTHING_MS) * tracker.reacquireBlend;
 
     applyLocalPoseDeltaToBone('Neck', deltaQuaternion, alpha * FACE_NECK_POSE_STRENGTH, FACE_NECK_POSE_MAX_ANGLE);
     applyLocalPoseDeltaToBone('Head', deltaQuaternion, alpha * FACE_HEAD_POSE_STRENGTH, FACE_HEAD_POSE_MAX_ANGLE);
-
-    if (!faceHeadPose.lastQuaternion) {
-      faceHeadPose.lastQuaternion = sourceQuaternion.clone();
-    } else {
-      faceHeadPose.lastQuaternion.copy(sourceQuaternion);
-    }
+    recordFaceHeadPoseTelemetry(poseDelta.eulerRad, delta, tracker, alpha);
   }
 
   function faceTransformQuaternion(transformMatrix) {
-    if (!Array.isArray(transformMatrix) || transformMatrix.length !== 16) {
+    return readFaceTransformQuaternion(transformMatrix);
+  }
+
+  function plainQuaternionToThree(quaternion, target) {
+    if (!Number.isFinite(quaternion?.x) ||
+      !Number.isFinite(quaternion?.y) ||
+      !Number.isFinite(quaternion?.z) ||
+      !Number.isFinite(quaternion?.w)
+    ) {
+      return target.identity();
+    }
+
+    return target
+      .set(quaternion.x, quaternion.y, quaternion.z, quaternion.w)
+      .normalize();
+  }
+
+  function recordFaceHeadPoseTelemetry(eulerRad, delta, tracker, alpha) {
+    faceHeadPose.lastEulerDeg = eulerRad ? eulerRadToDeg(eulerRad) : null;
+    faceHeadPose.lastBoneEulerDeg = getBoneRestRelativeEulerDeg('Head');
+    const headBone = getBone('Head');
+    const angularVelocity = estimateFaceHeadBoneAngularVelocity(headBone, delta);
+
+    faceHeadPose.lastBoneAngularVelocityDegPerSec = angularVelocity;
+
+    if (Number.isFinite(angularVelocity) && angularVelocity > FACE_HEAD_JUMP_THRESHOLD_DEG_PER_SEC) {
+      faceHeadPose.jumpCount += 1;
+      faceHeadPose.lastJumpReason = resolveFaceHeadJumpReason(tracker);
+    }
+
+    faceHeadPose.lastAppliedAlpha = alpha;
+  }
+
+  function estimateFaceHeadBoneAngularVelocity(headBone, delta) {
+    if (!headBone) {
       return null;
     }
 
-    if (transformMatrix.some((entry) => !Number.isFinite(entry))) {
+    if (!faceHeadPose.lastBoneQuaternion) {
+      faceHeadPose.lastBoneQuaternion = headBone.quaternion.clone();
+      return 0;
+    }
+
+    const deltaSeconds = Math.max(0.001, delta / 1000);
+    const angleDeg = THREE.MathUtils.radToDeg(faceHeadPose.lastBoneQuaternion.angleTo(headBone.quaternion));
+    faceHeadPose.lastBoneQuaternion.copy(headBone.quaternion);
+
+    return angleDeg / deltaSeconds;
+  }
+
+  function resolveFaceHeadJumpReason(tracker) {
+    if (tracker.status === 'reacquired') {
+      return 'face-reacquired';
+    }
+
+    if (tracker.status === 'holding' || tracker.status === 'missing') {
+      return 'face-gap';
+    }
+
+    if (rootMotion.orientationMetrics?.solverRawYawJump || rootMotion.orientationMetrics?.solverSideOrderFlip) {
+      return 'root-yaw-jump';
+    }
+
+    return 'head-bone-jump';
+  }
+
+  function eulerRadToDeg(eulerRad) {
+    return {
+      x: THREE.MathUtils.radToDeg(eulerRad.x),
+      y: THREE.MathUtils.radToDeg(eulerRad.y),
+      z: THREE.MathUtils.radToDeg(eulerRad.z),
+    };
+  }
+
+  function getBoneRestRelativeEulerDeg(boneName) {
+    const bone = getBone(boneName);
+    const rest = getBoneRest(bone);
+
+    if (!bone || !rest) {
       return null;
     }
 
-    tmpMatrixC.set(
-      transformMatrix[0], transformMatrix[1], transformMatrix[2], transformMatrix[3],
-      transformMatrix[4], transformMatrix[5], transformMatrix[6], transformMatrix[7],
-      transformMatrix[8], transformMatrix[9], transformMatrix[10], transformMatrix[11],
-      transformMatrix[12], transformMatrix[13], transformMatrix[14], transformMatrix[15],
-    );
-    tmpMatrixC.decompose(tmpVectorA, tmpQuaternionE, tmpVectorB);
+    tmpQuaternionH
+      .copy(rest.quaternion)
+      .invert()
+      .multiply(bone.quaternion)
+      .normalize();
+    tmpEulerA.setFromQuaternion(tmpQuaternionH, 'YXZ');
 
-    return tmpQuaternionE.normalize();
+    return eulerRadToDeg(tmpEulerA);
   }
 
   function applyLocalPoseDeltaToBone(boneName, deltaQuaternion, alpha, maxAngle) {
@@ -3391,8 +3548,17 @@ export function createAvatarRenderer(options = {}) {
   }
 
   function resetFaceHeadPose() {
-    faceHeadPose.baseQuaternion = null;
-    faceHeadPose.lastQuaternion = null;
+    resetFaceHeadPoseTrackerState(faceHeadPose);
+    faceHeadPose.lastStatus = 'reset';
+    faceHeadPose.lastTracked = false;
+    faceHeadPose.lastWithinGrace = false;
+    faceHeadPose.lastGapMs = null;
+    faceHeadPose.lastReacquireBlend = 0;
+    faceHeadPose.lastEulerDeg = null;
+    faceHeadPose.lastBoneEulerDeg = null;
+    faceHeadPose.lastBoneAngularVelocityDegPerSec = null;
+    faceHeadPose.lastJumpReason = null;
+    faceHeadPose.lastBoneQuaternion = null;
   }
 
   function hasExpressionPreset(preset) {
@@ -4105,6 +4271,30 @@ export function createAvatarRenderer(options = {}) {
     resetVrmSpringMotionState();
 
     return getVrmRuntimeReport();
+  }
+
+  function getFaceHeadPoseSnapshot() {
+    return {
+      status: faceHeadPose.lastStatus,
+      tracked: faceHeadPose.lastTracked,
+      withinGrace: faceHeadPose.lastWithinGrace,
+      gapMs: faceHeadPose.lastGapMs,
+      reacquireBlend: faceHeadPose.lastReacquireBlend,
+      resetCount: faceHeadPose.resetCount,
+      reacquireCount: faceHeadPose.reacquireCount,
+      baseReady: Boolean(faceHeadPose.baseQuaternion),
+      layout: faceHeadPose.lastLayout,
+      matrixDiagnostics: faceHeadPose.lastMatrixDiagnostics,
+      faceEulerDeg: faceHeadPose.lastEulerDeg,
+      boneEulerDeg: faceHeadPose.lastBoneEulerDeg,
+      boneAngularVelocityDegPerSec: faceHeadPose.lastBoneAngularVelocityDegPerSec,
+      jumpCount: faceHeadPose.jumpCount,
+      lastJumpReason: faceHeadPose.lastJumpReason,
+      appliedAlpha: faceHeadPose.lastAppliedAlpha ?? 0,
+      trackingGraceMs: FACE_HEAD_TRACKING_GRACE_MS,
+      reacquireBlendMs: FACE_HEAD_REACQUIRE_BLEND_MS,
+      jumpThresholdDegPerSec: FACE_HEAD_JUMP_THRESHOLD_DEG_PER_SEC,
+    };
   }
 
   const api = {

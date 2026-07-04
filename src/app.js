@@ -1794,6 +1794,7 @@ function recordBodyValidation(input, fallbackTimestamp = 0) {
       depthMeasurementMode: depthSnapshot?.measurementMode ?? null,
       depthCalibration: depthCalibrationSnapshot ?? depthSnapshot?.depthCalibration ?? null,
       rootMotion: motionStateSnapshot?.rootMotion ?? null,
+      faceHeadPose: motionStateSnapshot?.faceHeadPose ?? null,
       retargetMode: motionStateSnapshot?.retargetMode ?? null,
       handOrientation: motionStateSnapshot?.handOrientation ?? null,
       sourceAvatarDivergence: motionStateSnapshot?.sourceAvatarDivergence ?? null,
@@ -3071,6 +3072,7 @@ function getBodyValidationReport() {
     projectedSegmentByGroup: summarizeProjectedSegmentRowsByKey(projectedSegmentRows, "group"),
     projectedSegmentByName: summarizeProjectedSegmentRowsByKey(projectedSegmentRows, "name"),
     motionAgreement,
+    faceHeadPose: buildFaceHeadPoseReport(samples),
     strictValidation,
     sourceAvatarDivergence: buildSourceAvatarDivergenceReport(samples),
     depthValidation,
@@ -3085,6 +3087,96 @@ function getBodyValidationReport() {
       .slice(0, 12),
     lastSample: state.bodyValidation.lastSample,
   };
+}
+
+function buildFaceHeadPoseReport(samples) {
+  const rows = samples
+    .map((sample) => ({
+      videoTime: sample.videoTime,
+      status: sample.faceHeadPose?.status ?? "unknown",
+      tracked: Boolean(sample.faceHeadPose?.tracked),
+      withinGrace: Boolean(sample.faceHeadPose?.withinGrace),
+      layout: sample.faceHeadPose?.layout ?? "unknown",
+      faceYawDeg: Number(sample.faceHeadPose?.faceEulerDeg?.y),
+      boneYawDeg: Number(sample.faceHeadPose?.boneEulerDeg?.y),
+      boneAngularVelocityDegPerSec: Number(sample.faceHeadPose?.boneAngularVelocityDegPerSec),
+      jumpCount: Number(sample.faceHeadPose?.jumpCount),
+      lastJumpReason: sample.faceHeadPose?.lastJumpReason ?? null,
+    }))
+    .filter((row) => Number.isFinite(row.faceYawDeg) || Number.isFinite(row.boneYawDeg));
+  const yawPairs = rows.filter((row) => Number.isFinite(row.faceYawDeg) && Number.isFinite(row.boneYawDeg));
+  const signRows = yawPairs.filter((row) => Math.abs(row.faceYawDeg) >= 2 && Math.abs(row.boneYawDeg) >= 2);
+  const signMatchedCount = signRows.filter((row) => Math.sign(row.faceYawDeg) === Math.sign(row.boneYawDeg)).length;
+  const velocities = rows
+    .map((row) => row.boneAngularVelocityDegPerSec)
+    .filter((value) => Number.isFinite(value));
+  const jumpCounts = rows
+    .map((row) => row.jumpCount)
+    .filter((value) => Number.isFinite(value));
+  const layouts = summarizeCategoricalRows(rows, "layout");
+  const statuses = summarizeCategoricalRows(rows, "status");
+  let lastJumpReason = null;
+  for (let i = rows.length - 1; i >= 0; i -= 1) {
+    if (rows[i].lastJumpReason) {
+      lastJumpReason = rows[i].lastJumpReason;
+      break;
+    }
+  }
+
+  return {
+    sampleCount: rows.length,
+    yawPairCount: yawPairs.length,
+    signComparableCount: signRows.length,
+    signMatchedCount,
+    signMatchRate: signRows.length > 0 ? signMatchedCount / signRows.length : null,
+    yawCorrelation: yawPairs.length >= 3
+      ? pearsonCorrelation(
+        yawPairs.map((row) => row.faceYawDeg),
+        yawPairs.map((row) => row.boneYawDeg),
+      )
+      : null,
+    maxBoneAngularVelocityDegPerSec: velocities.length > 0 ? Math.max(...velocities) : null,
+    jumpCount: jumpCounts.length > 0 ? Math.max(...jumpCounts) : 0,
+    lastJumpReason,
+    layouts,
+    statuses,
+    lastSample: rows.length > 0 ? rows[rows.length - 1] : null,
+  };
+}
+
+function summarizeCategoricalRows(rows, field) {
+  const counts = {};
+
+  for (const row of rows) {
+    const value = String(row[field] ?? "unknown");
+    counts[value] = (counts[value] ?? 0) + 1;
+  }
+
+  return counts;
+}
+
+function pearsonCorrelation(xs, ys) {
+  if (xs.length !== ys.length || xs.length < 2) {
+    return null;
+  }
+
+  const meanX = xs.reduce((sum, value) => sum + value, 0) / xs.length;
+  const meanY = ys.reduce((sum, value) => sum + value, 0) / ys.length;
+  let numerator = 0;
+  let denomX = 0;
+  let denomY = 0;
+
+  for (let i = 0; i < xs.length; i += 1) {
+    const dx = xs[i] - meanX;
+    const dy = ys[i] - meanY;
+    numerator += dx * dy;
+    denomX += dx * dx;
+    denomY += dy * dy;
+  }
+
+  const denominator = Math.sqrt(denomX * denomY);
+
+  return denominator > 0 ? numerator / denominator : null;
 }
 
 function buildStrictValidationReport(samples) {
@@ -3968,6 +4060,20 @@ function exposeDebugApi() {
     getTrackedChannelReport,
     getAvatarViewState: () => state.avatarRenderer?.getViewState?.() ?? null,
     resetAvatarView: () => state.avatarRenderer?.resetView?.() ?? null,
+    processValidationMotionFrame: (motionFrame) => {
+      if (!state.bodyValidation.enabled) {
+        throw new Error("Validation mode is not enabled.");
+      }
+
+      processMotionFrame(motionFrame, {
+        record: false,
+        forward: false,
+        draw: false,
+        metrics: false,
+      });
+
+      return state.bodyValidation.lastSample;
+    },
     clearBodyValidation: resetBodyValidation,
     startMotionRecording,
     stopMotionRecording,

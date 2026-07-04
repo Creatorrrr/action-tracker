@@ -40,7 +40,15 @@ full-body motion parity.
    - The gate records the measured `motionFrame` timeline, replays it without
      running MediaPipe again, and requires replay motion agreement to stay
      within `3%` of the live/video measurement.
-6. Manual browser smoke:
+7. Browser head-pose smoke: `npm run smoke:head`
+   - Writes `output/reports/head-pose-smoke-latest.json`.
+   - Checks `faceHeadPose` Head angular velocity and jump counters, and verifies
+     Head rest-axis diagnostics from `getAvatarRigReport()`.
+   - Face/bone yaw sign and correlation are hard gates only when the clip
+     produces enough face-transform yaw samples; otherwise the deterministic
+     `tests/face-head-pose-check.mjs` matrix/mirror/reacquire test is the
+     substitute gate.
+8. Manual browser smoke:
    - Load page with no avatar file selected.
    - Confirm Xbot reaches `Avatar: Ready`.
    - Upload `soldier.glb`.
@@ -120,6 +128,13 @@ the source person's 2D skeleton exactly.
 - Neck and head direction remain diagnostic segments because some VRM rigs
   expose neck/head rest axes that should be inspected without treating every
   model-specific axis difference as a body-motion failure.
+- `faceHeadPose` must report zero Head jump-counter increments above the
+  `600deg/s` threshold during sample-video validation. When enough face yaw
+  samples exist, face/bone yaw sign match should be >= `0.90` and yaw
+  correlation should be >= `0.80`.
+- `rig.boneOrientation.byBone.Head.restForwardDot` should be >= `0.75` for all
+  browser-smoke models and >= `0.90` for the preferred VRM validation set, or
+  the model-specific rest-axis exception must be recorded.
 - Projected-segment and visual projected-joint scores stay in the report as
   viewport/same-proportion diagnostics only; they are not the cross-model
   pass/fail gate for VRoid/anime models.
@@ -213,8 +228,9 @@ those are not app-level avatar failures unless the avatar leaves `Ready`.
   The report now includes humanoid mapping, expression coverage, finger chain
   coverage, rest-pose cache coverage, and inferred bone orientation axes so
   missing metadata, backward-facing rigs, and bad retarget axes can be separated.
-  It also includes `renderCompatibility`, which reports zero-alpha vertex-color
-  sanitization used to make affected meshes visible.
+  It also includes Head rest forward-dot diagnostics and `renderCompatibility`,
+  which reports zero-alpha vertex-color sanitization used to make affected
+  meshes visible.
 - Include `window.motionTrackerDebug.getVrmRuntimeReport()` when reporting hair,
   sleeve, skirt, or accessory motion issues. The report separates
   `springBoneEnabled` from `runtimeUpdateFailed`, so disabling spring bones does
