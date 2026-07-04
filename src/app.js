@@ -4370,8 +4370,8 @@ function getInitialTrackingWorkerEnabled() {
 
 function getInitialAvatarSmoothingMode() {
   const value = new URLSearchParams(globalThis.location?.search ?? "").get("smoothing");
-  const normalized = String(value ?? AVATAR_SMOOTHING_MODE_OFF).toLowerCase();
-  return AVATAR_SMOOTHING_MODE_ALIASES[normalized] ?? AVATAR_SMOOTHING_MODE_OFF;
+  const normalized = String(value ?? AVATAR_SMOOTHING_MODE_RETARGET).toLowerCase();
+  return AVATAR_SMOOTHING_MODE_ALIASES[normalized] ?? AVATAR_SMOOTHING_MODE_RETARGET;
 }
 
 function getInitialAvatarRetargetMode() {

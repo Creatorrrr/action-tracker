@@ -96,11 +96,11 @@ const RETARGET_OCCLUSION_DECAY_MS = 420;
 const RETARGET_LOST_TRACKING_HOLD_MS = 80;
 const RETARGET_LOST_TRACKING_DECAY_MS = 360;
 const RETARGET_REACQUIRE_BLEND_MS = 180;
-const FACE_HEAD_POSE_SMOOTHING_MS = 72;
+const FACE_HEAD_POSE_SMOOTHING_MS = 118;
 const FACE_HEAD_POSE_MAX_ANGLE = 0.85;
 const FACE_NECK_POSE_MAX_ANGLE = 0.48;
-const FACE_HEAD_POSE_STRENGTH = 0.72;
-const FACE_NECK_POSE_STRENGTH = 0.32;
+const FACE_HEAD_POSE_STRENGTH = 0.56;
+const FACE_NECK_POSE_STRENGTH = 0.24;
 const PERFORMANCE_SAMPLE_LIMIT = 240;
 const VRM_SPRING_MOTION_THRESHOLD = 0.006;
 const VRM_SPRING_MOTION_FULL = 0.035;
@@ -139,24 +139,24 @@ const PERFORMANCE_BUDGETS_MS = {
   poseSolverP95: 2,
 };
 const FACE_EXPRESSION_SMOOTHING_MS = {
-  default: 80,
-  blink: 42,
-  blinkLeft: 42,
-  blinkRight: 42,
-  aa: 62,
-  ih: 70,
-  ou: 70,
-  ee: 70,
-  oh: 70,
-  happy: 118,
-  angry: 128,
-  sad: 128,
-  surprised: 96,
-  relaxed: 140,
-  lookUp: 86,
-  lookDown: 86,
-  lookLeft: 86,
-  lookRight: 86,
+  default: 126,
+  blink: 58,
+  blinkLeft: 58,
+  blinkRight: 58,
+  aa: 96,
+  ih: 112,
+  ou: 112,
+  ee: 112,
+  oh: 112,
+  happy: 168,
+  angry: 176,
+  sad: 176,
+  surprised: 142,
+  relaxed: 190,
+  lookUp: 132,
+  lookDown: 132,
+  lookLeft: 132,
+  lookRight: 132,
 };
 const RETARGET_SMOOTHING_MS = {
   torso: 72,
@@ -5076,7 +5076,7 @@ function normalizeDepthScale(value) {
 }
 
 function normalizeAvatarSmoothingMode(value) {
-  const normalized = String(value ?? AVATAR_SMOOTHING_MODE_OFF).toLowerCase();
+  const normalized = String(value ?? AVATAR_SMOOTHING_MODE_RETARGET).toLowerCase();
 
   if (normalized === 'retarget' || normalized === 'on' || normalized === '1' || normalized === 'true') {
     return AVATAR_SMOOTHING_MODE_RETARGET;
@@ -5086,7 +5086,7 @@ function normalizeAvatarSmoothingMode(value) {
     return AVATAR_SMOOTHING_MODE_STRONG;
   }
 
-  const mode = AVATAR_SMOOTHING_ALIASES[normalized] ?? AVATAR_SMOOTHING_MODE_OFF;
+  const mode = AVATAR_SMOOTHING_ALIASES[normalized] ?? AVATAR_SMOOTHING_MODE_RETARGET;
 
   if (mode === AVATAR_SMOOTHING_MODE_RETARGET || mode === AVATAR_SMOOTHING_MODE_STRONG) {
     return mode;

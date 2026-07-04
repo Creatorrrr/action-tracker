@@ -99,13 +99,13 @@ let scores = mapMediaPipeBlendShapesToVrmPresets([
   { name: "eyeLookUpRight", score: 0.6 },
   { name: "unknownShape", score: 1 },
 ]);
-assertClose(scores.blinkLeft, 0.6319148936170214);
-assertClose(scores.aa, 0.9153061224489795);
-assertClose(scores.ee, 0.7736082474226805);
-assertClose(scores.oh, 0.4734020618556702);
-assertClose(scores.happy, 0.8593749999999999);
-assertClose(scores.surprised, 0.6000000000000001);
-assertClose(scores.lookUp, 0.6463917525773195);
+assertClose(scores.blinkLeft, 0.5155555555555555);
+assertClose(scores.aa, 0.7894736842105263);
+assertClose(scores.ee, 0.6808510638297872);
+assertClose(scores.oh, 0.40425531914893625);
+assertClose(scores.happy, 0.7278260869565217);
+assertClose(scores.surprised, 0.4973913043478261);
+assertClose(scores.lookUp, 0.5413978494623656);
 assert.equal(scores.unknownShape, undefined);
 
 const lowScores = mapMediaPipeBlendShapesToVrmPresets([
@@ -119,17 +119,17 @@ assert.equal(lowScores.happy, undefined);
 
 let state = {};
 state = applyVrmExpressionScores(mapping, scores, state, { default: 0.5, aa: 0.25 });
-assertClose(meshA.morphTargetInfluences[0], 0.3159574468085107);
-assertClose(meshA.morphTargetInfluences[1], 0.13729591836734693);
-assertClose(meshB.morphTargetInfluences[0], 0.32226562499999994);
-assertClose(meshB.morphTargetInfluences[1], 0.32319587628865977);
+assertClose(meshA.morphTargetInfluences[0], 0.2577777777777778);
+assertClose(meshA.morphTargetInfluences[1], 0.11842105263157894);
+assertClose(meshB.morphTargetInfluences[0], 0.27293478260869565);
+assertClose(meshB.morphTargetInfluences[1], 0.2706989247311828);
 
 state = {};
 state = applyVrmExpressionScores(mapping, scores, state, 1);
-assertClose(meshA.morphTargetInfluences[0], 0.6319148936170214);
-assertClose(meshA.morphTargetInfluences[1], 0.5491836734693877);
-assertClose(meshB.morphTargetInfluences[0], 0.6445312499999999);
-assertClose(meshB.morphTargetInfluences[1], 0.6463917525773195);
+assertClose(meshA.morphTargetInfluences[0], 0.5155555555555555);
+assertClose(meshA.morphTargetInfluences[1], 0.47368421052631576);
+assertClose(meshB.morphTargetInfluences[0], 0.5458695652173913);
+assertClose(meshB.morphTargetInfluences[1], 0.5413978494623656);
 
 state = applyVrmExpressionScores(mapping, {}, state, 1);
 assert.equal(meshA.morphTargetInfluences[0], 0);
