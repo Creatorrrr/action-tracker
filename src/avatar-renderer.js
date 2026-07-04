@@ -101,6 +101,8 @@ const FACE_HEAD_POSE_MAX_ANGLE = 0.85;
 const FACE_NECK_POSE_MAX_ANGLE = 0.48;
 const FACE_HEAD_POSE_STRENGTH = 0.56;
 const FACE_NECK_POSE_STRENGTH = 0.24;
+const HEAD_CROWN_NOSE_OFFSET_BLEND = 0.72;
+const HEAD_CROWN_MAX_NOSE_OFFSET_SCALE = 0.9;
 const PERFORMANCE_SAMPLE_LIMIT = 240;
 const VRM_SPRING_MOTION_THRESHOLD = 0.006;
 const VRM_SPRING_MOTION_FULL = 0.035;
@@ -345,6 +347,7 @@ const BODY_RETARGETS = [
 const BODY_VALIDATION_SEGMENTS = [
   { name: 'torso', group: 'torso', bone: 'Spine2', from: 'hipMid', to: 'shoulderMid' },
   { name: 'neck', group: 'torso', bone: 'Neck', from: 'shoulderMid', to: 'headAimBase' },
+  { name: 'head', group: 'head', bone: 'Head', from: 'headAimBase', to: 'headCrown' },
   { name: 'leftUpperArm', group: 'arms', bone: 'LeftArm', from: 'leftShoulder', to: 'leftElbow' },
   { name: 'leftForeArm', group: 'arms', bone: 'LeftForeArm', from: 'leftElbow', to: 'leftWrist' },
   { name: 'rightUpperArm', group: 'arms', bone: 'RightArm', from: 'rightShoulder', to: 'rightElbow' },
@@ -959,17 +962,22 @@ export function createAvatarRenderer(options = {}) {
     };
   }
 
-  function resetPose() {
-    resetProportionCalibration();
-    resetDepthCalibration();
-    resetRootMotion(true);
+  function resetPose(options = {}) {
+    const preserveCalibration = Boolean(options.preserveCalibration);
+
+    if (!preserveCalibration) {
+      resetProportionCalibration();
+      resetDepthCalibration();
+    }
+
+    resetRootMotion(!preserveCalibration);
     resetPoseSolverMetrics();
-    strictPoseSolverState.facing = 'front';
-    strictPoseSolverState.mode = 'lost';
-    strictPoseSolverState.targetMemory = {};
+    resetPoseSolverState(poseSolverState);
+    resetPoseSolverState(strictPoseSolverState);
     strictRetargetState = {};
     lastStrictRetargetFrame = null;
     lastSourceAvatarDivergence = null;
+    lastUpdateTime = 0;
     resetTrackingRecoveryState();
     resetBodyOcclusionState();
     resetFaceExpressions();
@@ -979,6 +987,12 @@ export function createAvatarRenderer(options = {}) {
     activeVrm?.springBoneManager?.reset?.();
     resetVrmSpringMotionState();
     lastVrmRenderUpdateTime = 0;
+  }
+
+  function resetPoseSolverState(targetState) {
+    targetState.facing = 'front';
+    targetState.mode = 'lost';
+    targetState.targetMemory = {};
   }
 
   function resetView() {
@@ -2354,8 +2368,16 @@ export function createAvatarRenderer(options = {}) {
       const alpha = smoothingAlpha(delta, smoothingMs);
       const confidence = solvedTarget.confidence;
       const secondaryWorld = strictModeActive
-        ? null
+        ? profile
+          ? resolveBodySecondaryAxis(target, points)
+          : null
         : resolveBodySecondaryAxis(target, points) ?? limbPlaneNormals[target.bone] ?? null;
+      const maxAngle = strictModeActive
+        ? profile ? target.maxAngle * (profile.maxAngleScale ?? 1) : undefined
+        : target.maxAngle * (profile?.maxAngleScale ?? 1);
+      const maxTwist = profile
+        ? target.maxTwist * (profile.maxTwistScale ?? 1)
+        : undefined;
 
       if (!strictModeActive && confidence <= RETARGET_LOW_CONFIDENCE_HOLD) {
         applyOccludedBodyBone(target.bone, timestamp, delta);
@@ -2366,8 +2388,8 @@ export function createAvatarRenderer(options = {}) {
       const targetAlpha = strictModeActive
         ? 1
         : alpha * reacquireBlend * target.strength * (profile?.strengthScale ?? 1) * confidence;
-      applyAimToBone(target.bone, direction, targetAlpha, strictModeActive ? undefined : target.maxAngle * (profile?.maxAngleScale ?? 1), {
-        maxTwist: strictModeActive ? undefined : target.profileKey ? target.maxTwist * (profile?.maxTwistScale ?? 1) : undefined,
+      applyAimToBone(target.bone, direction, targetAlpha, maxAngle, {
+        maxTwist,
         secondaryWorld,
         deadband: strictModeActive ? undefined : profile?.deadband,
         hysteresis: strictModeActive ? undefined : profile?.hysteresis,
@@ -4178,8 +4200,24 @@ function estimateHeadCrown(points) {
   const shoulderWidth = distance2D(points.leftShoulder, points.rightShoulder);
   const eyeWidth = distance2D(points.leftEye, points.rightEye);
   const headLength = Math.max(shoulderWidth * 0.28, eyeWidth * 1.8, 0.12);
+  const headDirection = tmpVectorB.copy(headUp).multiplyScalar(headLength);
 
-  return copyDerivedPointMetadata(base.clone().addScaledVector(headUp, headLength), base, points.nose);
+  if (points.nose) {
+    const noseOffset = tmpVectorC.subVectors(points.nose, base);
+    const maxNoseOffset = headLength * HEAD_CROWN_MAX_NOSE_OFFSET_SCALE;
+
+    if (noseOffset.lengthSq() > maxNoseOffset * maxNoseOffset) {
+      noseOffset.setLength(maxNoseOffset);
+    }
+
+    headDirection.addScaledVector(noseOffset, HEAD_CROWN_NOSE_OFFSET_BLEND);
+  }
+
+  if (headDirection.lengthSq() < 0.000001) {
+    headDirection.copy(headUp).multiplyScalar(headLength);
+  }
+
+  return copyDerivedPointMetadata(base.clone().add(headDirection), base, points.nose);
 }
 
 function clonePosePoints(points) {
@@ -4862,6 +4900,12 @@ function vectorToArray(vector) {
 
 function inferBoneAxisLocal(bone, baseName = '', hasBoneAlias = null) {
   const resolvedBaseName = baseName || avatarBoneBaseName(bone.name);
+  const preferOwnPositionForAxis = resolvedBaseName === 'Head';
+
+  if (preferOwnPositionForAxis && bone.position.lengthSq() > 0.000001) {
+    return bone.position.clone().normalize();
+  }
+
   const primaryChildName = PRIMARY_BONE_CHILD.get(resolvedBaseName);
   const primaryChild = primaryChildName
     ? bone.children.find((child) => (
@@ -4872,7 +4916,9 @@ function inferBoneAxisLocal(bone, baseName = '', hasBoneAlias = null) {
       )
     ))
     : null;
-  const childBone = primaryChild ?? bone.children.find((child) => isSupportedBoneObject(child));
+  const childBone = primaryChild ?? (
+    preferOwnPositionForAxis ? null : bone.children.find((child) => isSupportedBoneObject(child))
+  );
 
   if (childBone && childBone.position.lengthSq() > 0.000001) {
     return childBone.position.clone().normalize();

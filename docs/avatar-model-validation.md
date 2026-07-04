@@ -117,15 +117,15 @@ the source person's 2D skeleton exactly.
     warnings.
   - A high clamped ratio is a warning, not a hard failure, because it means the
     2D projected length already exceeds the current 3D target length.
-- Neck direction remains a diagnostic segment because some VRM rigs expose
-  neck/head rest axes that do not track the source shoulder-to-head aim as a
-  body-motion failure.
+- Neck and head direction remain diagnostic segments because some VRM rigs
+  expose neck/head rest axes that should be inspected without treating every
+  model-specific axis difference as a body-motion failure.
 - Projected-segment and visual projected-joint scores stay in the report as
   viewport/same-proportion diagnostics only; they are not the cross-model
   pass/fail gate for VRoid/anime models.
-- Neck, strict-validation, projected-segment, and visual-joint reports are kept
-  for diagnosis. They can be low for rigs with different proportions or neck
-  rest axes without failing the uploaded-model gate.
+- Neck/head, strict-validation, projected-segment, and visual-joint reports are
+  kept for diagnosis. They can be low for rigs with different proportions or
+  head/neck rest axes without failing the uploaded-model gate.
 
 For the Soldier GLB sample-video gate, use stricter full-body criteria because
 its proportions are close to the default Xbot and it is not chibi:

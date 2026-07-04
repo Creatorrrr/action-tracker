@@ -4,7 +4,7 @@ import {
   HandLandmarker,
   PoseLandmarker,
 } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/vision_bundle.mjs";
-import { createAvatarRenderer } from "./avatar-renderer.js?v=20260704-vrm-runtime-2";
+import { createAvatarRenderer } from "./avatar-renderer.js?v=20260704-vrm-head-axis-1";
 import {
   MOTION_RECORDING_FRAME_LIMIT,
   createMotionFrame,
@@ -87,6 +87,7 @@ const MEDIAPIPE_FALLBACK_DELEGATE = "CPU";
 const MAX_STALE_VIDEO_FRAME_CALLBACK_MS = 66;
 const MAX_CONSECUTIVE_STALE_VIDEO_FRAME_SKIPS = 2;
 const MOTION_STATUS_HUD_INTERVAL_MS = 250;
+const VIDEO_TIMELINE_REWIND_EPSILON_SEC = 0.05;
 
 const POSE_MODEL_URLS = {
   pose_lite:
@@ -131,7 +132,7 @@ const BODY_MOTION_AGREEMENT_SCORE_WEIGHTS = {
   frontBack: 0.15,
   projection: 0,
 };
-const BODY_MOTION_AGREEMENT_EXCLUDED_SEGMENTS = new Set(["neck"]);
+const BODY_MOTION_AGREEMENT_EXCLUDED_SEGMENTS = new Set(["neck", "head"]);
 const BODY_MOTION_AGREEMENT_FRONT_BACK_DEPTH_MIN_SAMPLES = 12;
 const BODY_MOTION_AGREEMENT_FRONT_BACK_VISUAL_FLOOR = 0.8;
 
@@ -353,6 +354,8 @@ const state = {
     busySkips: 0,
     latestWinsFrames: 0,
     staleFrameCallbacks: 0,
+    timelineResets: 0,
+    lastTimelineResetReason: "",
     consecutiveStaleFrameCallbacks: 0,
     errors: 0,
     busy: false,
@@ -463,6 +466,9 @@ function boot() {
     if (file) {
       void startVideoFile(file);
     }
+  });
+  state.elements.video?.addEventListener("seeked", () => {
+    resetVideoTimelineState("seeked");
   });
   state.elements.avatarFileInput?.addEventListener("change", () => {
     const file = state.elements.avatarFileInput.files?.[0];
@@ -880,9 +886,35 @@ function stopCamera(options = {}) {
   updateControls();
 }
 
-function resetAvatarPose() {
+function shouldResetVideoTimeline(videoTime) {
+  return state.inputKind === "video" &&
+    state.active &&
+    Number.isFinite(videoTime) &&
+    state.lastVideoTime >= 0 &&
+    videoTime + VIDEO_TIMELINE_REWIND_EPSILON_SEC < state.lastVideoTime;
+}
+
+function resetVideoTimelineState(reason = "timeline-reset") {
+  if (state.inputKind !== "video" || !state.active) {
+    return false;
+  }
+
+  state.detectionPump.timelineResets += 1;
+  state.detectionPump.lastTimelineResetReason = reason;
+  state.lastVideoTime = -1;
+  state.lastFrameTimestamp = 0;
+  state.smoothedFps = 0;
+  state.appPerformance.lastProcessedTimestamp = 0;
+  resetPresenceTracking();
+  resetAvatarPose({
+    preserveCalibration: true,
+  });
+  return true;
+}
+
+function resetAvatarPose(options = {}) {
   try {
-    state.avatarRenderer?.resetPose();
+    state.avatarRenderer?.resetPose(options);
   } catch (error) {
     console.warn("Unable to reset avatar pose.", error);
   }
@@ -1408,12 +1440,18 @@ async function runDetectionFrame(timestamp, options = {}) {
       );
     }
 
-    if (video.currentTime === state.lastVideoTime) {
+    const videoTime = Number(video.currentTime ?? 0);
+
+    if (shouldResetVideoTimeline(videoTime)) {
+      resetVideoTimelineState("rewind");
+    }
+
+    if (videoTime === state.lastVideoTime) {
       state.detectionPump.duplicateFrames += 1;
       return;
     }
 
-    state.lastVideoTime = video.currentTime;
+    state.lastVideoTime = videoTime;
     state.detectionPump.processedFrames += 1;
     recordDetectionProcessedFrame(frameTimestamp);
     recordAppPerformanceSample("frameAgeMs", nowMs() - frameTimestamp);
@@ -2416,6 +2454,8 @@ function resetAppPerformance() {
   state.detectionPump.busySkips = 0;
   state.detectionPump.latestWinsFrames = 0;
   state.detectionPump.staleFrameCallbacks = 0;
+  state.detectionPump.timelineResets = 0;
+  state.detectionPump.lastTimelineResetReason = "";
   state.detectionPump.consecutiveStaleFrameCallbacks = 0;
   state.detectionPump.errors = 0;
   state.detectionPump.busy = false;
@@ -2500,6 +2540,8 @@ function getAppPerformanceReport() {
       busySkips: state.detectionPump.busySkips,
       latestWinsFrames: state.detectionPump.latestWinsFrames,
       staleFrameCallbacks: state.detectionPump.staleFrameCallbacks,
+      timelineResets: state.detectionPump.timelineResets,
+      lastTimelineResetReason: state.detectionPump.lastTimelineResetReason,
       hasPendingLatestFrame: Boolean(state.detectionPump.pendingLatestFrame),
       errors: state.detectionPump.errors,
       debugOverlayEnabled: state.debugOverlayEnabled,

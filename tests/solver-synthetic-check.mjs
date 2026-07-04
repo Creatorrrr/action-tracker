@@ -35,6 +35,21 @@ for (const frame of identity.frames) {
   assert.equal(leftArmTarget.implausible, false);
 }
 
+const neutralHeadFrame = createSyntheticMotionFrame({ scenario: "identity" });
+const neutralHeadDirection = findTarget(solvePoseFrame(neutralHeadFrame), "Head").direction;
+const yawHeadFrame = cloneMotionFrame(neutralHeadFrame);
+yawHeadFrame.poseWorldLandmarks[LANDMARK_INDEX.nose].x += 0.16;
+const pitchHeadFrame = cloneMotionFrame(neutralHeadFrame);
+pitchHeadFrame.poseWorldLandmarks[LANDMARK_INDEX.nose].y += 0.16;
+assert.ok(
+  directionAngleDeg(neutralHeadDirection, findTarget(solvePoseFrame(yawHeadFrame), "Head").direction) > 20,
+  "head target direction should respond to nose yaw offset",
+);
+assert.ok(
+  directionAngleDeg(neutralHeadDirection, findTarget(solvePoseFrame(pitchHeadFrame), "Head").direction) > 5,
+  "head target direction should respond to nose pitch offset",
+);
+
 const leftElbowFlex = createSyntheticSequence({ scenario: "left-elbow-flex", frames: 5 });
 const firstFlex = leftElbowFlex.frames[0];
 const lastFlex = leftElbowFlex.frames.at(-1);
@@ -193,6 +208,16 @@ function findHinge(solved, name) {
   const hinge = solved.hinges.find((candidate) => candidate.name === name);
   assert.ok(hinge, `Expected hinge ${name}`);
   return hinge;
+}
+
+function findTarget(solved, bone) {
+  const target = solved.targets.find((candidate) => candidate.bone === bone);
+  assert.ok(target, `Expected target ${bone}`);
+  return target;
+}
+
+function cloneMotionFrame(frame) {
+  return JSON.parse(JSON.stringify(frame));
 }
 
 function elbowFlexionDeg(frame) {
