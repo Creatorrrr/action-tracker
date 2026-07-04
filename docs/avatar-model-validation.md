@@ -28,7 +28,8 @@ full-body motion parity.
 1. Static contract: `npm run check`
 2. Default avatar asset/performance budget: `npm run perf:avatar`
 3. Soldier GLB asset budget: `npm run perf:avatar:soldier`
-4. VRM candidate humanoid/finger mapping check: `npm run perf:avatar:vrm`
+4. VRM candidate humanoid/finger/rendering/spring metadata check:
+   `npm run perf:avatar:vrm`
 5. Frame-pump performance comparison: `npm run perf:pump`
 6. Browser motion gate: `npm run motion:avatar`
    - The default motion gate checks Xbot, Soldier, and the full-finger
@@ -55,6 +56,13 @@ full-body motion parity.
    - Collect `motionTrackerDebug.getAvatarRigReport()` and confirm the required
      body bones are present and each finger chain reports at least 3 mapped
      segments for full-finger VRM candidates.
+   - For VRM files, collect `motionTrackerDebug.getVrmRuntimeReport()` and
+     confirm the runtime is available, spring-bone updates are enabled when the
+     model has spring metadata, `humanoidAutoUpdate` is false, and
+     `runtimeUpdateFailed` remains false. While the avatar is still,
+     `springPhysicsActive` should settle to false; during body motion,
+     `springMotionActivity` may rise briefly and then return to idle after the
+     secondary motion catches up.
    - Use `?depth-calibration=static` or
      `motionTrackerDebug.setDepthCalibrationMode("static")` only for rollback
      and baseline comparisons.
@@ -184,8 +192,19 @@ those are not app-level avatar failures unless the avatar leaves `Ready`.
 - The renderer reads VRM0/VRM1 humanoid metadata and maps semantic bones such as
   `leftUpperArm`, `leftIndexProximal`, and `leftThumbMetacarpal` into the
   existing Mixamo-style retarget names.
-- MToon rendering, SpringBone, and VRM constraint simulation are outside this
-  motion-preview scope.
+- VRM uploads use the optional `@pixiv/three-vrm` runtime for VRM0 material
+  compatibility, MToon rendering, geometry/skeleton optimization, and
+  motion-gated spring-bone updates. Spring motion depends on the model's own
+  `secondaryAnimation` or spring metadata; models without spring groups remain
+  rigid unless authored with spring bones. The renderer disables three-vrm's
+  humanoid auto-update because this app retargets the raw `THREE.Bone`
+  quaternions directly; leaving it enabled can overwrite the app-owned pose
+  before rendering and make the mesh look fixed while only root motion changes.
+  When the retargeted body is still, the renderer resets and pauses spring
+  simulation instead of integrating gravity every render frame; when the body
+  moves, spring updates resume for a short settle window so hair and clothing
+  follow the motion. Models without collider groups can still move, but hair or
+  clothing may clip through the body during large motion.
 - If a VRM model appears backward-facing, reset the avatar view first and then
   record the rig report plus a screenshot. VRM0 models receive a default
   180 degree Y rotation before framing; VRM1 models keep the spec-forward
@@ -194,3 +213,32 @@ those are not app-level avatar failures unless the avatar leaves `Ready`.
   The report now includes humanoid mapping, expression coverage, finger chain
   coverage, rest-pose cache coverage, and inferred bone orientation axes so
   missing metadata, backward-facing rigs, and bad retarget axes can be separated.
+  It also includes `renderCompatibility`, which reports zero-alpha vertex-color
+  sanitization used to make affected meshes visible.
+- Include `window.motionTrackerDebug.getVrmRuntimeReport()` when reporting hair,
+  sleeve, skirt, or accessory motion issues. The report separates
+  `springBoneEnabled` from `runtimeUpdateFailed`, so disabling spring bones does
+  not disable non-spring VRM runtime updates. It also includes
+  `springMotionScore`, `springMotionActivity`, `springPhysicsActive`, and
+  `springIdleResetCount` for distinguishing real secondary motion from idle
+  instability, plus `humanoidAutoUpdate` for confirming three-vrm is not
+  overwriting app-owned raw-bone retargeting.
+
+For `assets/models/1406500396179985353.vrm`, raw GLTF loading exposes `COLOR_0`
+with zero alpha across all primitives, which can make the skinned mesh
+effectively disappear while the skeleton helper remains visible. The renderer
+sanitizes that case by disabling vertex colors on the affected meshes and
+reports the action through
+`window.motionTrackerDebug.getAvatarRigReport().renderCompatibility`.
+
+Use this targeted diagnostic command for the same model:
+
+```bash
+node scripts/avatar-vrm-performance-check.mjs assets/models/1406500396179985353.vrm
+```
+
+The current expected highlights are `colorPrimitives: 42`,
+`zeroAlphaColorPrimitives: 42`, `secondaryAnimation.boneGroupCount: 5`,
+`secondaryAnimation.springRootCount: 274`,
+`secondaryAnimation.colliderGroupCount: 0`, and
+`secondaryAnimation.gravityGroupCount: 1`.

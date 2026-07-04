@@ -5,6 +5,10 @@ import {
   resolveAvatarYawDeg,
   resolveHandPalmNormal,
 } from "../src/retarget-orientation.js";
+import {
+  HAND_FINGERS,
+  resolveFingerSegmentPoints,
+} from "../src/hand-retargeting.js";
 
 const wrist = { x: 0, y: 0, z: 0 };
 const indexBase = { x: 1, y: 0, z: 0 };
@@ -41,6 +45,25 @@ assert.equal(resolveAvatarYawDeg(180), -180);
 assert.equal(resolveAvatarYawDeg(270), 90);
 assert.equal(resolveAvatarYawDeg(90, 1), 90);
 assert.equal(resolveAvatarYawDeg(Number.NaN), null);
+
+const handPoints = Array.from({ length: 21 }, (_, index) => ({ index }));
+assert.deepEqual([...HAND_FINGERS.Thumb], [1, 2, 3, 4]);
+
+const thumbBaseSegment = resolveFingerSegmentPoints(handPoints, "Thumb", 0);
+assert.equal(thumbBaseSegment.fromIndex, 0);
+assert.equal(thumbBaseSegment.toIndex, 1);
+
+const thumbMiddleSegment = resolveFingerSegmentPoints(handPoints, "Thumb", 1);
+assert.equal(thumbMiddleSegment.fromIndex, 1);
+assert.equal(thumbMiddleSegment.toIndex, 2);
+
+const thumbTipSegment = resolveFingerSegmentPoints(handPoints, "Thumb", 3);
+assert.equal(thumbTipSegment.fromIndex, 3);
+assert.equal(thumbTipSegment.toIndex, 4);
+
+const indexBaseSegment = resolveFingerSegmentPoints(handPoints, "Index", 0);
+assert.equal(indexBaseSegment.fromIndex, 5);
+assert.equal(indexBaseSegment.toIndex, 6);
 
 console.log("Retarget orientation check passed.");
 

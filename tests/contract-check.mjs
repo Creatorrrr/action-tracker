@@ -15,6 +15,7 @@ const files = {
   app: "src/app.js",
   avatarRenderer: "src/avatar-renderer.js",
   retargetOrientation: "src/retarget-orientation.js",
+  handRetargeting: "src/hand-retargeting.js",
   strictRetarget: "src/retarget/skeleton-fk-retarget.js",
   depthCalibration: "src/depth-calibration.js",
   motionFrame: "src/motion-frame.js",
@@ -26,6 +27,7 @@ const files = {
   poseSolver: "src/solver/pose-solver.js",
   vrmHumanoidMapping: "src/vrm-humanoid-mapping.js",
   vrmExpressionMapping: "src/vrm-expression-mapping.js",
+  vrmRenderingCompat: "src/vrm-rendering-compat.js",
   mhr70Hands: "src/skeleton/mhr70-hands.js",
   avatarModel: "assets/models/Xbot.glb",
   claudeSettings: ".claude/settings.json",
@@ -45,6 +47,7 @@ const files = {
   motionStatusHudSmokeScript: "scripts/motion-status-hud-smoke.mjs",
   motionGoalAuditScript: "scripts/motion-goal-audit.mjs",
   avatarVrmPerformanceScript: "scripts/avatar-vrm-performance-check.mjs",
+  avatarVrmRenderingCompatCheck: "tests/avatar-vrm-rendering-compat-check.mjs",
   avatarVrmHumanoidCheck: "tests/avatar-vrm-humanoid-check.mjs",
   avatarVrmExpressionCheck: "tests/avatar-vrm-expression-check.mjs",
   retargetOrientationCheck: "tests/retarget-orientation-check.mjs",
@@ -70,6 +73,7 @@ const files = {
 
 const mediaPipeVersion = "0.10.35";
 const threeVersion = "0.184.0";
+const threeVrmVersion = "3.5.4";
 
 const requiredTrackerDomIds = [
   "camera-status",
@@ -281,8 +285,8 @@ function checkSyntax(relativePath) {
 
 function checkPackageContract(packageJson) {
   check(
-    packageJson?.scripts?.check === "node tests/contract-check.mjs && node tests/avatar-vrm-humanoid-check.mjs && node tests/avatar-vrm-expression-check.mjs && node tests/retarget-orientation-check.mjs && node tests/strict-retarget-check.mjs && node tests/depth-calibration-check.mjs && node tests/motion-frame-check.mjs && node tests/motion-forwarding-check.mjs && node tests/presence-state-check.mjs && node tests/facing-estimator-check.mjs && node tests/solver-synthetic-check.mjs && node tests/sam-manual-labels-check.mjs && node tests/motion-recording-compare-check.mjs && node tests/retarget-mode-compare-check.mjs && node tests/mhr70-mapping-check.mjs && node tests/mhr70-hands-check.mjs && node tests/gesture-classifier-check.mjs && node tests/sam-reference-labeler-check.mjs && node tests/sam-calibration-profile-check.mjs && node tests/sam-regression-oracle-check.mjs && node tests/hmr-jsonl-adapter-check.mjs && node tests/clip-manifest-check.mjs",
-    "package.json: check script must run the contract, VRM humanoid, VRM expression, retarget orientation, strict retarget, depth calibration, motion frame, forwarding, presence state, facing estimator, solver synthetic, manual labels, recording compare, retarget compare, MHR70 mapping/hands, gesture classifier, SAM labeler/profile/oracle, HMR adapter, and clip manifest checks",
+    packageJson?.scripts?.check === "node tests/contract-check.mjs && node tests/avatar-vrm-rendering-compat-check.mjs && node tests/avatar-vrm-humanoid-check.mjs && node tests/avatar-vrm-expression-check.mjs && node tests/retarget-orientation-check.mjs && node tests/strict-retarget-check.mjs && node tests/depth-calibration-check.mjs && node tests/motion-frame-check.mjs && node tests/motion-forwarding-check.mjs && node tests/presence-state-check.mjs && node tests/facing-estimator-check.mjs && node tests/solver-synthetic-check.mjs && node tests/sam-manual-labels-check.mjs && node tests/motion-recording-compare-check.mjs && node tests/retarget-mode-compare-check.mjs && node tests/mhr70-mapping-check.mjs && node tests/mhr70-hands-check.mjs && node tests/gesture-classifier-check.mjs && node tests/sam-reference-labeler-check.mjs && node tests/sam-calibration-profile-check.mjs && node tests/sam-regression-oracle-check.mjs && node tests/hmr-jsonl-adapter-check.mjs && node tests/clip-manifest-check.mjs",
+    "package.json: check script must run the contract, VRM rendering compatibility, VRM humanoid, VRM expression, retarget orientation, strict retarget, depth calibration, motion frame, forwarding, presence state, facing estimator, solver synthetic, manual labels, recording compare, retarget compare, MHR70 mapping/hands, gesture classifier, SAM labeler/profile/oracle, HMR adapter, and clip manifest checks",
   );
   check(
     packageJson?.scripts?.start === "python3 -m http.server 8000 --bind 127.0.0.1",
@@ -409,6 +413,11 @@ function checkHtmlContract(html) {
     importMap?.imports?.["three/addons/"] ===
       `https://cdn.jsdelivr.net/npm/three@${threeVersion}/examples/jsm/`,
     "index.html: import map must pin three/addons/ to the expected CDN URL",
+  );
+  check(
+    importMap?.imports?.["@pixiv/three-vrm"] ===
+      `https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@${threeVrmVersion}/lib/three-vrm.module.js`,
+    "index.html: import map must pin @pixiv/three-vrm to the expected CDN module URL",
   );
 }
 
@@ -622,6 +631,8 @@ function checkAvatarAppContract(app) {
     ["exposes dynamic depth calibration debug API", /getDepthCalibrationReport[\s\S]*setDepthCalibrationMode/],
     ["exposes avatar performance debug API", /getAvatarPerformanceReport[\s\S]*clearAvatarPerformanceSamples/],
     ["exposes app performance debug API", /getAppPerformanceReport[\s\S]*clearAppPerformanceSamples[\s\S]*getDetectionPumpStatus/],
+    ["exposes VRM runtime report debug API", /getVrmRuntimeReport/],
+    ["exposes VRM spring-bone toggle debug API", /setVrmSpringBoneEnabled/],
     ["reports detector delegate fallback telemetry", /detectorDelegates[\s\S]*fallbackReasons[\s\S]*recordDetectorDelegateAttempt/],
     ["exposes motion status HUD debug API", /getMotionStatusHudSnapshot/],
     ["updates motion status HUD from detection metrics", /function\s+updateDetectionMetrics\s*\([^)]*\)[\s\S]*maybeUpdateMotionStatusHud\s*\(\s*\)/],
@@ -659,12 +670,37 @@ function checkAvatarRendererContract(avatarRenderer) {
       "imports GLTFLoader add-on",
       /import\s*\{\s*GLTFLoader\s*\}\s*from\s*["']three\/addons\/loaders\/GLTFLoader\.js["']/,
     ],
+    [
+      "imports three-vrm runtime helpers",
+      /import\s*\{\s*VRMLoaderPlugin\s*,\s*VRMUtils\s*\}\s*from\s*["']@pixiv\/three-vrm["']/,
+    ],
+    ["registers three-vrm loader plugin", /new\s+VRMLoaderPlugin\s*\(\s*parser\s*\)/],
+    ["removes unnecessary VRM vertices", /VRMUtils\.removeUnnecessaryVertices\s*\(/],
+    ["combines VRM skeletons", /VRMUtils\.combineSkeletons\s*\(/],
     ["defines local default model URL", /const\s+DEFAULT_MODEL_URL\s*=\s*["']\.\/assets\/models\/Xbot\.glb["']/],
     ["keeps default Xbot model camera-facing without extra yaw", /const\s+DEFAULT_XBOT_MODEL_YAW_RAD\s*=\s*0[\s\S]*function\s+getNonVrmInitialModelYawRad/],
     ["defines conservative runtime depth scale default", /const\s+DEFAULT_LANDMARK_DEPTH_SCALE\s*=\s*0\.45/],
     ["defaults avatar retargeting to strict mode", /activeRetargetMode\s*=\s*normalizeAvatarRetargetMode\(\s*options\.retargetMode,\s*RETARGET_MODE_STRICT\s*\)/],
     ["imports dynamic depth calibration helpers", /from\s+["']\.\/depth-calibration\.js["']/],
     ["imports VRM expression helpers", /from\s+["']\.\/vrm-expression-mapping\.js["']/],
+    ["uses VRM render compatibility sanitizer", /sanitizeZeroAlphaVertexColors/],
+    ["reports VRM render compatibility diagnostics", /renderCompatibility/],
+    ["defines motion-gated VRM spring-bone thresholds", /VRM_SPRING_MOTION_THRESHOLD[\s\S]*VRM_SPRING_SETTLE_MS[\s\S]*VRM_SPRING_MOTION_BONES/],
+    ["disables three-vrm humanoid auto-updates for raw-bone retargeting", /activeVrm\.humanoid\.autoUpdateHumanBones\s*=\s*false/],
+    ["reports three-vrm humanoid auto-update state", /humanoidAutoUpdate/],
+    ["updates active VRM spring bones before render", /activeVrm\.springBoneManager\?\.\s*update\?\.\s*\(\s*springDeltaSec\s*\)/],
+    ["records VRM runtime update delta before render", /activeVrmRuntime\.lastUpdateDeltaSec\s*=\s*deltaSec/],
+    ["includes VRM runtime update in render performance samples", /const\s+startedAt\s*=\s*nowMs\s*\(\s*\)[\s\S]*?updateVrmRuntimeBeforeRender\s*\(\s*timestampMs\s*\)[\s\S]*?renderer\.render\s*\(\s*scene\s*,\s*camera\s*\)/],
+    ["records VRM runtime update failure without relabeling the spring toggle", /catch\s*\(\s*error\s*\)\s*\{[\s\S]*?activeVrmRuntime\.runtimeUpdateFailed\s*=\s*true[\s\S]*?updateError/],
+    ["gates VRM spring physics by avatar body motion", /function\s+updateVrmSpringMotionActivity\s*\([^)]*\)[\s\S]*?measureVrmSpringDriverMotion\s*\(\s*\)[\s\S]*?VRM_SPRING_MOTION_THRESHOLD[\s\S]*?springPhysicsActive/],
+    ["resets VRM spring bones after idle motion settles", /else\s+if\s*\(\s*!vrmSpringMotion\.idleResetDone\s*\)[\s\S]*?springBoneManager\?\.\s*reset\?\.\s*\(\s*\)[\s\S]*?springIdleResetCount/],
+    ["keeps non-spring VRM runtime updates active when spring bones are disabled", /function\s+updateActiveVrmRuntime\s*\([^)]*\)\s*\{[\s\S]*?activeVrm\.lookAt\?\.\s*update\?\.\s*\(\s*deltaSec\s*\)[\s\S]*?activeVrm\.nodeConstraintManager\?\.\s*update\?\.\s*\(\s*\)[\s\S]*?shouldUpdateVrmSpringBones\s*\(\s*springActivity\s*\)[\s\S]*?activeVrm\.springBoneManager\?\.\s*update\?\.\s*\(\s*springDeltaSec\s*\)/],
+    ["keeps VRM spring-bone toggle separate from non-spring runtime updates", /function\s+shouldUpdateVrmSpringBones\s*\([^)]*\)\s*\{[\s\S]*?activeVrmRuntime\.springBoneEnabled[\s\S]*?springActivity\.active/],
+    ["preserves app-owned VRM raw bones and expression morph targets during runtime updates", /App retargeting owns raw bone quaternions and expression morph targets[\s\S]*?activeVrm\.materials/],
+    ["exposes VRM runtime report API", /function\s+getVrmRuntimeReport\s*\(/],
+    ["exposes VRM spring-bone toggle API", /function\s+setVrmSpringBoneEnabled\s*\(/],
+    ["guards VRM spring-bone toggle without an active VRM", /function\s+setVrmSpringBoneEnabled\s*\([^)]*\)\s*\{[\s\S]*?if\s*\(\s*!activeVrm\s*\)\s*\{[\s\S]*?return\s+getVrmRuntimeReport\s*\(\s*\)/],
+    ["resets VRM spring-bone timing when toggled", /function\s+setVrmSpringBoneEnabled\s*\([^)]*\)\s*\{[\s\S]*?lastVrmRenderUpdateTime\s*=\s*0/],
     ["defines runtime performance budgets", /const\s+PERFORMANCE_BUDGETS_MS\s*=\s*\{[\s\S]*updateMedian\s*:\s*1\.5[\s\S]*validationP95\s*:\s*2/],
     ["defines face apply performance budget", /faceApplyP95\s*:\s*0\.5/],
     ["defines pose solver performance budget", /poseSolverP95\s*:\s*2/],
@@ -731,12 +767,12 @@ function checkAvatarRendererContract(avatarRenderer) {
     ["applies face transform matrix to head pose", /function\s+applyFaceHeadPose\s*\([^)]*\)[\s\S]*faceTransformQuaternion[\s\S]*applyLocalPoseDeltaToBone\(["']Head["']/],
     ["applies face expressions after hand retargeting", /applyHands\s*\([\s\S]*?\)[\s\S]*?applyFaceExpressions\s*\(/],
     ["reports expression diagnostics", /expressionPresetCount[\s\S]*resolvedMorphTargetCount[\s\S]*missingPresets/],
-    ["defines finger segment mappings", /const\s+FINGER_SEGMENTS\s*=\s*\[[\s\S]*?fallbackFrom/],
+    ["imports hand retargeting helpers", /from\s+["']\.\/hand-retargeting\.js["']/],
     [
       "builds side-specific finger chains",
       /for\s*\(\s*const\s+side\s+of\s+\[\s*["']Left["']\s*,\s*["']Right["']\s*\]\s*\)[\s\S]*?\$\{side\}Hand\$\{fingerName\}\$\{segment\}/,
     ],
-    ["applies hand landmark retargeting", /for\s*\(\s*const\s+\[fingerName,\s*indices\]\s+of\s+Object\.entries\(HAND_FINGERS\)\s*\)/],
+    ["applies hand landmark retargeting", /resolveFingerSegmentPoints\s*\(\s*points\s*,\s*fingerName\s*,\s*i\s*\)/],
     ["has failure handler", /function\s+fail\s*\(\s*error\s*\)/],
     ["marks renderer failed", /function\s+fail\s*\(\s*error\s*\)[\s\S]*?failed\s*=\s*true/],
     ["reports failed status", /setStatus\s*\(\s*`Failed:/],
@@ -751,6 +787,39 @@ function checkAvatarRendererContract(avatarRenderer) {
     checkPattern(avatarRenderer, pattern, `src/avatar-renderer.js: contract missing - ${label}`);
   }
 
+  check(
+    !/activeVrm\.update\s*\(/.test(avatarRenderer),
+    "src/avatar-renderer.js: VRM runtime updates must not call activeVrm.update() because it clears app-owned expression morph targets",
+  );
+  check(
+    !/activeVrm\.humanoid\?\.\s*update\?\.\s*\(/.test(avatarRenderer),
+    "src/avatar-renderer.js: VRM runtime updates must not call activeVrm.humanoid.update() because it overwrites app-owned raw-bone retargeting",
+  );
+
+  for (const bone of requiredAvatarBones) {
+    checkPattern(
+      avatarRenderer,
+      new RegExp(`["']${escapeRegExp(bone)}["']`),
+      `src/avatar-renderer.js: REQUIRED_BONES missing ${bone}`,
+    );
+  }
+}
+
+function checkHandRetargetingContract(handRetargeting) {
+  const helperChecks = [
+    ["exports finger landmark mappings", /export\s+const\s+HAND_FINGERS\s*=/],
+    ["defines generic finger segment mappings", /const\s+FINGER_SEGMENTS\s*=\s*Object\.freeze\(\s*\[[\s\S]*?fallbackFrom/],
+    ["defines thumb-specific segment mappings", /const\s+THUMB_FINGER_SEGMENTS\s*=\s*Object\.freeze\(\s*\[[\s\S]*?from\s*:\s*["']wrist["'][\s\S]*?to\s*:\s*0/],
+    ["resolves segment points", /export\s+function\s+resolveFingerSegmentPoints\s*\(/],
+    ["exposes segment count", /export\s+function\s+getFingerSegmentCount\s*\(/],
+    ["keeps thumb base anchored at wrist", /fingerName\s*===\s*["']Thumb["'][\s\S]*THUMB_FINGER_SEGMENTS/],
+    ["resolves wrist landmark token", /token\s*===\s*["']wrist["'][\s\S]*return\s+0/],
+  ];
+
+  for (const [label, pattern] of helperChecks) {
+    checkPattern(handRetargeting, pattern, `${files.handRetargeting}: contract missing - ${label}`);
+  }
+
   const fingerLandmarkMappings = {
     Thumb: [1, 2, 3, 4],
     Index: [5, 6, 7, 8],
@@ -761,17 +830,9 @@ function checkAvatarRendererContract(avatarRenderer) {
 
   for (const [fingerName, indices] of Object.entries(fingerLandmarkMappings)) {
     checkPattern(
-      avatarRenderer,
-      new RegExp(`${fingerName}\\s*:\\s*\\[\\s*${indices.join("\\s*,\\s*")}\\s*\\]`),
-      `src/avatar-renderer.js: missing ${fingerName} MediaPipe finger landmark mapping`,
-    );
-  }
-
-  for (const bone of requiredAvatarBones) {
-    checkPattern(
-      avatarRenderer,
-      new RegExp(`["']${escapeRegExp(bone)}["']`),
-      `src/avatar-renderer.js: REQUIRED_BONES missing ${bone}`,
+      handRetargeting,
+      new RegExp(`${fingerName}\\s*:\\s*Object\\.freeze\\(\\s*\\[\\s*${indices.join("\\s*,\\s*")}\\s*\\]\\s*\\)`),
+      `${files.handRetargeting}: missing ${fingerName} MediaPipe finger landmark mapping`,
     );
   }
 }
@@ -826,6 +887,7 @@ const [
   app,
   avatarRenderer,
   retargetOrientation,
+  handRetargeting,
   strictRetarget,
   depthCalibration,
   motionFrame,
@@ -843,6 +905,7 @@ const [
   motionGoalAuditScript,
   vrmHumanoidMapping,
   vrmExpressionMapping,
+  vrmRenderingCompat,
   clipFamilyManifestSource,
   avatarModelBytes,
   claudeSettings,
@@ -857,6 +920,7 @@ const [
     readProjectFile(files.app),
     readProjectFile(files.avatarRenderer),
     readProjectFile(files.retargetOrientation),
+    readProjectFile(files.handRetargeting),
     readProjectFile(files.strictRetarget),
     readProjectFile(files.depthCalibration),
     readProjectFile(files.motionFrame),
@@ -874,6 +938,7 @@ const [
     readProjectFile(files.motionGoalAuditScript),
     readProjectFile(files.vrmHumanoidMapping),
     readProjectFile(files.vrmExpressionMapping),
+    readProjectFile(files.vrmRenderingCompat),
     readProjectFile(files.clipFamilyManifest),
     readProjectBytes(files.avatarModel),
     readProjectFile(files.claudeSettings),
@@ -892,6 +957,7 @@ checkClaudeCodexBridge(claudeSettings, claudeCodexCommand, claudeCodexScript, re
 checkTrackerAppContract(app);
 checkAvatarAppContract(app);
 checkAvatarRendererContract(avatarRenderer);
+checkHandRetargetingContract(handRetargeting);
 checkCssContract(css);
 checkAvatarModelContract(avatarModelJson);
 check(retargetOrientation.includes("resolveHandPalmNormal"), `${files.retargetOrientation}: expected hand palm normal resolver`);
@@ -904,6 +970,7 @@ check(vrmHumanoidMapping.includes("parseVrmHumanoid"), `${files.vrmHumanoidMappi
 check(vrmHumanoidMapping.includes("createVrmHumanoidMapping"), `${files.vrmHumanoidMapping}: expected VRM humanoid mapper`);
 check(vrmExpressionMapping.includes("parseVrmExpressionMetadata"), `${files.vrmExpressionMapping}: expected VRM expression parser`);
 check(vrmExpressionMapping.includes("mapMediaPipeBlendShapesToVrmPresets"), `${files.vrmExpressionMapping}: expected MediaPipe blendshape mapper`);
+check(vrmRenderingCompat.includes("describeVertexColorAlpha"), `${files.vrmRenderingCompat}: expected vertex color alpha diagnostics`);
 check(depthCalibration.includes("solveDistalDepth"), `${files.depthCalibration}: expected depth solver`);
 check(depthCalibration.includes("DEPTH_CALIBRATION_TARGET_SCORE"), `${files.depthCalibration}: expected depth calibration target`);
 check(depthCalibration.includes("estimateCalibrationPoseQuality"), `${files.depthCalibration}: expected calibration pose quality helper`);
@@ -1006,6 +1073,7 @@ check(
 checkSyntax(files.app);
 checkSyntax(files.avatarRenderer);
 checkSyntax(files.retargetOrientation);
+checkSyntax(files.handRetargeting);
 checkSyntax(files.strictRetarget);
 checkSyntax(files.depthCalibration);
 checkSyntax(files.motionFrame);
@@ -1030,8 +1098,10 @@ checkSyntax(files.motionStatusHudSmokeScript);
 checkSyntax(files.motionGoalAuditScript);
 checkSyntax(files.vrmHumanoidMapping);
 checkSyntax(files.vrmExpressionMapping);
+checkSyntax(files.vrmRenderingCompat);
 checkSyntax(files.avatarPerformanceScript);
 checkSyntax(files.avatarVrmPerformanceScript);
+checkSyntax(files.avatarVrmRenderingCompatCheck);
 checkSyntax(files.avatarVrmHumanoidCheck);
 checkSyntax(files.avatarVrmExpressionCheck);
 checkSyntax(files.retargetOrientationCheck);

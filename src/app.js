@@ -4,7 +4,7 @@ import {
   HandLandmarker,
   PoseLandmarker,
 } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/vision_bundle.mjs";
-import { createAvatarRenderer } from "./avatar-renderer.js?v=20260704-strict-retarget-1";
+import { createAvatarRenderer } from "./avatar-renderer.js?v=20260704-vrm-runtime-2";
 import {
   MOTION_RECORDING_FRAME_LIMIT,
   createMotionFrame,
@@ -3887,6 +3887,8 @@ function exposeDebugApi() {
     },
     clearAvatarPerformanceSamples: () => state.avatarRenderer?.clearPerformanceSamples?.() ?? null,
     getAvatarRigReport: () => state.avatarRenderer?.getModelDiagnostics?.() ?? null,
+    getVrmRuntimeReport: () => state.avatarRenderer?.getVrmRuntimeReport?.() ?? null,
+    setVrmSpringBoneEnabled: (value) => state.avatarRenderer?.setVrmSpringBoneEnabled?.(value) ?? null,
     getTrackedChannelReport,
     getAvatarViewState: () => state.avatarRenderer?.getViewState?.() ?? null,
     resetAvatarView: () => state.avatarRenderer?.resetView?.() ?? null,

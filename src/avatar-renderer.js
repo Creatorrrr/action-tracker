@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import {
@@ -38,6 +39,12 @@ import {
   resolveVrmExpressionTargets,
   summarizeVrmExpressionMapping,
 } from './vrm-expression-mapping.js';
+import {
+  HAND_FINGERS,
+  getFingerSegmentCount,
+  resolveFingerSegmentPoints,
+} from './hand-retargeting.js';
+import { sanitizeZeroAlphaVertexColors } from './vrm-rendering-compat.js';
 import {
   DEFAULT_AVATAR_YAW_SIGN,
   DEFAULT_PALM_NORMAL_SIGNS,
@@ -95,6 +102,32 @@ const FACE_NECK_POSE_MAX_ANGLE = 0.48;
 const FACE_HEAD_POSE_STRENGTH = 0.72;
 const FACE_NECK_POSE_STRENGTH = 0.32;
 const PERFORMANCE_SAMPLE_LIMIT = 240;
+const VRM_SPRING_MOTION_THRESHOLD = 0.006;
+const VRM_SPRING_MOTION_FULL = 0.035;
+const VRM_SPRING_MOTION_MIN_ACTIVE = 0.03;
+const VRM_SPRING_ROTATION_MOTION_WEIGHT = 0.012;
+const VRM_SPRING_SETTLE_MS = 320;
+const VRM_SPRING_MAX_DELTA_SEC = 1 / 30;
+const VRM_SPRING_MOTION_BONES = [
+  'Hips',
+  'Spine',
+  'Spine1',
+  'Spine2',
+  'Neck',
+  'Head',
+  'LeftArm',
+  'LeftForeArm',
+  'LeftHand',
+  'RightArm',
+  'RightForeArm',
+  'RightHand',
+  'LeftUpLeg',
+  'LeftLeg',
+  'LeftFoot',
+  'RightUpLeg',
+  'RightLeg',
+  'RightFoot',
+];
 const PERFORMANCE_BUDGETS_MS = {
   updateMedian: 1.5,
   updateP95: 3,
@@ -180,6 +213,37 @@ const ORBIT_MAX_POLAR = THREE.MathUtils.degToRad(168);
 const ORBIT_MIN_DISTANCE_SCALE = 0.62;
 const ORBIT_MAX_DISTANCE_SCALE = 3.25;
 
+function createEmptyVrmRuntimeState() {
+  return {
+    available: false,
+    version: null,
+    springBoneEnabled: false,
+    springBoneJointCount: 0,
+    colliderCount: 0,
+    colliderGroupCount: 0,
+    lastUpdateDeltaSec: 0,
+    springMotionScore: 0,
+    springMotionActivity: 0,
+    springPhysicsActive: false,
+    springIdleResetCount: 0,
+    runtimeUpdateFailed: false,
+    updateError: null,
+    humanoidAutoUpdate: null,
+  };
+}
+
+function createEmptyVrmSpringMotionState() {
+  return {
+    samples: new Map(),
+    activity: 0,
+    score: 0,
+    active: false,
+    lastMotionAt: 0,
+    idleResetDone: true,
+    idleResetCount: 0,
+  };
+}
+
 const POSE = {
   nose: 0,
   leftEye: 2,
@@ -202,14 +266,6 @@ const POSE = {
   rightHeel: 30,
   leftFootIndex: 31,
   rightFootIndex: 32,
-};
-
-const HAND_FINGERS = {
-  Thumb: [1, 2, 3, 4],
-  Index: [5, 6, 7, 8],
-  Middle: [9, 10, 11, 12],
-  Ring: [13, 14, 15, 16],
-  Pinky: [17, 18, 19, 20],
 };
 
 const REQUIRED_BONES = [
@@ -308,13 +364,6 @@ const SCREEN_LENGTH_CALIBRATION_SEGMENTS = [
   { bone: 'RightLeg', sourceFrom: 'rightHip', sourceTo: 'rightKnee', avatarFrom: 'rightHip', avatarTo: 'rightKnee' },
   { bone: 'LeftFoot', sourceFrom: 'leftKnee', sourceTo: 'leftAnkle', avatarFrom: 'leftKnee', avatarTo: 'leftAnkle' },
   { bone: 'RightFoot', sourceFrom: 'rightKnee', sourceTo: 'rightAnkle', avatarFrom: 'rightKnee', avatarTo: 'rightAnkle' },
-];
-
-const FINGER_SEGMENTS = [
-  { from: 0, to: 1, fallbackFrom: 0 },
-  { from: 1, to: 2, fallbackFrom: 0 },
-  { from: 2, to: 3, fallbackFrom: 1 },
-  { from: 3, to: 4, fallbackFrom: 2 },
 ];
 
 const KNOWN_AVATAR_BONE_NAMES = new Set([
@@ -422,6 +471,7 @@ export function createAvatarRenderer(options = {}) {
   let ready = false;
   let failed = false;
   let lastUpdateTime = 0;
+  let lastVrmRenderUpdateTime = 0;
   let skeletonVisible = Boolean(options.showSkeleton);
   let landmarkDepthScale = normalizeDepthScale(options.depthScale ?? DEFAULT_LANDMARK_DEPTH_SCALE);
   let depthCalibrationMode = normalizeDepthCalibrationMode(options.depthCalibrationMode);
@@ -561,12 +611,16 @@ export function createAvatarRenderer(options = {}) {
   let activeModelProfile = HEAD_NECK_PROFILE_DEFAULTS.default;
   let activeModelKind = 'default';
   let loadedGltf = null;
+  let activeVrm = null;
+  let activeVrmRuntime = createEmptyVrmRuntimeState();
+  let vrmSpringMotion = createEmptyVrmSpringMotionState();
   let vrmHumanoid = null;
   let vrmHumanoidMapping = null;
   let vrmExpressionMapping = null;
   let faceExpressionScores = {};
   const modelDiagnostics = {
     unresolvedNodeMappings: [],
+    renderCompatibility: null,
   };
   let modelHeight = 1;
 
@@ -902,6 +956,10 @@ export function createAvatarRenderer(options = {}) {
     resetFaceExpressions();
     resetFaceHeadPose();
     restoreRestPose(1);
+    activeVrm?.springBoneManager?.setInitState?.();
+    activeVrm?.springBoneManager?.reset?.();
+    resetVrmSpringMotionState();
+    lastVrmRenderUpdateTime = 0;
   }
 
   function resetView() {
@@ -1105,6 +1163,7 @@ export function createAvatarRenderer(options = {}) {
         unresolvedBindings: expressionDiagnostics.unresolvedBindings,
       },
       unresolvedNodeMappings: modelDiagnostics.unresolvedNodeMappings.slice(),
+      renderCompatibility: modelDiagnostics.renderCompatibility,
       requiredBones: {
         missing: requiredMissing,
         present: REQUIRED_BONES.filter((name) => getBone(name)),
@@ -1237,9 +1296,14 @@ export function createAvatarRenderer(options = {}) {
     activeModelProfile = HEAD_NECK_PROFILE_DEFAULTS.default;
     activeModelKind = 'default';
     loadedGltf = null;
+    activeVrm = null;
+    activeVrmRuntime = createEmptyVrmRuntimeState();
+    vrmSpringMotion = createEmptyVrmSpringMotionState();
+    lastVrmRenderUpdateTime = 0;
     vrmHumanoid = null;
     vrmHumanoidMapping = null;
     modelDiagnostics.unresolvedNodeMappings = [];
+    modelDiagnostics.renderCompatibility = null;
   }
 
   function getValidationSegment(segment, points) {
@@ -1404,6 +1468,7 @@ export function createAvatarRenderer(options = {}) {
 
   async function loadModel() {
     const loader = new GLTFLoader();
+    loader.register((parser) => new VRMLoaderPlugin(parser));
     const gltf = await loader.loadAsync(modelUrl);
 
     if (disposed || !scene) {
@@ -1418,13 +1483,47 @@ export function createAvatarRenderer(options = {}) {
     vrmHumanoid = parseVrmHumanoid(gltf.parser?.json);
     vrmHumanoidMapping = createVrmHumanoidMapping(vrmHumanoid);
     modelDiagnostics.unresolvedNodeMappings = [];
+    modelDiagnostics.renderCompatibility = null;
     activeModelKind = detectAvatarModelKind(gltf);
     activeModelProfile = HEAD_NECK_PROFILE_DEFAULTS[activeModelKind] ?? HEAD_NECK_PROFILE_DEFAULTS.default;
-    model = gltf.scene;
+    lastVrmRenderUpdateTime = 0;
+    activeVrm = gltf.userData?.vrm ?? null;
 
-    const initialYaw = vrmHumanoid
-      ? vrmHumanoid.recommendedModelYawRad ?? 0
-      : getNonVrmInitialModelYawRad();
+    if (activeVrm) {
+      VRMUtils.rotateVRM0(activeVrm);
+      VRMUtils.removeUnnecessaryVertices(activeVrm.scene);
+      VRMUtils.combineSkeletons(activeVrm.scene);
+      if (activeVrm.humanoid) {
+        activeVrm.humanoid.autoUpdateHumanBones = false;
+      }
+      model = activeVrm.scene;
+      vrmSpringMotion = createEmptyVrmSpringMotionState();
+      activeVrmRuntime = {
+        available: true,
+        version: vrmHumanoid?.version ?? null,
+        springBoneEnabled: true,
+        springBoneJointCount: activeVrm.springBoneManager?.joints?.size ?? 0,
+        colliderCount: activeVrm.springBoneManager?.colliders?.length ?? 0,
+        colliderGroupCount: activeVrm.springBoneManager?.colliderGroups?.length ?? 0,
+        lastUpdateDeltaSec: 0,
+        springMotionScore: 0,
+        springMotionActivity: 0,
+        springPhysicsActive: false,
+        springIdleResetCount: 0,
+        runtimeUpdateFailed: false,
+        updateError: null,
+        humanoidAutoUpdate: activeVrm.humanoid?.autoUpdateHumanBones ?? null,
+      };
+      resetVrmSpringMotionState();
+    } else {
+      model = gltf.scene;
+      activeVrmRuntime = createEmptyVrmRuntimeState();
+      vrmSpringMotion = createEmptyVrmSpringMotionState();
+    }
+
+    const initialYaw = activeVrm
+      ? 0
+      : (vrmHumanoid?.recommendedModelYawRad ?? getNonVrmInitialModelYawRad());
 
     if (initialYaw !== 0) {
       model.rotation.y = initialYaw;
@@ -1438,6 +1537,7 @@ export function createAvatarRenderer(options = {}) {
         object.receiveShadow = false;
       }
     });
+    modelDiagnostics.renderCompatibility = sanitizeZeroAlphaVertexColors(model);
     await cacheVrmExpressionMapping(gltf);
     scene.add(model);
   }
@@ -3307,18 +3407,18 @@ export function createAvatarRenderer(options = {}) {
       actualPalmNormal: getBoneWorldSecondaryAxis(`${side}Hand`),
     });
 
-    for (const [fingerName, indices] of Object.entries(HAND_FINGERS)) {
+    for (const fingerName of Object.keys(HAND_FINGERS)) {
       const chain = fingerChains[side].get(fingerName) ?? [];
+      const segmentCount = getFingerSegmentCount(fingerName);
 
-      for (let i = 0; i < Math.min(chain.length, FINGER_SEGMENTS.length); i += 1) {
-        const segment = FINGER_SEGMENTS[i];
-        const from = points[indices[segment.from] ?? indices[segment.fallbackFrom]];
-        const to = points[indices[segment.to]];
+      for (let i = 0; i < Math.min(chain.length, segmentCount); i += 1) {
+        const segmentPoints = resolveFingerSegmentPoints(points, fingerName, i);
 
-        if (!from || !to) {
+        if (!segmentPoints) {
           continue;
         }
 
+        const { from, to } = segmentPoints;
         const spreadStrength = i === 0 ? 1 : 0.75;
         const segmentAlpha = i === 0
           ? smoothingAlpha(delta, RETARGET_SMOOTHING_MS.fingerBase)
@@ -3602,15 +3702,169 @@ export function createAvatarRenderer(options = {}) {
     }
   }
 
+  function updateVrmRuntimeBeforeRender(timestampMs) {
+    if (!activeVrm || activeVrmRuntime.runtimeUpdateFailed) {
+      lastVrmRenderUpdateTime = timestampMs;
+      return;
+    }
+
+    const previous = lastVrmRenderUpdateTime || timestampMs;
+    const deltaSec = Math.min(Math.max((timestampMs - previous) / 1000, 0), 1 / 15);
+    lastVrmRenderUpdateTime = timestampMs;
+    activeVrmRuntime.lastUpdateDeltaSec = deltaSec;
+
+    if (deltaSec <= 0) {
+      return;
+    }
+
+    try {
+      updateActiveVrmRuntime(deltaSec, timestampMs);
+      activeVrmRuntime.updateError = null;
+    } catch (error) {
+      activeVrmRuntime.runtimeUpdateFailed = true;
+      activeVrmRuntime.updateError = error instanceof Error ? error.message : String(error);
+      console.warn('VRM runtime update skipped', error);
+    }
+  }
+
+  function updateActiveVrmRuntime(deltaSec, timestampMs) {
+    // App retargeting owns raw bone quaternions and expression morph targets.
+    // three-vrm humanoid/expression updates would overwrite those app-owned values.
+    activeVrm.lookAt?.update?.(deltaSec);
+    activeVrm.nodeConstraintManager?.update?.();
+    const springActivity = updateVrmSpringMotionActivity(timestampMs);
+
+    if (shouldUpdateVrmSpringBones(springActivity)) {
+      const springDeltaSec = Math.min(deltaSec, VRM_SPRING_MAX_DELTA_SEC) * Math.max(springActivity.activity, 0.25);
+      activeVrm.springBoneManager?.update?.(springDeltaSec);
+    } else if (!vrmSpringMotion.idleResetDone) {
+      activeVrm.springBoneManager?.reset?.();
+      vrmSpringMotion.idleResetDone = true;
+      vrmSpringMotion.idleResetCount += 1;
+      activeVrmRuntime.springIdleResetCount = vrmSpringMotion.idleResetCount;
+    }
+
+    for (const material of activeVrm.materials ?? []) {
+      material?.update?.(deltaSec);
+    }
+  }
+
+  function updateVrmSpringMotionActivity(timestampMs) {
+    const timestamp = Number.isFinite(timestampMs) ? timestampMs : nowMs();
+    const score = measureVrmSpringDriverMotion();
+    const targetActivity = clamp01(
+      (score - VRM_SPRING_MOTION_THRESHOLD) / (VRM_SPRING_MOTION_FULL - VRM_SPRING_MOTION_THRESHOLD),
+    );
+
+    if (targetActivity > 0) {
+      vrmSpringMotion.activity = Math.max(targetActivity, vrmSpringMotion.activity * 0.65);
+      vrmSpringMotion.lastMotionAt = timestamp;
+      vrmSpringMotion.idleResetDone = false;
+    } else if (vrmSpringMotion.lastMotionAt > 0) {
+      const idleMs = Math.max(0, timestamp - vrmSpringMotion.lastMotionAt);
+      const settleActivity = idleMs < VRM_SPRING_SETTLE_MS
+        ? (1 - idleMs / VRM_SPRING_SETTLE_MS) * Math.min(vrmSpringMotion.activity, 0.45)
+        : 0;
+      vrmSpringMotion.activity = settleActivity;
+    } else {
+      vrmSpringMotion.activity = 0;
+    }
+
+    vrmSpringMotion.score = score;
+    vrmSpringMotion.active = activeVrmRuntime.springBoneEnabled
+      && vrmSpringMotion.activity > VRM_SPRING_MOTION_MIN_ACTIVE;
+    activeVrmRuntime.springMotionScore = score;
+    activeVrmRuntime.springMotionActivity = vrmSpringMotion.activity;
+    activeVrmRuntime.springPhysicsActive = vrmSpringMotion.active;
+    activeVrmRuntime.springIdleResetCount = vrmSpringMotion.idleResetCount;
+
+    return {
+      active: vrmSpringMotion.active,
+      activity: vrmSpringMotion.activity,
+      score,
+    };
+  }
+
+  function measureVrmSpringDriverMotion() {
+    if (!model) {
+      return 0;
+    }
+
+    model.updateMatrixWorld(true);
+
+    let totalScore = 0;
+    let maxScore = 0;
+    let measuredCount = 0;
+    const heightScale = Math.max(modelHeight, 1);
+
+    for (const boneName of VRM_SPRING_MOTION_BONES) {
+      const bone = getBone(boneName);
+
+      if (!bone) {
+        continue;
+      }
+
+      bone.getWorldPosition(tmpVectorA);
+      bone.getWorldQuaternion(tmpQuaternionA);
+
+      let sample = vrmSpringMotion.samples.get(boneName);
+      if (!sample) {
+        sample = {
+          position: tmpVectorA.clone(),
+          quaternion: tmpQuaternionA.clone(),
+          ready: true,
+        };
+        vrmSpringMotion.samples.set(boneName, sample);
+        continue;
+      }
+
+      const positionScore = sample.position.distanceTo(tmpVectorA) / heightScale;
+      const rotationScore = sample.quaternion.angleTo(tmpQuaternionA) * VRM_SPRING_ROTATION_MOTION_WEIGHT;
+      const score = positionScore + rotationScore;
+
+      totalScore += score;
+      maxScore = Math.max(maxScore, score);
+      measuredCount += 1;
+      sample.position.copy(tmpVectorA);
+      sample.quaternion.copy(tmpQuaternionA);
+    }
+
+    if (measuredCount === 0) {
+      return 0;
+    }
+
+    return Math.max(maxScore, (totalScore / measuredCount) * 1.75);
+  }
+
+  function shouldUpdateVrmSpringBones(springActivity) {
+    return Boolean(activeVrmRuntime.springBoneEnabled)
+      && Boolean(activeVrm?.springBoneManager)
+      && springActivity.active;
+  }
+
+  function resetVrmSpringMotionState() {
+    vrmSpringMotion.samples.clear();
+    vrmSpringMotion.activity = 0;
+    vrmSpringMotion.score = 0;
+    vrmSpringMotion.active = false;
+    vrmSpringMotion.lastMotionAt = 0;
+    vrmSpringMotion.idleResetDone = true;
+    activeVrmRuntime.springMotionScore = 0;
+    activeVrmRuntime.springMotionActivity = 0;
+    activeVrmRuntime.springPhysicsActive = false;
+    activeVrmRuntime.springIdleResetCount = vrmSpringMotion.idleResetCount;
+  }
+
   function startAnimationLoop() {
     if (animationFrameId !== null || !renderer || !scene || !camera || disposed) {
       return;
     }
 
-    const render = () => {
+    const render = (timestampMs = nowMs()) => {
       animationFrameId = requestAnimationFrame(render);
       resize();
       const startedAt = nowMs();
+      updateVrmRuntimeBeforeRender(timestampMs);
       renderer.render(scene, camera);
       recordPerformanceSample(performanceStats.renderMs, nowMs() - startedAt);
     };
@@ -3651,8 +3905,14 @@ export function createAvatarRenderer(options = {}) {
     resetProportionCalibration();
     resetDepthCalibration();
     loadedGltf = null;
+    activeVrm = null;
+    activeVrmRuntime = createEmptyVrmRuntimeState();
+    vrmSpringMotion = createEmptyVrmSpringMotionState();
+    lastVrmRenderUpdateTime = 0;
     vrmHumanoid = null;
     vrmHumanoidMapping = null;
+    modelDiagnostics.unresolvedNodeMappings = [];
+    modelDiagnostics.renderCompatibility = null;
   }
 
   function disposeSkeletonHelper() {
@@ -3775,6 +4035,30 @@ export function createAvatarRenderer(options = {}) {
     return globalThis.performance?.now?.() ?? Date.now();
   }
 
+  function getVrmRuntimeReport() {
+    return {
+      ...activeVrmRuntime,
+      springBoneEnabled: Boolean(activeVrmRuntime.springBoneEnabled),
+    };
+  }
+
+  function setVrmSpringBoneEnabled(value) {
+    if (!activeVrm) {
+      return getVrmRuntimeReport();
+    }
+
+    activeVrmRuntime.springBoneEnabled = Boolean(value);
+    activeVrmRuntime.lastUpdateDeltaSec = 0;
+    activeVrmRuntime.runtimeUpdateFailed = false;
+    activeVrmRuntime.updateError = null;
+    lastVrmRenderUpdateTime = 0;
+    activeVrm?.springBoneManager?.setInitState?.();
+    activeVrm?.springBoneManager?.reset?.();
+    resetVrmSpringMotionState();
+
+    return getVrmRuntimeReport();
+  }
+
   const api = {
     init,
     update,
@@ -3796,6 +4080,8 @@ export function createAvatarRenderer(options = {}) {
     getRetargetMode,
     clearPerformanceSamples,
     getModelDiagnostics,
+    getVrmRuntimeReport,
+    setVrmSpringBoneEnabled,
     resetView,
     getViewState,
     resetPose,
