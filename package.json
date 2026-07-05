@@ -26,6 +26,7 @@
     "smoke:hud": "node scripts/motion-status-hud-smoke.mjs",
     "smoke:hud:gpu": "node scripts/motion-status-hud-smoke.mjs --delegate gpu --output output/reports/motion-status-hud-smoke-gpu-latest.json --screenshot output/reports/motion-status-hud-smoke-gpu-latest.png",
     "smoke:head": "node scripts/head-pose-smoke.mjs",
+    "smoke:root-yaw": "node scripts/root-yaw-recovery-smoke.mjs",
     "goal:audit": "node scripts/motion-goal-audit.mjs",
     "keyframes:avatar": "node scripts/extract-video-keyframes.mjs",
     "start": "python3 -m http.server 8000 --bind 127.0.0.1"

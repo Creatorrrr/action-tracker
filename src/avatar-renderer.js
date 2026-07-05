@@ -93,6 +93,8 @@ const ROOT_ORIENTATION_SIDE_ORDER_EPSILON = 0.025;
 const ROOT_ORIENTATION_SWITCH_FRAMES = 6;
 const ROOT_ORIENTATION_SMOOTHING_MS = 45;
 const ROOT_ORIENTATION_MAX_YAW_RATE_DEG_PER_SEC = 540;
+const ROOT_ORIENTATION_RECOVERY_SMOOTHING_MS = 18;
+const ROOT_ORIENTATION_RECOVERY_MAX_YAW_RATE_DEG_PER_SEC = 1080;
 const ROOT_ORIENTATION_SIDE_WIDTH_RATIO = 0.72;
 const ROOT_ORIENTATION_NARROW_SIDE_WIDTH_RATIO = 0.52;
 const ROOT_ORIENTATION_SIDE_ASPECT_RATIO = 0.18;
@@ -2542,6 +2544,15 @@ export function createAvatarRenderer(options = {}) {
       facingSideOrderSign: solvedPose.meta.facingSideOrderSign,
       facingSideOrderConfidence: solvedPose.meta.facingSideOrderConfidence,
       facingSideOrderFlip: solvedPose.meta.facingSideOrderFlip,
+      facingYawReliable: solvedPose.meta.facingYawReliable,
+      facingYawReliabilityReason: solvedPose.meta.facingYawReliabilityReason,
+      facingUnreliableYawFrames: solvedPose.meta.facingUnreliableYawFrames,
+      facingStableYawFrames: solvedPose.meta.facingStableYawFrames,
+      facingRecoveringFromUnreliableYaw: solvedPose.meta.facingRecoveringFromUnreliableYaw,
+      facingLastReliableYawDeg: solvedPose.meta.facingLastReliableYawDeg,
+      facingRecoveryTargetYawDeg: solvedPose.meta.facingRecoveryTargetYawDeg,
+      facingUnstableYawCandidateDeg: solvedPose.meta.facingUnstableYawCandidateDeg,
+      facingUnstableYawCandidateFrames: solvedPose.meta.facingUnstableYawCandidateFrames,
       mode: solvedPose.meta.mode,
       targetCount: solvedPose.meta.targetCount,
       lowConfidenceTargets: solvedPose.meta.lowConfidenceTargets,
@@ -2900,7 +2911,11 @@ export function createAvatarRenderer(options = {}) {
     const targetYawOffset = Number.isFinite(avatarYawDeg)
       ? THREE.MathUtils.degToRad(avatarYawDeg)
       : facingToRootYawOffset(facing);
-    const alpha = smoothingAlpha(delta, ROOT_ORIENTATION_SMOOTHING_MS);
+    const yawRecovery = getSolverYawRecoveryState(solvedPose);
+    const alpha = smoothingAlpha(
+      delta,
+      yawRecovery.active && !yawRecovery.hold ? ROOT_ORIENTATION_RECOVERY_SMOOTHING_MS : ROOT_ORIENTATION_SMOOTHING_MS,
+    );
     const yawDelta = Number.isFinite(solverYawDeg)
       ? targetYawOffset - rootMotion.yawOffset
       : shortestAngle(targetYawOffset - rootMotion.yawOffset);
@@ -2920,6 +2935,17 @@ export function createAvatarRenderer(options = {}) {
       avatarYawSign: DEFAULT_AVATAR_YAW_SIGN,
       solverRawYawJump: Boolean(solvedPose?.meta?.facingRawYawJump),
       solverSideOrderFlip: Boolean(solvedPose?.meta?.facingSideOrderFlip),
+      solverYawReliable: yawRecovery.reliable,
+      solverYawReliabilityReason: yawRecovery.reason,
+      solverUnreliableYawFrames: yawRecovery.unreliableFrames,
+      solverStableYawFrames: yawRecovery.stableFrames,
+      solverRecoveringFromUnreliableYaw: yawRecovery.recovering,
+      solverRecoveryTargetYawDeg: yawRecovery.recoveryTargetYawDeg,
+      solverUnstableYawCandidateDeg: yawRecovery.unstableCandidateYawDeg,
+      solverUnstableYawCandidateFrames: yawRecovery.unstableCandidateFrames,
+      rootYawRecoveryActive: yawRecovery.active,
+      rootYawHoldActive: yawRecovery.hold,
+      rootYawErrorDeg: THREE.MathUtils.radToDeg(yawDelta),
     };
     rootMotion.yawOffset = rootMotion.yawOffset + yawDelta * alpha;
 
@@ -2949,8 +2975,15 @@ export function createAvatarRenderer(options = {}) {
       ? THREE.MathUtils.degToRad(avatarYawDeg)
       : rootMotion.targetYawOffset;
     const yawDelta = targetYawOffset - rootMotion.yawOffset;
-    const smoothing = smoothingAlpha(delta, ROOT_ORIENTATION_SMOOTHING_MS);
-    const maxYawStep = THREE.MathUtils.degToRad(ROOT_ORIENTATION_MAX_YAW_RATE_DEG_PER_SEC) * Math.max(0.001, delta / 1000);
+    const yawRecovery = getSolverYawRecoveryState(solvedPose, strictFrame);
+    const smoothing = smoothingAlpha(
+      delta,
+      yawRecovery.active && !yawRecovery.hold ? ROOT_ORIENTATION_RECOVERY_SMOOTHING_MS : ROOT_ORIENTATION_SMOOTHING_MS,
+    );
+    const maxYawRateDegPerSec = yawRecovery.active && !yawRecovery.hold
+      ? ROOT_ORIENTATION_RECOVERY_MAX_YAW_RATE_DEG_PER_SEC
+      : ROOT_ORIENTATION_MAX_YAW_RATE_DEG_PER_SEC;
+    const maxYawStep = THREE.MathUtils.degToRad(maxYawRateDegPerSec) * Math.max(0.001, delta / 1000);
     const yawStep = clamp(yawDelta * smoothing, -maxYawStep, maxYawStep);
 
     rootMotion.facing = solvedPose?.meta?.facing ?? rootMotion.facing;
@@ -2969,9 +3002,20 @@ export function createAvatarRenderer(options = {}) {
       avatarYawSign: DEFAULT_AVATAR_YAW_SIGN,
       strictNumericYaw: true,
       strictYawSmoothingAlpha: smoothing,
-      strictMaxYawRateDegPerSec: ROOT_ORIENTATION_MAX_YAW_RATE_DEG_PER_SEC,
+      strictMaxYawRateDegPerSec: maxYawRateDegPerSec,
+      strictYawRecoveryActive: yawRecovery.active,
+      strictYawHoldActive: yawRecovery.hold,
+      strictYawErrorDeg: THREE.MathUtils.radToDeg(yawDelta),
       solverRawYawJump: Boolean(solvedPose?.meta?.facingRawYawJump),
       solverSideOrderFlip: Boolean(solvedPose?.meta?.facingSideOrderFlip),
+      solverYawReliable: yawRecovery.reliable,
+      solverYawReliabilityReason: yawRecovery.reason,
+      solverUnreliableYawFrames: yawRecovery.unreliableFrames,
+      solverStableYawFrames: yawRecovery.stableFrames,
+      solverRecoveringFromUnreliableYaw: yawRecovery.recovering,
+      solverRecoveryTargetYawDeg: yawRecovery.recoveryTargetYawDeg,
+      solverUnstableYawCandidateDeg: yawRecovery.unstableCandidateYawDeg,
+      solverUnstableYawCandidateFrames: yawRecovery.unstableCandidateFrames,
     };
     rootMotion.yawOffset += yawStep;
 
@@ -2981,6 +3025,48 @@ export function createAvatarRenderer(options = {}) {
 
     model.rotation.y = rootMotion.baseModelRotationY + rootMotion.yawOffset;
     model.updateWorldMatrix(true, true);
+  }
+
+  function getSolverYawRecoveryState(solvedPose = null, strictFrame = null) {
+    const meta = solvedPose?.meta ?? {};
+    const root = strictFrame?.root ?? {};
+    const reliableValue = meta.facingYawReliable ?? root.yawReliable;
+    const recoveryTargetYawDeg = numberOrNull(meta.facingRecoveryTargetYawDeg ?? root.recoveryTargetYawDeg);
+    const recovering = Boolean(meta.facingRecoveringFromUnreliableYaw ?? root.recoveringFromUnreliableYaw);
+    const reliable = typeof reliableValue === 'boolean' ? reliableValue : null;
+
+    return {
+      reliable,
+      reason: meta.facingYawReliabilityReason ?? root.yawReliabilityReason ?? null,
+      unreliableFrames: integerOrNull(meta.facingUnreliableYawFrames ?? root.unreliableYawFrames),
+      stableFrames: integerOrNull(meta.facingStableYawFrames ?? root.stableYawFrames),
+      recovering,
+      recoveryTargetYawDeg,
+      unstableCandidateYawDeg: numberOrNull(meta.facingUnstableYawCandidateDeg ?? root.unstableYawCandidateDeg),
+      unstableCandidateFrames: integerOrNull(
+        meta.facingUnstableYawCandidateFrames ?? root.unstableYawCandidateFrames,
+      ),
+      active: recovering || Number.isFinite(recoveryTargetYawDeg),
+      hold: reliable === false,
+    };
+  }
+
+  function numberOrNull(value) {
+    if (value === null || value === undefined || value === '') {
+      return null;
+    }
+
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+  }
+
+  function integerOrNull(value) {
+    if (value === null || value === undefined || value === '') {
+      return null;
+    }
+
+    const number = Number(value);
+    return Number.isFinite(number) ? Math.max(0, Math.trunc(number)) : null;
   }
 
   function sourceTorsoFacingMetrics(points) {

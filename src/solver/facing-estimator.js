@@ -3,6 +3,9 @@ const DEFAULT_LOW_CONFIDENCE = 0.35;
 const DEFAULT_TRANSITION_FRAMES = 2;
 const DEFAULT_FRAME_INTERVAL_MS = 1000 / 30;
 const DEFAULT_MAX_YAW_RATE_DEG_PER_SEC = 1800;
+const DEFAULT_REACQUIRE_STABLE_FRAMES = 2;
+const DEFAULT_UNRELIABLE_YAW_JUMP_DEG = 120;
+const DEFAULT_REACQUIRE_MATCH_DEG = 45;
 const FRONT_FACE_CONFIDENCE = 0.55;
 const SIDE_ORDER_MIN_DELTA = 0.025;
 
@@ -102,8 +105,28 @@ function updateFacingState(previousFacing, estimate, options = {}) {
     ? Math.max(1, timestamp - previousTimestamp)
     : DEFAULT_FRAME_INTERVAL_MS;
   const reliableEstimate = estimate?.confidence >= lowConfidence && estimate?.state !== "unknown";
+  const reacquireStableFrames = Math.max(
+    1,
+    Math.trunc(Number(options.reacquireStableFrames ?? DEFAULT_REACQUIRE_STABLE_FRAMES)),
+  );
+  const unreliableYawJumpDeg = Math.max(
+    1,
+    Number(options.unreliableYawJumpDeg ?? DEFAULT_UNRELIABLE_YAW_JUMP_DEG),
+  );
+  const reacquireMatchDeg = Math.max(
+    1,
+    Number(options.reacquireMatchDeg ?? DEFAULT_REACQUIRE_MATCH_DEG),
+  );
+  const rawEstimateYawDeg = Number(estimate?.yawDeg);
+  const previousRecoveryTargetYawDeg = optionalNumber(previous.recoveryTargetYawDeg);
+  const useRecoveryHypothesis = reliableEstimate &&
+    Number.isFinite(rawEstimateYawDeg) &&
+    Number.isFinite(previousRecoveryTargetYawDeg) &&
+    Math.abs(unwrapAngleDeg(rawEstimateYawDeg, previousRecoveryTargetYawDeg) - previousRecoveryTargetYawDeg) <= reacquireMatchDeg;
   const observedYaw = reliableEstimate
-    ? chooseYawHypothesis(Number(estimate.yawDeg), previous, estimate, hasPrevious)
+    ? useRecoveryHypothesis
+      ? normalizeAngleDeg(rawEstimateYawDeg)
+      : chooseYawHypothesis(rawEstimateYawDeg, previous, estimate, hasPrevious)
     : previous.yawDeg;
   const unwrappedObservedYaw = reliableEstimate
     ? unwrapAngleDeg(observedYaw, previous.unwrappedYawDeg)
@@ -111,31 +134,46 @@ function updateFacingState(previousFacing, estimate, options = {}) {
   const rawYawDeltaDeg = reliableEstimate
     ? unwrappedObservedYaw - previous.unwrappedYawDeg
     : 0;
+  const observedSideOrderSign = reliableEstimate && Number.isFinite(Number(estimate?.sideOrderSign))
+    ? Math.sign(Number(estimate.sideOrderSign))
+    : previous.sideOrderSign;
+  const observedSideOrderConfidence = Number.isFinite(Number(estimate?.sideOrderConfidence))
+    ? Number(estimate.sideOrderConfidence)
+    : previous.sideOrderConfidence;
+  const sideOrderFlip = reliableEstimate &&
+    observedSideOrderConfidence >= lowConfidence &&
+    Math.abs(previous.sideOrderSign) === 1 &&
+    Math.abs(observedSideOrderSign) === 1 &&
+    previous.sideOrderSign !== observedSideOrderSign;
+  const rawYawJump = !useRecoveryHypothesis && Math.abs(rawYawDeltaDeg) > unreliableYawJumpDeg;
+  const unstableYawCandidate = hasPrevious && reliableEstimate && !useRecoveryHypothesis && (rawYawJump || sideOrderFlip);
+  const previousUnstableCandidate = optionalNumber(previous.unstableYawCandidateDeg);
+  const unstableCandidateMatches = unstableYawCandidate &&
+    Number.isFinite(previousUnstableCandidate) &&
+    Math.abs(unwrappedObservedYaw - previousUnstableCandidate) <= reacquireMatchDeg;
+  const unstableYawCandidateFrames = unstableYawCandidate
+    ? unstableCandidateMatches
+      ? previous.unstableYawCandidateFrames + 1
+      : 1
+    : 0;
+  const acceptUnstableYawCandidate = unstableYawCandidate &&
+    unstableYawCandidateFrames >= reacquireStableFrames;
+  const holdYawUnreliable = !reliableEstimate || (unstableYawCandidate && !acceptUnstableYawCandidate);
   const maxYawRateDegPerSec = Number(options.maxYawRateDegPerSec ?? DEFAULT_MAX_YAW_RATE_DEG_PER_SEC);
   const maxYawDeltaDeg = Math.max(1, (elapsedMs / 1000) * maxYawRateDegPerSec);
-  const limitedYawDeltaDeg = clamp(rawYawDeltaDeg, -maxYawDeltaDeg, maxYawDeltaDeg);
+  const limitedYawDeltaDeg = holdYawUnreliable ? 0 : clamp(rawYawDeltaDeg, -maxYawDeltaDeg, maxYawDeltaDeg);
   const unwrappedYawDeg = hasPrevious
     ? previous.unwrappedYawDeg + limitedYawDeltaDeg
     : Number.isFinite(Number(estimate?.yawDeg))
       ? Number(estimate.yawDeg)
       : previous.unwrappedYawDeg;
   const yawDeg = normalizeAngleDeg(unwrappedYawDeg);
-  const rawYawJump = Math.abs(rawYawDeltaDeg) > 120;
-  const candidateState = reliableEstimate
+  const candidateState = reliableEstimate && !holdYawUnreliable
     ? classifyFacingYaw(yawDeg)
     : previous.state;
   const initialState = hasPrevious ? previous.state : candidateState;
-  const sideOrderSign = reliableEstimate && Number.isFinite(Number(estimate?.sideOrderSign))
-    ? Math.sign(Number(estimate.sideOrderSign))
-    : previous.sideOrderSign;
-  const sideOrderConfidence = Number.isFinite(Number(estimate?.sideOrderConfidence))
-    ? Number(estimate.sideOrderConfidence)
-    : previous.sideOrderConfidence;
-  const sideOrderFlip = reliableEstimate &&
-    sideOrderConfidence >= lowConfidence &&
-    Math.abs(previous.sideOrderSign) === 1 &&
-    Math.abs(sideOrderSign) === 1 &&
-    previous.sideOrderSign !== sideOrderSign;
+  const sideOrderSign = holdYawUnreliable ? previous.sideOrderSign : observedSideOrderSign;
+  const sideOrderConfidence = observedSideOrderConfidence;
   const effectiveMinTransitionFrames = sideOrderFlip
     ? Math.max(minTransitionFrames, DEFAULT_TRANSITION_FRAMES + 1)
     : minTransitionFrames;
@@ -147,6 +185,31 @@ function updateFacingState(previousFacing, estimate, options = {}) {
   const shouldSwitch = candidateState !== previous.state &&
     (candidateFrames >= effectiveMinTransitionFrames || previous.state === "unknown" || !hasPrevious);
   const state = shouldSwitch ? candidateState : initialState;
+  const recoveringFromUnreliableYaw = !holdYawUnreliable &&
+    reliableEstimate &&
+    previous.unreliableYawFrames > 0 &&
+    acceptUnstableYawCandidate;
+  const yawReliable = reliableEstimate && !holdYawUnreliable;
+  const yawReliabilityReason = yawReliable
+    ? recoveringFromUnreliableYaw
+      ? "recovered"
+      : "stable"
+    : unstableYawCandidate
+      ? "unstable_yaw_candidate"
+      : estimate?.reason ?? "unreliable";
+  const lastReliableYawDeg = yawReliable
+    ? unwrappedYawDeg
+    : Number.isFinite(Number(previous.lastReliableYawDeg))
+      ? previous.lastReliableYawDeg
+      : previous.unwrappedYawDeg;
+  const recoveryTargetYawDeg = resolveRecoveryTargetYaw({
+    acceptUnstableYawCandidate,
+    holdYawUnreliable,
+    previousRecoveryTargetYawDeg,
+    unwrappedObservedYaw,
+    unwrappedYawDeg,
+    useRecoveryHypothesis,
+  });
 
   return {
     state,
@@ -161,6 +224,17 @@ function updateFacingState(previousFacing, estimate, options = {}) {
     sideOrderSign,
     sideOrderConfidence: round(sideOrderConfidence, 3),
     sideOrderFlip,
+    yawReliable,
+    yawReliabilityReason,
+    unreliableYawFrames: holdYawUnreliable ? previous.unreliableYawFrames + 1 : 0,
+    stableYawFrames: yawReliable ? previous.stableYawFrames + 1 : 0,
+    recoveringFromUnreliableYaw,
+    lastReliableYawDeg: round(lastReliableYawDeg, 3),
+    recoveryTargetYawDeg: Number.isFinite(recoveryTargetYawDeg) ? round(recoveryTargetYawDeg, 3) : null,
+    unstableYawCandidateDeg: holdYawUnreliable && unstableYawCandidate
+      ? round(unwrappedObservedYaw, 3)
+      : null,
+    unstableYawCandidateFrames: holdYawUnreliable && unstableYawCandidate ? unstableYawCandidateFrames : 0,
     confidence: round(Number.isFinite(Number(estimate?.confidence)) ? Number(estimate.confidence) : previous.confidence, 3),
     candidateState: shouldSwitch ? state : candidateState,
     candidateFrames: shouldSwitch ? 0 : candidateFrames,
@@ -193,6 +267,23 @@ function normalizeFacingState(value) {
       sideOrderSign: Number.isFinite(Number(value.sideOrderSign)) ? Math.sign(Number(value.sideOrderSign)) : 0,
       sideOrderConfidence: Number.isFinite(Number(value.sideOrderConfidence)) ? Number(value.sideOrderConfidence) : 0,
       sideOrderFlip: Boolean(value.sideOrderFlip),
+      yawReliable: value.yawReliable !== false,
+      yawReliabilityReason: typeof value.yawReliabilityReason === "string" ? value.yawReliabilityReason : "stable",
+      unreliableYawFrames: Math.max(0, Math.trunc(Number(value.unreliableYawFrames ?? 0))),
+      stableYawFrames: Math.max(0, Math.trunc(Number(value.stableYawFrames ?? 0))),
+      recoveringFromUnreliableYaw: Boolean(value.recoveringFromUnreliableYaw),
+      lastReliableYawDeg: Number.isFinite(Number(value.lastReliableYawDeg))
+        ? Number(value.lastReliableYawDeg)
+        : Number.isFinite(Number(value.unwrappedYawDeg))
+          ? Number(value.unwrappedYawDeg)
+          : 0,
+      unstableYawCandidateDeg: optionalNumber(value.unstableYawCandidateDeg) !== null
+        ? optionalNumber(value.unstableYawCandidateDeg)
+        : null,
+      unstableYawCandidateFrames: Math.max(0, Math.trunc(Number(value.unstableYawCandidateFrames ?? 0))),
+      recoveryTargetYawDeg: optionalNumber(value.recoveryTargetYawDeg) !== null
+        ? optionalNumber(value.recoveryTargetYawDeg)
+        : null,
       confidence: Number.isFinite(Number(value.confidence)) ? Number(value.confidence) : 0,
       candidateState: normalizeFacingToken(value.candidateState ?? state),
       candidateFrames: Math.max(0, Math.trunc(Number(value.candidateFrames ?? 0))),
@@ -216,6 +307,15 @@ function normalizeFacingState(value) {
     sideOrderSign: 0,
     sideOrderConfidence: 0,
     sideOrderFlip: false,
+    yawReliable: false,
+    yawReliabilityReason: "fallback",
+    unreliableYawFrames: 0,
+    stableYawFrames: 0,
+    recoveringFromUnreliableYaw: false,
+    lastReliableYawDeg: state === "back" ? 180 : 0,
+    unstableYawCandidateDeg: null,
+    unstableYawCandidateFrames: 0,
+    recoveryTargetYawDeg: null,
     confidence: 0,
     candidateState: state,
     candidateFrames: 0,
@@ -323,6 +423,15 @@ function normalizeAngleDeg(value) {
   return normalized;
 }
 
+function optionalNumber(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
 function chooseYawHypothesis(rawYawDeg, previous, estimate, hasPrevious) {
   if (!hasPrevious || previous.state === "unknown") {
     return normalizeAngleDeg(rawYawDeg);
@@ -356,6 +465,36 @@ function chooseYawHypothesis(rawYawDeg, previous, estimate, hasPrevious) {
 
   scored.sort((a, b) => a.score - b.score);
   return scored[0].yawDeg;
+}
+
+function resolveRecoveryTargetYaw({
+  acceptUnstableYawCandidate,
+  holdYawUnreliable,
+  previousRecoveryTargetYawDeg,
+  unwrappedObservedYaw,
+  unwrappedYawDeg,
+  useRecoveryHypothesis,
+}) {
+  if (acceptUnstableYawCandidate && Number.isFinite(unwrappedObservedYaw)) {
+    return unwrappedObservedYaw;
+  }
+
+  if (!Number.isFinite(previousRecoveryTargetYawDeg)) {
+    return null;
+  }
+
+  if (holdYawUnreliable) {
+    return previousRecoveryTargetYawDeg;
+  }
+
+  if (
+    useRecoveryHypothesis &&
+    Math.abs(unwrappedYawDeg - previousRecoveryTargetYawDeg) > 1
+  ) {
+    return previousRecoveryTargetYawDeg;
+  }
+
+  return null;
 }
 
 function unwrapAngleDeg(yawDeg, referenceYawDeg = 0) {

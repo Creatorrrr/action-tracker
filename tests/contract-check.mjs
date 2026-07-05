@@ -47,6 +47,7 @@ const files = {
   samRegressionOracleScript: "scripts/sam-regression-oracle.mjs",
   motionStatusHudSmokeScript: "scripts/motion-status-hud-smoke.mjs",
   headPoseSmokeScript: "scripts/head-pose-smoke.mjs",
+  rootYawRecoverySmokeScript: "scripts/root-yaw-recovery-smoke.mjs",
   motionGoalAuditScript: "scripts/motion-goal-audit.mjs",
   avatarVrmPerformanceScript: "scripts/avatar-vrm-performance-check.mjs",
   avatarVrmRenderingCompatCheck: "tests/avatar-vrm-rendering-compat-check.mjs",
@@ -357,6 +358,10 @@ function checkPackageContract(packageJson) {
   check(
     packageJson?.scripts?.["smoke:head"] === "node scripts/head-pose-smoke.mjs",
     "package.json: smoke:head script must run the browser head pose smoke check",
+  );
+  check(
+    packageJson?.scripts?.["smoke:root-yaw"] === "node scripts/root-yaw-recovery-smoke.mjs",
+    "package.json: smoke:root-yaw script must run the browser root yaw recovery smoke check",
   );
   check(
     packageJson?.scripts?.["goal:audit"] === "node scripts/motion-goal-audit.mjs",
@@ -934,6 +939,7 @@ const [
   samRegressionOracleScript,
   motionStatusHudSmokeScript,
   headPoseSmokeScript,
+  rootYawRecoverySmokeScript,
   motionGoalAuditScript,
   vrmHumanoidMapping,
   vrmExpressionMapping,
@@ -969,6 +975,7 @@ const [
     readProjectFile(files.samRegressionOracleScript),
     readProjectFile(files.motionStatusHudSmokeScript),
     readProjectFile(files.headPoseSmokeScript),
+    readProjectFile(files.rootYawRecoverySmokeScript),
     readProjectFile(files.motionGoalAuditScript),
     readProjectFile(files.vrmHumanoidMapping),
     readProjectFile(files.vrmExpressionMapping),
@@ -1102,6 +1109,10 @@ check(headPoseSmokeScript.includes("avatar-motion-agreement-check.mjs"), `${file
 check(headPoseSmokeScript.includes("faceHeadPose"), `${files.headPoseSmokeScript}: expected face head pose report gate`);
 check(headPoseSmokeScript.includes("yawCorrelation"), `${files.headPoseSmokeScript}: expected yaw correlation gate`);
 check(headPoseSmokeScript.includes("headRestForwardDot"), `${files.headPoseSmokeScript}: expected rest forward diagnostics gate`);
+check(rootYawRecoverySmokeScript.includes("avatar-motion-agreement-check.mjs"), `${files.rootYawRecoverySmokeScript}: expected browser motion agreement runner reuse`);
+check(rootYawRecoverySmokeScript.includes("parseMotionRecordingJsonl"), `${files.rootYawRecoverySmokeScript}: expected recording replay analysis`);
+check(rootYawRecoverySmokeScript.includes("facingRecoveringFromUnreliableYaw"), `${files.rootYawRecoverySmokeScript}: expected root yaw recovery gate`);
+check(rootYawRecoverySmokeScript.includes("sourceAvatarDivergence"), `${files.rootYawRecoverySmokeScript}: expected avatar root yaw report gate`);
 check(motionGoalAuditScript.includes("passed_with_external_blockers"), `${files.motionGoalAuditScript}: expected external blocker audit status`);
 check(motionGoalAuditScript.includes("validateClipManifest"), `${files.motionGoalAuditScript}: expected clip manifest validation reuse`);
 check(motionGoalAuditScript.includes("P0.2.gpu-delegate-telemetry"), `${files.motionGoalAuditScript}: expected GPU delegate telemetry audit`);
@@ -1141,6 +1152,7 @@ checkSyntax(files.samReferenceLabelerScript);
 checkSyntax(files.samRegressionOracleScript);
 checkSyntax(files.motionStatusHudSmokeScript);
 checkSyntax(files.headPoseSmokeScript);
+checkSyntax(files.rootYawRecoverySmokeScript);
 checkSyntax(files.motionGoalAuditScript);
 checkSyntax(files.vrmHumanoidMapping);
 checkSyntax(files.vrmExpressionMapping);

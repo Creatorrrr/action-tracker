@@ -23,6 +23,11 @@ for (const frame of identity.frames) {
   assert.equal(solved.meta.facingYawFlipCount, 0);
   assert.equal(solved.meta.facingSideOrderFlip, false);
   assert.equal(Math.abs(solved.meta.facingSideOrderSign), 1);
+  assert.equal(solved.meta.facingYawReliable, true);
+  assert.equal(solved.meta.facingYawReliabilityReason, "stable");
+  assert.equal(solved.meta.facingUnreliableYawFrames, 0);
+  assert.equal(solved.meta.facingRecoveringFromUnreliableYaw, false);
+  assert.ok(Number.isFinite(solved.meta.facingLastReliableYawDeg));
   assert.equal(solved.meta.implausibleTargets, 0);
   assert.equal(solved.meta.implausibleRatio, 0);
   assert.ok(Number.isFinite(solved.meta.facingUnwrappedYawDeg));

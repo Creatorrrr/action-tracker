@@ -3266,6 +3266,11 @@ function buildSourceAvatarDivergenceReport(samples) {
       solverYawDeg: sample.sourceAvatarDivergence?.rootYaw?.solverYawDeg,
       rawJump: sample.sourceAvatarDivergence?.rootYaw?.rawJump,
       sideOrderFlip: sample.sourceAvatarDivergence?.rootYaw?.sideOrderFlip,
+      reliable: sample.sourceAvatarDivergence?.rootYaw?.reliable,
+      reliabilityReason: sample.sourceAvatarDivergence?.rootYaw?.reliabilityReason,
+      unreliableFrames: sample.sourceAvatarDivergence?.rootYaw?.unreliableFrames,
+      recovering: sample.sourceAvatarDivergence?.rootYaw?.recovering,
+      recoveryTargetYawDeg: sample.sourceAvatarDivergence?.rootYaw?.recoveryTargetYawDeg,
     }))
     .filter((row) => Number.isFinite(row.yawOffsetDeg) || Number.isFinite(row.targetYawDeg) || Number.isFinite(row.solverYawDeg));
   const palmRows = samples.flatMap((sample) =>
@@ -3310,14 +3315,37 @@ function summarizeSourceAvatarRootYawRows(rows) {
     }));
   const jumps = rows.filter((row) => row.rawJump).length;
   const sideOrderFlips = rows.filter((row) => row.sideOrderFlip).length;
+  const unreliable = rows.filter((row) => row.reliable === false).length;
+  const recovering = rows.filter((row) => row.recovering).length;
+  const stableAfterUnreliable = countStableAfterUnreliableRows(rows);
+  const reliabilityReasons = countByValue(rows, "reliabilityReason");
 
   return {
     count: rows.length,
     targetError: summarizeErrors(yawTargetErrors),
     rawJumpCount: jumps,
     sideOrderFlipCount: sideOrderFlips,
+    unreliableCount: unreliable,
+    recoveringCount: recovering,
+    stableAfterUnreliableCount: stableAfterUnreliable,
+    reliabilityReasons,
     byMode: summarizeRowsByKey(yawTargetErrors, "retargetMode"),
   };
+}
+
+function countStableAfterUnreliableRows(rows) {
+  let count = 0;
+  let previousWasUnreliable = false;
+
+  for (const row of rows) {
+    if (previousWasUnreliable && row.reliable === true) {
+      count += 1;
+    }
+
+    previousWasUnreliable = row.reliable === false;
+  }
+
+  return count;
 }
 
 function summarizeSourceAvatarPalmRows(rows) {

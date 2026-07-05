@@ -38,6 +38,10 @@ const turnedPose = solvedPose([
 ], {
   facingYawDeg: 180,
   facingUnwrappedYawDeg: 180,
+  facingYawReliable: true,
+  facingYawReliabilityReason: "recovered",
+  facingRecoveringFromUnreliableYaw: true,
+  facingRecoveryTargetYawDeg: 180,
 });
 const turnedFrame = buildStrictRetargetFrame({
   solvedPose: turnedPose,
@@ -50,6 +54,10 @@ const turnedFrame = buildStrictRetargetFrame({
 const rotatedAxis = rotateVectorByQuaternion({ x: 1, y: 0, z: 0 }, turnedFrame.bones.LeftArm.localRotation);
 
 assert.equal(turnedFrame.root.yawDeg, -180);
+assert.equal(turnedFrame.root.yawReliable, true);
+assert.equal(turnedFrame.root.yawReliabilityReason, "recovered");
+assert.equal(turnedFrame.root.recoveringFromUnreliableYaw, true);
+assert.equal(turnedFrame.root.recoveryTargetYawDeg, 180);
 assert.deepEqual(roundVector(rotatedAxis), { x: 0, y: 0, z: 1 });
 
 const crossedArmsPose = solvedPose([
@@ -103,6 +111,9 @@ const divergence = buildSourceAvatarDivergenceSummary({
       solverUnwrappedYawDeg: 90,
       solverRawYawJump: false,
       solverSideOrderFlip: false,
+      solverYawReliable: true,
+      solverYawReliabilityReason: "stable",
+      solverRecoveringFromUnreliableYaw: false,
     },
   },
 });
@@ -115,6 +126,8 @@ assert.equal(divergence.handPalm.bySide[0].rawPalmDot, -1);
 assert.equal(divergence.handPalm.bySide[0].palmDot, 1);
 assert.equal(divergence.handPalm.bySide[1].palmDot, -1);
 assert.equal(divergence.rootYaw.targetYawDeg, -90);
+assert.equal(divergence.rootYaw.reliable, true);
+assert.equal(divergence.rootYaw.reliabilityReason, "stable");
 
 console.log("Strict retarget check passed.");
 

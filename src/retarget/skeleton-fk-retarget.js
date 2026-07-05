@@ -132,6 +132,15 @@ function buildSourceAvatarDivergenceSummary({ segments = [], handOrientation = {
         : null,
       rawJump: Boolean(rootMotion?.orientationMetrics?.solverRawYawJump),
       sideOrderFlip: Boolean(rootMotion?.orientationMetrics?.solverSideOrderFlip),
+      reliable: rootMotion?.orientationMetrics?.solverYawReliable ?? null,
+      reliabilityReason: rootMotion?.orientationMetrics?.solverYawReliabilityReason ?? null,
+      unreliableFrames: Number.isFinite(Number(rootMotion?.orientationMetrics?.solverUnreliableYawFrames))
+        ? Math.max(0, Math.trunc(Number(rootMotion.orientationMetrics.solverUnreliableYawFrames)))
+        : null,
+      recovering: Boolean(rootMotion?.orientationMetrics?.solverRecoveringFromUnreliableYaw),
+      recoveryTargetYawDeg: optionalNumber(rootMotion?.orientationMetrics?.solverRecoveryTargetYawDeg) !== null
+        ? round(optionalNumber(rootMotion.orientationMetrics.solverRecoveryTargetYawDeg), 3)
+        : null,
     },
     handPalm: {
       count: palmRows.length,
@@ -166,6 +175,15 @@ function buildRootFrame(points, solvedPose, previousState, yawSign) {
     yawDeltaDeg: round(delta, 3),
     mode: solvedPose?.meta?.mode ?? "unknown",
     facing: solvedPose?.meta?.facingDetail ?? solvedPose?.meta?.facing ?? "unknown",
+    yawReliable: solvedPose?.meta?.facingYawReliable ?? null,
+    yawReliabilityReason: solvedPose?.meta?.facingYawReliabilityReason ?? null,
+    unreliableYawFrames: Number.isFinite(Number(solvedPose?.meta?.facingUnreliableYawFrames))
+      ? Math.max(0, Math.trunc(Number(solvedPose.meta.facingUnreliableYawFrames)))
+      : 0,
+    recoveringFromUnreliableYaw: Boolean(solvedPose?.meta?.facingRecoveringFromUnreliableYaw),
+    recoveryTargetYawDeg: optionalNumber(solvedPose?.meta?.facingRecoveryTargetYawDeg) !== null
+      ? round(optionalNumber(solvedPose.meta.facingRecoveryTargetYawDeg), 3)
+      : null,
   };
 }
 
@@ -380,6 +398,15 @@ function normalizeAngleDeg(value) {
   }
 
   return angle;
+}
+
+function optionalNumber(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 function unwrapAngleDeg(value, previousValue) {

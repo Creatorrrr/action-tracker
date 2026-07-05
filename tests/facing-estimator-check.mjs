@@ -47,13 +47,70 @@ suddenState = estimateFacingState(createPoints(180), suddenState, {
   maxYawRateDegPerSec: 360,
 });
 assert.equal(suddenState.legacyState, "front");
-assert.ok(Math.abs(normalizeAngleDeg(suddenState.yawDeg)) > 1);
-assert.ok(Math.abs(normalizeAngleDeg(suddenState.yawDeg)) <= 12.1);
+assert.ok(Math.abs(normalizeAngleDeg(suddenState.yawDeg)) <= 0.001);
 assert.equal(Math.abs(suddenState.rawYawDeg), 180);
 assert.equal(suddenState.rawYawJump, true);
 assert.equal(suddenState.yawFlipCount, 1);
 assert.equal(suddenState.sideOrderFlip, true);
 assert.equal(Math.abs(suddenState.sideOrderSign), 1);
+assert.equal(suddenState.yawReliable, false);
+assert.equal(suddenState.yawReliabilityReason, "unstable_yaw_candidate");
+
+let transientState = estimateFacingState(createPoints(0), undefined, { timestamp: 0 });
+const transientBadYaw = estimateFacingState(createPoints(180), transientState, {
+  timestamp: 33.333,
+  maxYawRateDegPerSec: 360,
+  reacquireStableFrames: 2,
+});
+assert.equal(transientBadYaw.yawReliable, false);
+assert.equal(transientBadYaw.yawReliabilityReason, "unstable_yaw_candidate");
+assert.equal(transientBadYaw.unreliableYawFrames, 1);
+assert.equal(transientBadYaw.recoveringFromUnreliableYaw, false);
+assert.equal(transientBadYaw.recoveryTargetYawDeg, null);
+assert.ok(Math.abs(transientBadYaw.unwrappedYawDeg - transientState.unwrappedYawDeg) <= 0.001);
+
+const transientRecoveredFront = estimateFacingState(createPoints(0), transientBadYaw, {
+  timestamp: 66.666,
+  maxYawRateDegPerSec: 360,
+  reacquireStableFrames: 2,
+});
+assert.equal(transientRecoveredFront.yawReliable, true);
+assert.equal(transientRecoveredFront.yawReliabilityReason, "stable");
+assert.equal(transientRecoveredFront.unreliableYawFrames, 0);
+assert.equal(transientRecoveredFront.recoveringFromUnreliableYaw, false);
+assert.equal(transientRecoveredFront.recoveryTargetYawDeg, null);
+assert.ok(Math.abs(transientRecoveredFront.unwrappedYawDeg) <= 0.001);
+
+let reacquireState = estimateFacingState(createPoints(0), undefined, { timestamp: 0 });
+reacquireState = estimateFacingState(createPoints(180), reacquireState, {
+  timestamp: 33.333,
+  maxYawRateDegPerSec: 360,
+  reacquireStableFrames: 2,
+});
+assert.equal(reacquireState.yawReliable, false);
+
+reacquireState = estimateFacingState(createPoints(180), reacquireState, {
+  timestamp: 66.666,
+  maxYawRateDegPerSec: 360,
+  reacquireStableFrames: 2,
+});
+assert.equal(reacquireState.yawReliable, true);
+assert.equal(reacquireState.yawReliabilityReason, "recovered");
+assert.equal(reacquireState.recoveringFromUnreliableYaw, true);
+assert.ok(Math.abs(reacquireState.unwrappedYawDeg) > Math.abs(transientBadYaw.unwrappedYawDeg));
+assert.ok(Math.abs(reacquireState.limitedYawDeltaDeg) <= 12.1);
+
+for (let index = 3; index < 20; index += 1) {
+  reacquireState = estimateFacingState(createPoints(180), reacquireState, {
+    timestamp: index * 33.333,
+    maxYawRateDegPerSec: 360,
+    reacquireStableFrames: 2,
+  });
+}
+assert.equal(reacquireState.yawReliable, true);
+assert.equal(reacquireState.recoveringFromUnreliableYaw, false);
+assert.ok(Math.abs(Math.abs(reacquireState.unwrappedYawDeg) - 180) <= 0.001);
+assert.ok(Math.abs(Math.abs(reacquireState.lastReliableYawDeg) - 180) <= 0.001);
 
 console.log("Facing estimator check passed.");
 

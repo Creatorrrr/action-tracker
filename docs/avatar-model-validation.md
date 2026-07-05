@@ -48,7 +48,15 @@ full-body motion parity.
      produces enough face-transform yaw samples; otherwise the deterministic
      `tests/face-head-pose-check.mjs` matrix/mirror/reacquire test is the
      substitute gate.
-8. Manual browser smoke:
+8. Browser root-yaw recovery smoke: `npm run smoke:root-yaw`
+   - Writes `output/reports/root-yaw-recovery-latest.json`.
+   - Replays the known 9-11s clockwise turn clip through the browser motion
+     runner and checks root yaw target error plus the 8.5-11.5s solver window.
+   - Use `rootYaw.reliabilityReasons`, `rootYaw.unreliableCount`,
+     `rootYaw.recoveringCount`, and
+     `solverWindow.stableAfterUnreliableCount` to diagnose hold/reacquire
+     behavior after transient side-order or raw-yaw instability.
+9. Manual browser smoke:
    - Load page with no avatar file selected.
    - Confirm Xbot reaches `Avatar: Ready`.
    - Upload `soldier.glb`.
