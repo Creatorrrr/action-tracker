@@ -80,6 +80,32 @@ assert.deepEqual(
   roundVector({ x: -0.8, y: 0.1, z: 0.6 }),
 );
 
+const constrainedPose = solvedPose([
+  target("LeftLeg", "legs", { x: 0, y: -1, z: 0 }, {
+    constrainedDirection: { x: 0, y: -0.7, z: 0.7 },
+    anatomy: {
+      reason: "hinge_flexion_limit",
+      hardViolation: true,
+      confidenceScale: 0.35,
+    },
+  }),
+]);
+const constrainedFrame = buildStrictRetargetFrame({
+  solvedPose: constrainedPose,
+  rigBasis: {
+    bones: {
+      LeftLeg: { restAxis: [0, -1, 0] },
+    },
+  },
+});
+assert.deepEqual(
+  roundVector(constrainedFrame.bones.LeftLeg.sourceDirection),
+  roundVector({ x: 0, y: -0.7, z: 0.7 }),
+);
+assert.equal(constrainedFrame.diagnostics.anatomyConstrainedBones.includes("LeftLeg"), true);
+assert.equal(constrainedFrame.diagnostics.anatomyHardViolations, 1);
+assert.equal(constrainedFrame.bones.LeftLeg.anatomy.reason, "hinge_flexion_limit");
+
 const divergence = buildSourceAvatarDivergenceSummary({
   retargetMode: "strict",
   segments: [

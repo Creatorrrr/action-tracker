@@ -32,7 +32,7 @@ function buildStrictRetargetFrame({ points = {}, solvedPose = null, previousStat
   let lowConfidenceBones = 0;
 
   for (const target of targets) {
-    const sourceDirection = normalizeVector(target?.direction);
+    const sourceDirection = normalizeVector(target?.constrainedDirection ?? target?.direction);
 
     if (!target?.bone || !sourceDirection) {
       continue;
@@ -59,9 +59,12 @@ function buildStrictRetargetFrame({ points = {}, solvedPose = null, previousStat
       localRotation,
       usedTorsoLocalDirection: false,
       occlusionState: target.occlusionState ?? "tracking",
-      rawDirection: normalizeVector(target.rawDirection) ?? sourceDirection,
+      anatomy: target.anatomy ?? null,
+      rawDirection: normalizeVector(target.rawDirection) ?? normalizeVector(target.direction) ?? sourceDirection,
     };
   }
+
+  const boneValues = Object.values(bones);
 
   return {
     version: 1,
@@ -74,8 +77,17 @@ function buildStrictRetargetFrame({ points = {}, solvedPose = null, previousStat
       lowConfidenceBones,
       yawJumpDeg: root.yawDeltaDeg,
       yawDirectionMismatch: false,
-      heldBones: Object.values(bones).filter((bone) => bone.occlusionState === "hold").map((bone) => bone.bone),
+      heldBones: boneValues.filter((bone) => bone.occlusionState === "hold").map((bone) => bone.bone),
       safetyClampedBones: [],
+      anatomyConstrainedBones: boneValues
+        .filter((bone) => bone.anatomy)
+        .map((bone) => bone.bone),
+      anatomyHardViolations: boneValues
+        .filter((bone) => bone.anatomy?.hardViolation)
+        .length,
+      anatomySoftViolations: boneValues
+        .filter((bone) => bone.anatomy?.softViolation)
+        .length,
     },
     state: {
       rootYawDeg: root.yawDeg,

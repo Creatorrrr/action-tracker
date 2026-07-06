@@ -2449,12 +2449,8 @@ export function createAvatarRenderer(options = {}) {
           ? resolveBodySecondaryAxis(target, points)
           : null
         : resolveBodySecondaryAxis(target, points) ?? limbPlaneNormals[target.bone] ?? null;
-      const maxAngle = strictModeActive
-        ? profile ? target.maxAngle * (profile.maxAngleScale ?? 1) : undefined
-        : target.maxAngle * (profile?.maxAngleScale ?? 1);
-      const maxTwist = profile
-        ? target.maxTwist * (profile.maxTwistScale ?? 1)
-        : undefined;
+      const maxAngle = target.maxAngle * (profile?.maxAngleScale ?? 1);
+      const maxTwist = target.maxTwist * (profile?.maxTwistScale ?? 1);
 
       if (!strictModeActive && confidence <= RETARGET_LOW_CONFIDENCE_HOLD) {
         applyOccludedBodyBone(target.bone, timestamp, delta);
@@ -2488,10 +2484,11 @@ export function createAvatarRenderer(options = {}) {
   }
 
   function resolveStrictTargetDirection(solvedTarget) {
+    const direction = solvedTarget.constrainedDirection ?? solvedTarget.direction;
     return tmpVectorC.set(
-      solvedTarget.direction.x,
-      solvedTarget.direction.y,
-      solvedTarget.direction.z,
+      direction.x,
+      direction.y,
+      direction.z,
     );
   }
 
@@ -2513,11 +2510,8 @@ export function createAvatarRenderer(options = {}) {
       }
     }
 
-    return tmpVectorC.set(
-      solvedTarget.direction.x,
-      solvedTarget.direction.y,
-      solvedTarget.direction.z,
-    );
+    const direction = solvedTarget.constrainedDirection ?? solvedTarget.direction;
+    return tmpVectorC.set(direction.x, direction.y, direction.z);
   }
 
   function shouldUseTorsoLocalDirection(solvedTarget) {
