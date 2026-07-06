@@ -117,6 +117,8 @@ assert.equal(upperBody.expected.mode, "upper-body");
 const upperBodySolved = solvePoseFrame(upperBody);
 assert.equal(upperBodySolved.meta.mode, "upper-body");
 assert.equal(upperBodySolved.meta.hingeViolations, 0);
+assert.equal(upperBodySolved.meta.anatomyLowerBodyReliable, false);
+assert.equal(upperBodySolved.meta.anatomyHardViolations, 0);
 assert.equal(findHinge(upperBodySolved, "leftKnee").reason, "low_confidence");
 assert.equal(findHinge(upperBodySolved, "rightKnee").reason, "low_confidence");
 assert.ok(
@@ -151,6 +153,11 @@ assert.equal(leftOccludedHinge.violation, false);
 assert.equal(leftOccludedHinge.reason, "low_confidence");
 const occlusionSequence = createSyntheticSequence({ scenario: "left-wrist-occlusion", frames: 9 });
 const solvedOcclusionSequence = solveSequence(occlusionSequence.frames);
+assert.equal(
+  Math.max(...solvedOcclusionSequence.map((solved) => solved.meta.anatomyHardViolations)),
+  0,
+  "left-wrist-occlusion should not report hard anatomy violations for held low-confidence targets",
+);
 const occlusionReliableSpikes = countReliableTargetSpikes(solvedOcclusionSequence, 180);
 assert.equal(
   occlusionReliableSpikes,
@@ -175,6 +182,66 @@ assert.ok(
   ),
   "targetStabilization=false should leave target rows raw for offline references",
 );
+
+const impossibleKneeFrame = {
+  poseLandmarks: [],
+  poseWorldLandmarks: makePose33({
+    leftShoulder: p(-0.2, 1.4, 0),
+    rightShoulder: p(0.2, 1.4, 0),
+    leftHip: p(-0.15, 0.9, 0),
+    rightHip: p(0.15, 0.9, 0),
+    leftKnee: p(-0.15, 0.45, 0),
+    leftAnkle: p(-0.15, 0.95, 0),
+    rightKnee: p(0.15, 0.45, 0),
+    rightAnkle: p(0.15, 0.1, 0),
+  }),
+  timestamp: 1000,
+};
+const impossibleKneeSolved = solvePoseFrame(impossibleKneeFrame, {});
+assert.equal(impossibleKneeSolved.meta.anatomyHardViolations >= 1, true);
+const impossibleLeftLeg = findTarget(impossibleKneeSolved, "LeftLeg");
+assert.equal(impossibleLeftLeg.anatomy.reason, "hinge_flexion_limit");
+assert.ok(
+  directionAngleDeg(impossibleLeftLeg.rawDirection, impossibleLeftLeg.direction) > 1,
+  "impossible knee should emit a constrained direction while preserving rawDirection",
+);
+assert.ok(
+  directionAngleDeg(impossibleLeftLeg.rawDirectionTorsoLocal, impossibleLeftLeg.directionTorsoLocal) > 1,
+  "impossible knee should update torso-local direction to match the constrained direction",
+);
+assert.deepEqual(impossibleLeftLeg.direction, impossibleLeftLeg.constrainedDirection);
+
+const impossibleElbowFrame = {
+  poseLandmarks: [],
+  poseWorldLandmarks: makePose33({
+    leftShoulder: p(-0.2, 1.4, 0),
+    rightShoulder: p(0.2, 1.4, 0),
+    leftElbow: p(-0.65, 1.4, 0),
+    leftWrist: p(-0.15, 1.4, 0),
+    rightElbow: p(0.65, 1.4, 0),
+    rightWrist: p(1, 1.4, 0),
+    leftHip: p(-0.15, 0.9, 0),
+    rightHip: p(0.15, 0.9, 0),
+    leftKnee: p(-0.15, 0.45, 0),
+    rightKnee: p(0.15, 0.45, 0),
+    leftAnkle: p(-0.15, 0.1, 0),
+    rightAnkle: p(0.15, 0.1, 0),
+  }),
+  timestamp: 1000,
+};
+const impossibleElbowSolved = solvePoseFrame(impossibleElbowFrame, {});
+assert.equal(impossibleElbowSolved.meta.anatomyHardViolations >= 1, true);
+const impossibleLeftForeArm = findTarget(impossibleElbowSolved, "LeftForeArm");
+assert.equal(impossibleLeftForeArm.anatomy.reason, "hinge_flexion_limit");
+assert.ok(
+  directionAngleDeg(impossibleLeftForeArm.rawDirection, impossibleLeftForeArm.direction) > 1,
+  "impossible elbow should emit a constrained direction while preserving rawDirection",
+);
+assert.ok(
+  directionAngleDeg(impossibleLeftForeArm.rawDirectionTorsoLocal, impossibleLeftForeArm.directionTorsoLocal) > 1,
+  "impossible elbow should update torso-local direction to match the constrained direction",
+);
+assert.deepEqual(impossibleLeftForeArm.direction, impossibleLeftForeArm.constrainedDirection);
 
 const lostAndReacquired = createSyntheticSequence({ scenario: "lost-and-reacquired", frames: 9 });
 const solvedLostAndReacquired = solveSequence(lostAndReacquired.frames);
@@ -219,6 +286,36 @@ function findTarget(solved, bone) {
   const target = solved.targets.find((candidate) => candidate.bone === bone);
   assert.ok(target, `Expected target ${bone}`);
   return target;
+}
+
+function makePose33(overrides) {
+  const landmarks = Array.from({ length: 33 }, () => ({ x: 0, y: 0, z: 0, visibility: 0, presence: 0 }));
+  const indices = {
+    leftShoulder: 11,
+    rightShoulder: 12,
+    leftElbow: 13,
+    rightElbow: 14,
+    leftWrist: 15,
+    rightWrist: 16,
+    leftHip: 23,
+    rightHip: 24,
+    leftKnee: 25,
+    rightKnee: 26,
+    leftAnkle: 27,
+    rightAnkle: 28,
+    leftFootIndex: 31,
+    rightFootIndex: 32,
+  };
+
+  for (const [name, point] of Object.entries(overrides)) {
+    landmarks[indices[name]] = point;
+  }
+
+  return landmarks;
+}
+
+function p(x, y, z, visibility = 0.99) {
+  return { x, y, z, visibility, presence: visibility };
 }
 
 function cloneMotionFrame(frame) {

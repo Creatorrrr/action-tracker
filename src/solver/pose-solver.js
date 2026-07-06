@@ -1,4 +1,13 @@
 import {
+  ANATOMICAL_CONSTRAINTS,
+  constrainHingeChildDirection,
+  constrainPoseTargets,
+  createAnatomyState,
+  evaluateHingeFlexion,
+  evaluateLowerBodyReliability,
+  evaluateTargetCone,
+} from "../retarget/anatomical-constraints.js";
+import {
   estimateFacingState,
   toLegacyFacing,
 } from "./facing-estimator.js";
@@ -133,17 +142,25 @@ function solvePoseTargetsFromPoints(points, previousState = {}, options = {}) {
   const rawTargets = BODY_TARGETS.map((target) => solveTarget(target, points))
     .map((target) => target ? enrichTargetWithTorsoBasis(target, torsoBasis) : null)
     .filter(Boolean);
+  const anatomy = evaluatePoseAnatomy(points, rawTargets, previousState.anatomy, {
+    timestamp,
+  });
+  const anatomyConstrainedTargets = applyConstrainedTargetDirections(constrainPoseTargets({
+    targets: rawTargets,
+    anatomy,
+  }), torsoBasis);
   const targetStabilization = targetStabilizationEnabled
-    ? stabilizeTargets(rawTargets, previousState.targetMemory, {
+    ? stabilizeTargets(anatomyConstrainedTargets, previousState.targetMemory, {
       points,
       timestamp,
     })
     : {
-      targets: rawTargets,
+      targets: anatomyConstrainedTargets,
       memory: {},
-      summary: summarizeTargetOcclusion(rawTargets),
+      summary: summarizeTargetOcclusion(anatomyConstrainedTargets),
     };
   const targets = targetStabilization.targets;
+  const anatomySummary = summarizeTargetAnatomy(targets);
   const hinges = solveHinges(points);
   const hingeViolations = hinges.filter((hinge) => hinge.violation).length;
   const hingeLimitWarnings = hinges.filter((hinge) => hinge.limitWarning).length;
@@ -158,6 +175,7 @@ function solvePoseTargetsFromPoints(points, previousState = {}, options = {}) {
       facing: facingState,
       mode,
       targetMemory: targetStabilization.memory,
+      anatomy: anatomy.state,
     },
     meta: {
       facing,
@@ -196,6 +214,11 @@ function solvePoseTargetsFromPoints(points, previousState = {}, options = {}) {
       hingeViolations,
       hingeLimitWarnings,
       lowConfidenceHinges: hinges.filter((hinge) => hinge.confidence < HINGE_RELIABLE_CONFIDENCE).length,
+      anatomySoftViolations: anatomySummary.softViolations,
+      anatomyHardViolations: anatomySummary.hardViolations,
+      anatomyLowerBodyReliable: anatomy.lowerBody.reliable,
+      anatomyLowerBodyConfidence: anatomy.lowerBody.confidence,
+      anatomyConstrainedTargets: anatomySummary.constrainedTargets,
     },
   };
 }
@@ -211,7 +234,10 @@ function stabilizeTargets(rawTargets, previousMemory = {}, options = {}) {
 
     const previousTarget = previous[target.bone];
     const occlusionRisk = estimateArmOcclusionRisk(target);
-    const targetReliable = target.confidence >= TARGET_RELIABLE_CONFIDENCE && !occlusionRisk.active;
+    const trackingConfidence = Number.isFinite(Number(target.rawConfidence))
+      ? Number(target.rawConfidence)
+      : Number(target.confidence ?? 0);
+    const targetReliable = trackingConfidence >= TARGET_RELIABLE_CONFIDENCE && !occlusionRisk.active;
     const stabilized = targetReliable
       ? stabilizeReliableTarget(target, previousTarget, timestamp)
       : stabilizeOccludedTarget(target, previousTarget, timestamp, occlusionRisk);
@@ -273,8 +299,8 @@ function stabilizeReliableTarget(target, previousTarget, timestamp) {
     directionTorsoLocal,
     occlusionState,
     occlusionReason: shouldClamp ? "reacquire_angular_limit" : "none",
-    rawDirection: target.direction,
-    rawDirectionTorsoLocal: target.directionTorsoLocal,
+    rawDirection: target.rawDirection ?? target.direction,
+    rawDirectionTorsoLocal: target.rawDirectionTorsoLocal ?? target.directionTorsoLocal,
   };
 
   return {
@@ -293,13 +319,16 @@ function stabilizeReliableTarget(target, previousTarget, timestamp) {
 
 function stabilizeOccludedTarget(target, previousTarget, timestamp, occlusionRisk) {
   if (!previousTarget?.direction) {
+    const direction = target.direction;
     return {
       target: {
         ...target,
+        anatomy: null,
+        constrainedDirection: direction,
         occlusionState: occlusionRisk.active ? "detected" : "low-confidence",
         occlusionReason: occlusionRisk.reason,
-        rawDirection: target.direction,
-        rawDirectionTorsoLocal: target.directionTorsoLocal,
+        rawDirection: target.rawDirection ?? target.direction,
+        rawDirectionTorsoLocal: target.rawDirectionTorsoLocal ?? target.directionTorsoLocal,
       },
       memory: {
         direction: target.direction,
@@ -346,12 +375,14 @@ function stabilizeOccludedTarget(target, previousTarget, timestamp, occlusionRis
   return {
     target: {
       ...target,
+      anatomy: occlusionState === "expired" ? target.anatomy : null,
+      constrainedDirection: direction,
       direction,
       directionTorsoLocal,
       occlusionState,
       occlusionReason: occlusionRisk.reason,
-      rawDirection: target.direction,
-      rawDirectionTorsoLocal: target.directionTorsoLocal,
+      rawDirection: target.rawDirection ?? target.direction,
+      rawDirectionTorsoLocal: target.rawDirectionTorsoLocal ?? target.directionTorsoLocal,
     },
     memory: {
       direction,
@@ -396,7 +427,10 @@ function estimateArmOcclusionRisk(target) {
     return { active: true, reason: target.plausibilityReason ?? "implausible" };
   }
 
-  const lowConfidence = target.confidence < TARGET_RELIABLE_CONFIDENCE;
+  const trackingConfidence = Number.isFinite(Number(target.rawConfidence))
+    ? Number(target.rawConfidence)
+    : Number(target.confidence ?? 0);
+  const lowConfidence = trackingConfidence < TARGET_RELIABLE_CONFIDENCE;
   if (lowConfidence) {
     return { active: true, reason: "low_confidence" };
   }
@@ -542,6 +576,130 @@ function enrichTargetWithTorsoBasis(target, torsoBasis) {
     confidence,
     implausible: plausibility.implausible,
     plausibilityReason: plausibility.reason,
+  };
+}
+
+function applyConstrainedTargetDirections(targets, torsoBasis = null) {
+  return targets.map((target) => {
+    const constrainedDirection = target.constrainedDirection ?? target.direction;
+    const constrainedDirectionTorsoLocal = target.constrainedDirection && torsoBasis
+      ? directionToTorsoLocal(constrainedDirection, torsoBasis)
+      : target.directionTorsoLocal;
+    return {
+      ...target,
+      rawDirection: target.rawDirection ?? target.direction,
+      rawDirectionTorsoLocal: target.rawDirectionTorsoLocal ?? target.directionTorsoLocal,
+      direction: constrainedDirection,
+      constrainedDirection,
+      directionTorsoLocal: constrainedDirectionTorsoLocal,
+    };
+  });
+}
+
+function summarizeTargetAnatomy(targets) {
+  const anatomyRows = targets
+    .map((target) => target.anatomy)
+    .filter(Boolean);
+
+  return {
+    constrainedTargets: anatomyRows.length,
+    hardViolations: anatomyRows.filter((item) => item.hardViolation).length,
+    softViolations: anatomyRows.filter((item) => item.softViolation).length,
+  };
+}
+
+function evaluatePoseAnatomy(points, rawTargets, previousAnatomyState = createAnatomyState(), options = {}) {
+  const diagnostics = {};
+  const lowerBody = evaluateLowerBodyReliability({
+    points,
+    previous: previousAnatomyState,
+    timestamp: options.timestamp,
+  });
+
+  for (const target of rawTargets) {
+    const constraint = ANATOMICAL_CONSTRAINTS[target.bone];
+    if (!constraint) {
+      continue;
+    }
+
+    if ((constraint.group === "legs" || constraint.group === "feet") && !lowerBody.reliable) {
+      continue;
+    }
+
+    if (constraint.kind === "hinge") {
+      const hinge = HINGES.find((item) => item.name === constraint.joint);
+      const hingeConfidence = hinge
+        ? retargetConfidence(points[hinge.parent], points[hinge.joint], points[hinge.child])
+        : 0;
+
+      if (hingeConfidence < HINGE_RELIABLE_CONFIDENCE) {
+        continue;
+      }
+
+      const result = hinge ? evaluateHingeFlexion({
+        name: hinge.name,
+        parent: points[hinge.parent],
+        joint: points[hinge.joint],
+        child: points[hinge.child],
+        minFlexDeg: constraint.minFlexDeg,
+        softMaxFlexDeg: constraint.softMaxFlexDeg,
+        maxFlexDeg: constraint.maxFlexDeg,
+      }) : null;
+
+      if (result?.hardViolation || result?.softViolation) {
+        diagnostics[target.bone] = {
+          kind: constraint.kind,
+          joint: constraint.joint,
+          reason: "hinge_flexion_limit",
+          confidenceScale: result.confidenceScale,
+          constrainedDirection: result.clampedFlexDeg !== result.flexDeg
+            ? constrainHingeChildDirection({
+                parent: points[hinge.parent],
+                joint: points[hinge.joint],
+                child: points[hinge.child],
+                clampedFlexDeg: result.clampedFlexDeg,
+              })
+            : null,
+          hardViolation: result.hardViolation,
+          softViolation: result.softViolation,
+          flexDeg: result.flexDeg,
+          clampedFlexDeg: result.clampedFlexDeg,
+        };
+      }
+      continue;
+    }
+
+    if (constraint.kind === "swing-cone") {
+      const result = evaluateTargetCone({
+        bone: target.bone,
+        directionTorsoLocal: target.directionTorsoLocal,
+        constraint,
+      });
+
+      if (result.violation) {
+        diagnostics[target.bone] = {
+          kind: constraint.kind,
+          reason: result.reason,
+          confidenceScale: result.confidenceScale,
+          hardViolation: false,
+          softViolation: true,
+        };
+      }
+    }
+  }
+
+  return {
+    targets: diagnostics,
+    lowerBody,
+    hardViolations: Object.values(diagnostics).filter((item) => item.hardViolation).length,
+    softViolations: Object.values(diagnostics).filter((item) => item.softViolation).length,
+    state: {
+      targets: Object.fromEntries(rawTargets.map((target) => [target.bone, {
+        direction: diagnostics[target.bone]?.constrainedDirection ?? target.direction,
+        timestamp: options.timestamp,
+      }])),
+      lowerBody,
+    },
   };
 }
 
