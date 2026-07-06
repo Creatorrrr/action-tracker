@@ -119,6 +119,8 @@ assert.equal(upperBodySolved.meta.mode, "upper-body");
 assert.equal(upperBodySolved.meta.hingeViolations, 0);
 assert.equal(upperBodySolved.meta.anatomyLowerBodyReliable, false);
 assert.equal(upperBodySolved.meta.anatomyHardViolations, 0);
+assert.equal(findTarget(upperBodySolved, "LeftLeg").anatomy?.neutralHold, true);
+assert.equal(findTarget(upperBodySolved, "RightLeg").anatomy?.reason, "lower_body_unreliable");
 assert.equal(findHinge(upperBodySolved, "leftKnee").reason, "low_confidence");
 assert.equal(findHinge(upperBodySolved, "rightKnee").reason, "low_confidence");
 assert.ok(

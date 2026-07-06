@@ -22,6 +22,14 @@ const TARGET_RELIABLE_CONFIDENCE = 0.5;
 const ARM_OCCLUSION_HOLD_MS = 260;
 const ARM_OCCLUSION_DECAY_MS = 760;
 const ARM_REACQUIRE_MAX_DEG_PER_SEC = 420;
+const LOWER_BODY_TARGET_BONES = Object.freeze([
+  "LeftUpLeg",
+  "LeftLeg",
+  "LeftFoot",
+  "RightUpLeg",
+  "RightLeg",
+  "RightFoot",
+]);
 
 const POSE = {
   nose: 0,
@@ -145,6 +153,9 @@ function solvePoseTargetsFromPoints(points, previousState = {}, options = {}) {
   const anatomy = evaluatePoseAnatomy(points, rawTargets, previousState.anatomy, {
     timestamp,
   });
+  if (!anatomy.lowerBody.reliable) {
+    markLowerBodyNeutralHold(anatomy);
+  }
   const anatomyConstrainedTargets = applyConstrainedTargetDirections(constrainPoseTargets({
     targets: rawTargets,
     anatomy,
@@ -701,6 +712,31 @@ function evaluatePoseAnatomy(points, rawTargets, previousAnatomyState = createAn
       lowerBody,
     },
   };
+}
+
+function markLowerBodyNeutralHold(anatomy) {
+  if (!anatomy?.targets) {
+    return;
+  }
+
+  for (const bone of LOWER_BODY_TARGET_BONES) {
+    const existing = anatomy.targets[bone] ?? {};
+    const existingConfidenceScale = Number(existing.confidenceScale);
+    anatomy.targets[bone] = {
+      ...existing,
+      kind: existing.kind ?? "lower-body-reliability",
+      reason: existing.reason ?? "lower_body_unreliable",
+      confidenceScale: Number.isFinite(existingConfidenceScale)
+        ? Math.min(existingConfidenceScale, 0.25)
+        : 0.25,
+      hardViolation: Boolean(existing.hardViolation),
+      softViolation: true,
+      neutralHold: true,
+    };
+  }
+
+  anatomy.hardViolations = Object.values(anatomy.targets).filter((item) => item.hardViolation).length;
+  anatomy.softViolations = Object.values(anatomy.targets).filter((item) => item.softViolation).length;
 }
 
 function solveHinges(points) {

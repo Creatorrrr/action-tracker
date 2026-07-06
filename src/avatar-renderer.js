@@ -2428,6 +2428,14 @@ export function createAvatarRenderer(options = {}) {
         continue;
       }
 
+      if (solvedTarget.anatomy?.neutralHold && (solvedTarget.group === "legs" || solvedTarget.group === "feet")) {
+        applyOccludedBodyBone(target.bone, timestamp, delta, {
+          holdMs: RETARGET_OCCLUSION_HOLD_MS,
+          decayMs: RETARGET_OCCLUSION_DECAY_MS,
+        });
+        continue;
+      }
+
       if (retargetSolvedPose.meta.mode === 'upper-body' && (solvedTarget?.group === 'legs' || solvedTarget?.group === 'feet')) {
         applyOccludedBodyBone(target.bone, timestamp, delta, {
           holdMs: 0,

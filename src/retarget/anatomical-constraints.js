@@ -1,6 +1,7 @@
 const EPSILON = 0.000001;
 const LOWER_BODY_MIN_VISIBILITY = 0.5;
 const LOWER_BODY_AVERAGE_VISIBILITY = 0.72;
+const LOWER_BODY_MIN_LEG_SYMMETRY = 0.62;
 
 export const ANATOMICAL_CONSTRAINTS = deepFreeze({
   Hips: Object.freeze({ kind: "distributed", group: "torso", maxSwingDeg: 35, maxTwistDeg: 30 }),
@@ -247,15 +248,26 @@ export function evaluateLowerBodyReliability({ points, previous = createAnatomyS
   const average = visibilities.reduce((sum, value) => sum + value, 0) / Math.max(1, visibilities.length);
   const minimum = visibilities.length > 0 ? Math.min(...visibilities) : 0;
   const hasAllLandmarks = visibilities.length === names.length;
+  const leftLegLength = segmentLength(points?.leftHip, points?.leftKnee) +
+    segmentLength(points?.leftKnee, points?.leftAnkle);
+  const rightLegLength = segmentLength(points?.rightHip, points?.rightKnee) +
+    segmentLength(points?.rightKnee, points?.rightAnkle);
+  const legLengthSymmetry = leftLegLength > EPSILON && rightLegLength > EPSILON
+    ? Math.min(leftLegLength, rightLegLength) / Math.max(leftLegLength, rightLegLength)
+    : 0;
   const reliable = hasAllLandmarks &&
     average >= LOWER_BODY_AVERAGE_VISIBILITY &&
-    minimum >= LOWER_BODY_MIN_VISIBILITY;
+    minimum >= LOWER_BODY_MIN_VISIBILITY &&
+    legLengthSymmetry >= LOWER_BODY_MIN_LEG_SYMMETRY;
 
   return {
     reliable,
     confidence: round(average),
     minVisibility: round(minimum),
-    reason: lowerBodyReliabilityReason({ reliable, hasAllLandmarks, average, minimum }),
+    legLengthSymmetry: round(legLengthSymmetry),
+    leftLegLength: round(leftLegLength),
+    rightLegLength: round(rightLegLength),
+    reason: lowerBodyReliabilityReason({ reliable, hasAllLandmarks, average, minimum, legLengthSymmetry }),
     lastReliableAt: reliable ? timestamp : previous?.lowerBody?.lastReliableAt ?? null,
   };
 }
@@ -314,7 +326,7 @@ function invalidFlexionResult() {
   };
 }
 
-function lowerBodyReliabilityReason({ reliable, hasAllLandmarks, average, minimum }) {
+function lowerBodyReliabilityReason({ reliable, hasAllLandmarks, average, minimum, legLengthSymmetry }) {
   if (reliable) {
     return "ok";
   }
@@ -326,6 +338,9 @@ function lowerBodyReliabilityReason({ reliable, hasAllLandmarks, average, minimu
   }
   if (average < LOWER_BODY_AVERAGE_VISIBILITY) {
     return "low_average_visibility";
+  }
+  if (legLengthSymmetry < LOWER_BODY_MIN_LEG_SYMMETRY) {
+    return "asymmetric_leg_length";
   }
   return "low_visibility";
 }
@@ -370,6 +385,14 @@ function subtract(a, b) {
 
 function magnitude(vector) {
   return Math.hypot(vector.x, vector.y, vector.z);
+}
+
+function segmentLength(a, b) {
+  if (!hasValidCoordinates(a) || !hasValidCoordinates(b)) {
+    return 0;
+  }
+
+  return magnitude(subtract(a, b));
 }
 
 function dot(a, b) {

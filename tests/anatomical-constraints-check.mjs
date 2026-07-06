@@ -124,6 +124,22 @@ const lowerUnreliableAnkle = evaluateLowerBodyReliability({
 });
 assert.equal(lowerUnreliableAnkle.reliable, false);
 
+const lowerUnreliableSymmetry = evaluateLowerBodyReliability({
+  points: {
+    leftHip: p(0.4, 0.6, 0, 0.99),
+    rightHip: p(0.6, 0.6, 0, 0.99),
+    leftKnee: p(0.42, 0.35, 0, 0.98),
+    rightKnee: p(0.58, -0.2, 0, 0.98),
+    leftAnkle: p(0.43, 0.1, 0, 0.98),
+    rightAnkle: p(0.57, -0.9, 0, 0.98),
+  },
+  previous: createAnatomyState(),
+  timestamp: 1000,
+});
+assert.equal(lowerUnreliableSymmetry.reliable, false);
+assert.equal(lowerUnreliableSymmetry.reason, "asymmetric_leg_length");
+assert.equal(lowerUnreliableSymmetry.legLengthSymmetry < 0.62, true);
+
 const invalidHinge = evaluateHingeFlexion({
   name: "invalidElbow",
   parent: { x: 0, y: 0 },
