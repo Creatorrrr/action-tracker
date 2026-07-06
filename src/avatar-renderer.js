@@ -513,6 +513,7 @@ export function createAvatarRenderer(options = {}) {
   let depthCalibrationMode = normalizeDepthCalibrationMode(options.depthCalibrationMode);
   let activeSmoothingMode = normalizeAvatarSmoothingMode(options.smoothingMode);
   let activeRetargetMode = normalizeAvatarRetargetMode(options.retargetMode, RETARGET_MODE_STRICT);
+  let anatomyConstraintsEnabled = options.anatomyConstraintsEnabled !== false;
   let orbitControlsAttached = false;
   const orbitCamera = {
     target: new THREE.Vector3(0, 1, 0),
@@ -2428,7 +2429,11 @@ export function createAvatarRenderer(options = {}) {
         continue;
       }
 
-      if (solvedTarget.anatomy?.neutralHold && (solvedTarget.group === "legs" || solvedTarget.group === "feet")) {
+      if (
+        anatomyConstraintsEnabled &&
+        solvedTarget.anatomy?.neutralHold &&
+        (solvedTarget.group === "legs" || solvedTarget.group === "feet")
+      ) {
         applyOccludedBodyBone(target.bone, timestamp, delta, {
           holdMs: RETARGET_OCCLUSION_HOLD_MS,
           decayMs: RETARGET_OCCLUSION_DECAY_MS,
@@ -2492,7 +2497,9 @@ export function createAvatarRenderer(options = {}) {
   }
 
   function resolveStrictTargetDirection(solvedTarget) {
-    const direction = solvedTarget.constrainedDirection ?? solvedTarget.direction;
+    const direction = anatomyConstraintsEnabled
+      ? solvedTarget.constrainedDirection ?? solvedTarget.direction
+      : solvedTarget.rawDirection ?? solvedTarget.direction;
     return tmpVectorC.set(
       direction.x,
       direction.y,
@@ -2502,6 +2509,7 @@ export function createAvatarRenderer(options = {}) {
 
   function resolveSolvedTargetDirection(solvedTarget) {
     if (
+      anatomyConstraintsEnabled &&
       solvedTarget?.directionTorsoLocal &&
       shouldUseTorsoLocalDirection(solvedTarget)
     ) {
@@ -2518,7 +2526,9 @@ export function createAvatarRenderer(options = {}) {
       }
     }
 
-    const direction = solvedTarget.constrainedDirection ?? solvedTarget.direction;
+    const direction = anatomyConstraintsEnabled
+      ? solvedTarget.constrainedDirection ?? solvedTarget.direction
+      : solvedTarget.rawDirection ?? solvedTarget.direction;
     return tmpVectorC.set(direction.x, direction.y, direction.z);
   }
 
@@ -2570,6 +2580,14 @@ export function createAvatarRenderer(options = {}) {
       hingeViolations: solvedPose.meta.hingeViolations,
       hingeLimitWarnings: solvedPose.meta.hingeLimitWarnings,
       lowConfidenceHinges: solvedPose.meta.lowConfidenceHinges,
+      anatomy: {
+        enabled: anatomyConstraintsEnabled,
+        softViolations: solvedPose.meta.anatomySoftViolations ?? 0,
+        hardViolations: solvedPose.meta.anatomyHardViolations ?? 0,
+        constrainedTargets: solvedPose.meta.anatomyConstrainedTargets ?? 0,
+        lowerBodyReliable: solvedPose.meta.anatomyLowerBodyReliable ?? null,
+        lowerBodyConfidence: solvedPose.meta.anatomyLowerBodyConfidence ?? null,
+      },
       targets: solvedPose.targets.map((target) => ({
         bone: target.bone,
         group: target.group,
@@ -2580,6 +2598,7 @@ export function createAvatarRenderer(options = {}) {
         occlusionReason: target.occlusionReason,
         implausible: Boolean(target.implausible),
         plausibilityReason: target.plausibilityReason,
+        anatomy: target.anatomy ?? null,
       })),
       hinges: solvedPose.hinges.map((hinge) => ({
         name: hinge.name,

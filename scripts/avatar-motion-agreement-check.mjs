@@ -1076,6 +1076,9 @@ function buildResultSummary(model, payload, options = {}) {
   const appPerformance = payload.appPerformance;
   const poseSolver = payload.motionState?.poseSolver ?? null;
   const poseSolverMetrics = payload.motionState?.poseSolverMetrics ?? null;
+  const poseSolverAnatomy = poseSolver?.anatomy ?? {};
+  const poseSolverAnatomyHardViolations = poseSolverAnatomy.hardViolations ?? poseSolver?.anatomyHardViolations ?? 0;
+  const poseSolverAnatomyConstrainedTargets = poseSolverAnatomy.constrainedTargets ?? poseSolver?.anatomyConstrainedTargets ?? 0;
   const trackingWorker = appPerformance?.trackingWorker ?? {};
   const retargetSmoothing = performance?.retargetSmoothing ?? {};
   const rig = payload.rig;
@@ -1168,6 +1171,14 @@ function buildResultSummary(model, payload, options = {}) {
 
   for (const warning of depthCalibration.warnings ?? []) {
     warningsForModel.push(`${model.label}: ${warning}`);
+  }
+
+  if (poseSolverAnatomyHardViolations > 0) {
+    warningsForModel.push(`${model.label}: anatomy hard limits active on latest frame (${poseSolverAnatomyHardViolations})`);
+  }
+
+  if (poseSolverAnatomyConstrainedTargets > 4) {
+    warningsForModel.push(`${model.label}: anatomy constrained ${poseSolverAnatomyConstrainedTargets} targets on latest frame`);
   }
 
   if (enforceGates) {
@@ -1277,6 +1288,11 @@ function buildResultSummary(model, payload, options = {}) {
       poseSolverHingeViolations: poseSolver?.hingeViolations ?? null,
       poseSolverHingeLimitWarnings: poseSolver?.hingeLimitWarnings ?? null,
       poseSolverLowConfidenceHinges: poseSolver?.lowConfidenceHinges ?? null,
+      poseSolverAnatomyHardViolations,
+      poseSolverAnatomySoftViolations: poseSolverAnatomy.softViolations ?? poseSolver?.anatomySoftViolations ?? null,
+      poseSolverAnatomyConstrainedTargets,
+      poseSolverAnatomyLowerBodyReliable: poseSolverAnatomy.lowerBodyReliable ?? poseSolver?.anatomyLowerBodyReliable ?? null,
+      poseSolverAnatomyLowerBodyConfidence: poseSolverAnatomy.lowerBodyConfidence ?? poseSolver?.anatomyLowerBodyConfidence ?? null,
       poseSolverMetricFrames: poseSolverMetrics?.frames ?? null,
       poseSolverHingeViolationFrames: poseSolverMetrics?.hingeViolationFrames ?? null,
       poseSolverMaxHingeViolations: poseSolverMetrics?.maxHingeViolations ?? null,

@@ -4,7 +4,7 @@ import {
   HandLandmarker,
   PoseLandmarker,
 } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/vision_bundle.mjs";
-import { createAvatarRenderer } from "./avatar-renderer.js?v=20260704-vrm-head-axis-1";
+import { createAvatarRenderer } from "./avatar-renderer.js?v=20260706-anatomy-diagnostics-1";
 import {
   MOTION_RECORDING_FRAME_LIMIT,
   createMotionFrame,
@@ -341,6 +341,7 @@ const state = {
   smoothedFps: 0,
   errorCode: null,
   debugOverlayEnabled: true,
+  anatomyConstraintsEnabled: !isFalsyQueryFlag("anatomy-constraints"),
   avatarSmoothingMode: getInitialAvatarSmoothingMode(),
   avatarRetargetMode: getInitialAvatarRetargetMode(),
   detectionPump: {
@@ -580,6 +581,7 @@ function initAvatarRenderer() {
       depthCalibrationMode: getInitialAvatarDepthCalibrationMode(),
       smoothingMode: state.avatarSmoothingMode,
       retargetMode: state.avatarRetargetMode,
+      anatomyConstraintsEnabled: state.anatomyConstraintsEnabled,
     });
     syncAvatarDebugOptions();
     void applyInitialDepthCalibrationProfile();
