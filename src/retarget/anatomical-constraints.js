@@ -160,6 +160,28 @@ export function constrainFlexionDeg({ flexDeg, minFlexDeg, softMaxFlexDeg, maxFl
   };
 }
 
+export function constrainFingerFlexionDeg({ fingerName, segmentIndex, flexDeg }) {
+  const constraints = fingerName === "Thumb" ? FINGER_CONSTRAINTS.Thumb : FINGER_CONSTRAINTS.default;
+  const constraint = constraints[segmentIndex] ?? constraints[constraints.length - 1];
+  const [minFlexDeg, maxFlexDeg] = constraint.flexDeg ?? [-10, 95];
+  const [softMinFlexDeg, softMaxFlexDeg] = constraint.softFlexDeg ?? [minFlexDeg, maxFlexDeg];
+  const result = constrainFlexionDeg({
+    flexDeg,
+    minFlexDeg,
+    softMaxFlexDeg,
+    maxFlexDeg,
+  });
+
+  return {
+    ...result,
+    softViolation: result.softViolation || (
+      isFiniteNumber(flexDeg) &&
+      (flexDeg < softMinFlexDeg || flexDeg > softMaxFlexDeg)
+    ),
+    jointKind: constraint.kind,
+  };
+}
+
 export function constrainHingeChildDirection({ parent, joint, child, clampedFlexDeg }) {
   if (!parent || !joint || !child || !isFiniteNumber(clampedFlexDeg)) {
     return null;

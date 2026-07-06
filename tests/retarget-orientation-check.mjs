@@ -52,18 +52,27 @@ assert.deepEqual([...HAND_FINGERS.Thumb], [1, 2, 3, 4]);
 const thumbBaseSegment = resolveFingerSegmentPoints(handPoints, "Thumb", 0);
 assert.equal(thumbBaseSegment.fromIndex, 0);
 assert.equal(thumbBaseSegment.toIndex, 1);
+assert.equal(thumbBaseSegment.jointKind, "thumb-cmc");
 
 const thumbMiddleSegment = resolveFingerSegmentPoints(handPoints, "Thumb", 1);
 assert.equal(thumbMiddleSegment.fromIndex, 1);
 assert.equal(thumbMiddleSegment.toIndex, 2);
+assert.equal(thumbMiddleSegment.jointKind, "thumb-mcp");
 
 const thumbTipSegment = resolveFingerSegmentPoints(handPoints, "Thumb", 3);
 assert.equal(thumbTipSegment.fromIndex, 3);
 assert.equal(thumbTipSegment.toIndex, 4);
+assert.equal(thumbTipSegment.jointKind, "thumb-tip");
 
 const indexBaseSegment = resolveFingerSegmentPoints(handPoints, "Index", 0);
 assert.equal(indexBaseSegment.fromIndex, 5);
 assert.equal(indexBaseSegment.toIndex, 6);
+assert.equal(indexBaseSegment.jointKind, "mcp");
+
+const indexDipSegment = resolveFingerSegmentPoints(handPoints, "Index", 2);
+assert.equal(indexDipSegment.fromIndex, 7);
+assert.equal(indexDipSegment.toIndex, 8);
+assert.equal(indexDipSegment.jointKind, "dip");
 
 console.log("Retarget orientation check passed.");
 

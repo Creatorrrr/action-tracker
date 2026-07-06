@@ -3726,11 +3726,26 @@ export function createAvatarRenderer(options = {}) {
           ? smoothingAlpha(delta, RETARGET_SMOOTHING_MS.fingerBase)
           : fingerAlpha;
         tmpVectorC.subVectors(to, from);
-        applyAimToBone(chain[i], tmpVectorC, strictHandAlpha ?? segmentAlpha * spreadStrength, activeRetargetMode === RETARGET_MODE_STRICT ? undefined : fingerName === 'Thumb' ? 1.1 : 1.25, {
-          maxTwist: activeRetargetMode === RETARGET_MODE_STRICT ? undefined : fingerName === 'Thumb' ? 0.52 : 0.38,
+        const fingerConstraint = getFingerAimConstraint(fingerName, i);
+        applyAimToBone(chain[i], tmpVectorC, strictHandAlpha ?? segmentAlpha * spreadStrength, fingerConstraint.maxAngle, {
+          maxTwist: fingerConstraint.maxTwist,
         });
       }
     }
+  }
+
+  function getFingerAimConstraint(fingerName, segmentIndex) {
+    if (fingerName === "Thumb") {
+      return segmentIndex === 0
+        ? { maxAngle: THREE.MathUtils.degToRad(90), maxTwist: THREE.MathUtils.degToRad(60) }
+        : { maxAngle: THREE.MathUtils.degToRad(75), maxTwist: THREE.MathUtils.degToRad(28) };
+    }
+
+    if (segmentIndex === 0) {
+      return { maxAngle: THREE.MathUtils.degToRad(95), maxTwist: THREE.MathUtils.degToRad(28) };
+    }
+
+    return { maxAngle: THREE.MathUtils.degToRad(82), maxTwist: THREE.MathUtils.degToRad(18) };
   }
 
   function computeLimbPlaneNormals(points) {

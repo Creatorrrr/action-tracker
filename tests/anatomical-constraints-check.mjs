@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   ANATOMICAL_CONSTRAINTS,
   FINGER_CONSTRAINTS,
+  constrainFingerFlexionDeg,
   clampDegrees,
   constrainHingeChildDirection,
   constrainFlexionDeg,
@@ -18,6 +19,8 @@ assert.equal(ANATOMICAL_CONSTRAINTS.LeftArm.kind, "swing-cone");
 assert.equal(ANATOMICAL_CONSTRAINTS.LeftUpLeg.kind, "swing-cone");
 assert.equal(FINGER_CONSTRAINTS.Thumb.length, 4);
 assert.equal(FINGER_CONSTRAINTS.default.length, 4);
+assert.equal(FINGER_CONSTRAINTS.Thumb[0].kind, "thumb-cmc");
+assert.equal(FINGER_CONSTRAINTS.default[1].kind, "pip");
 
 assert.equal(clampDegrees(170, -5, 155), 155);
 assert.equal(clampDegrees(-20, -5, 155), -5);
@@ -46,6 +49,24 @@ const impossibleKnee = constrainFlexionDeg({
 assert.equal(impossibleKnee.clampedFlexDeg, 155);
 assert.equal(impossibleKnee.hardViolation, true);
 assert.equal(impossibleKnee.confidenceScale < 1, true);
+
+const pipClamp = constrainFingerFlexionDeg({
+  fingerName: "Index",
+  segmentIndex: 1,
+  flexDeg: 140,
+});
+assert.equal(pipClamp.jointKind, "pip");
+assert.equal(pipClamp.clampedFlexDeg, 115);
+assert.equal(pipClamp.hardViolation, true);
+
+const thumbMcpClamp = constrainFingerFlexionDeg({
+  fingerName: "Thumb",
+  segmentIndex: 1,
+  flexDeg: 90,
+});
+assert.equal(thumbMcpClamp.jointKind, "thumb-mcp");
+assert.equal(thumbMcpClamp.clampedFlexDeg, 70);
+assert.equal(thumbMcpClamp.hardViolation, true);
 
 const nullFlexion = constrainFlexionDeg({
   flexDeg: null,

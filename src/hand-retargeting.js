@@ -43,6 +43,9 @@ export function resolveFingerSegmentPoints(points, fingerName, segmentIndex) {
     to,
     fromIndex: from === points[fromIndex] ? fromIndex : fallbackFromIndex,
     toIndex,
+    jointKind: fingerName === "Thumb"
+      ? ["thumb-cmc", "thumb-mcp", "thumb-ip", "thumb-tip"][segmentIndex]
+      : ["mcp", "pip", "dip", "tip"][segmentIndex],
   };
 }
 
