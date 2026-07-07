@@ -135,6 +135,27 @@ assert.equal(handResults.worldLandmarks.length, 2);
 assert.equal(handResults.handedness[0][0].categoryName, "Left");
 assert.equal(handResults.handedness[1][0].categoryName, "Right");
 
+const poseWithSeparatedWrists = landmarks(33, 0.45);
+poseWithSeparatedWrists[15] = { x: 0.74, y: 0.5, z: 0, visibility: 0.95 };
+poseWithSeparatedWrists[16] = { x: 0.24, y: 0.5, z: 0, visibility: 0.95 };
+const physicalRightHand = landmarks(21, 0.23);
+const physicalLeftHand = landmarks(21, 0.73);
+const poseAnchoredFrame = createMotionFrame({
+  mirrored: false,
+  poseResults: {
+    landmarks: [poseWithSeparatedWrists],
+  },
+  handResults: {
+    landmarks: [physicalRightHand, physicalLeftHand],
+    handedness: [
+      [{ categoryName: "Right", score: 0.9 }],
+      [{ categoryName: "Left", score: 0.9 }],
+    ],
+  },
+});
+assert.equal(poseAnchoredFrame.rightHandLandmarks, physicalRightHand);
+assert.equal(poseAnchoredFrame.leftHandLandmarks, physicalLeftHand);
+
 const recording = createMotionRecording({
   source: { inputKind: "video", videoFileName: "sample.mp4", videoRef: "sample.mp4" },
   frames: [frame],

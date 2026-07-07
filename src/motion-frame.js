@@ -13,6 +13,13 @@ export const EXTERNAL_HMR_EXTRACTORS = Object.freeze([
   "sam3dbody",
 ]);
 
+const POSE_LEFT_WRIST = 15;
+const POSE_RIGHT_WRIST = 16;
+const HAND_WRIST = 0;
+const MIN_POSE_WRIST_CONFIDENCE = 0.2;
+const MIN_POSE_WRIST_SEPARATION = 0.08;
+const POSE_WRIST_MATCH_EPSILON = 0.000001;
+
 export function createMotionFrame({
   timestamp = 0,
   mirrored = false,
@@ -29,7 +36,7 @@ export function createMotionFrame({
   const poseWorldLandmarks = firstLandmarkList(
     poseResults?.poseWorldLandmarks ?? poseResults?.worldLandmarks,
   );
-  const hands = normalizeHands(handResults, mirrored);
+  const hands = normalizeHands(handResults, mirrored, poseLandmarks);
   const leftHand = hands.find((hand) => hand.side === "Left") ?? null;
   const rightHand = hands.find((hand) => hand.side === "Right") ?? null;
 
@@ -279,7 +286,7 @@ export function motionFrameToHandResults(frame) {
   return { landmarks, handedness, worldLandmarks };
 }
 
-function normalizeHands(results, mirrored) {
+function normalizeHands(results, mirrored, poseLandmarks = null) {
   if (!results) {
     return [];
   }
@@ -314,10 +321,11 @@ function normalizeHands(results, mirrored) {
       return;
     }
 
+    const poseSide = inferHandSideFromPoseWrist(landmarks, poseLandmarks, usedSides);
     const labeledSide = normalizeHandLabel(readHandLabel(handedness[index]), mirrored);
-    const side = labeledSide && !usedSides.has(labeledSide)
+    const side = poseSide ?? (labeledSide && !usedSides.has(labeledSide)
       ? labeledSide
-      : inferHandSide(landmarks, mirrored, usedSides);
+      : inferHandSide(landmarks, mirrored, usedSides));
 
     if (!side) {
       return;
@@ -333,6 +341,68 @@ function normalizeHands(results, mirrored) {
   });
 
   return dedupeHands(hands);
+}
+
+function inferHandSideFromPoseWrist(handLandmarks, poseLandmarks, usedSides) {
+  const wrist = handLandmarks?.[HAND_WRIST];
+
+  if (!isLandmark(wrist) || !isLandmarkList(poseLandmarks)) {
+    return null;
+  }
+
+  const leftWrist = poseLandmarks[POSE_LEFT_WRIST];
+  const rightWrist = poseLandmarks[POSE_RIGHT_WRIST];
+
+  if (!isUsablePoseWrist(leftWrist) || !isUsablePoseWrist(rightWrist)) {
+    return null;
+  }
+
+  if (landmarkDistanceSquared(leftWrist, rightWrist) < MIN_POSE_WRIST_SEPARATION ** 2) {
+    return null;
+  }
+
+  const candidates = [
+    { side: "Left", distance: landmarkDistanceSquared(wrist, leftWrist) },
+    { side: "Right", distance: landmarkDistanceSquared(wrist, rightWrist) },
+  ]
+    .filter((candidate) => !usedSides.has(candidate.side))
+    .sort((a, b) => a.distance - b.distance);
+
+  if (!candidates[0]) {
+    return null;
+  }
+
+  if (
+    candidates[1] &&
+    Math.abs(candidates[0].distance - candidates[1].distance) <= POSE_WRIST_MATCH_EPSILON
+  ) {
+    return null;
+  }
+
+  return candidates[0].side;
+}
+
+function isUsablePoseWrist(landmark) {
+  if (!isLandmark(landmark)) {
+    return false;
+  }
+
+  if (Number.isFinite(landmark.visibility) && landmark.visibility < MIN_POSE_WRIST_CONFIDENCE) {
+    return false;
+  }
+
+  if (Number.isFinite(landmark.presence) && landmark.presence < MIN_POSE_WRIST_CONFIDENCE) {
+    return false;
+  }
+
+  return true;
+}
+
+function landmarkDistanceSquared(a, b) {
+  const dx = a.x - b.x;
+  const dy = a.y - b.y;
+
+  return dx * dx + dy * dy;
 }
 
 function normalizeHandLandmarkGroups(results) {
