@@ -192,6 +192,17 @@ function checkPattern(source, pattern, message) {
   check(pattern.test(source), message);
 }
 
+function sourceBetween(source, startNeedle, endNeedle) {
+  const start = source.indexOf(startNeedle);
+  const end = start >= 0 ? source.indexOf(endNeedle, start + startNeedle.length) : -1;
+
+  if (start < 0 || end < 0) {
+    return "";
+  }
+
+  return source.slice(start, end);
+}
+
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -412,6 +423,12 @@ function checkHtmlContract(html) {
     check(hasId(html, id), `index.html: missing required DOM id #${id}`);
   }
 
+  const mirrorToggleInput = html.match(/<input\b(?=[^>]*\bid\s*=\s*["']mirror-toggle["'])[^>]*>/i)?.[0] ?? "";
+  check(
+    mirrorToggleInput && !/\bchecked\b/i.test(mirrorToggleInput),
+    "index.html: mirror input toggle should default to unchecked",
+  );
+
   checkPattern(
     html,
     /<script\b(?=[^>]*\btype\s*=\s*["']module["'])(?=[^>]*\bsrc\s*=\s*["']\.\/src\/app\.js(?:\?[^"']+)?["'])[^>]*>\s*<\/script>/i,
@@ -515,6 +532,8 @@ function checkTrackerAppContract(app) {
     videoModeCount >= 3,
     "src/app.js: expected VIDEO runningMode for pose, hand, and optional face landmarkers",
   );
+  const startCameraSource = sourceBetween(app, "async function startCamera(", "async function startVideoFile(");
+  const startVideoFileSource = sourceBetween(app, "async function startVideoFile(", "function stopCamera(");
 
   const lifecycleChecks = [
     ["defines startCamera", /async\s+function\s+startCamera\s*\(/],
@@ -538,16 +557,8 @@ function checkTrackerAppContract(app) {
     ],
     ["requests camera stream", /navigator\.mediaDevices\?\.\s*getUserMedia/],
     ["assigns camera stream to video", /video\.srcObject\s*=\s*stream/],
-    [
-      "uses mirrored preview for camera input",
-      /async\s+function\s+startCamera\s*\([^)]*\)[\s\S]*?setMirrorPreference\s*\(\s*true\s*\)[\s\S]*?applyMirrorPreference\s*\(\s*\)/,
-    ],
     ["creates a local video file URL", /URL\.createObjectURL\s*\(\s*file\s*\)/],
     ["assigns video file URL to video", /video\.src\s*=\s*objectUrl/],
-    [
-      "uses unmirrored replay for video file input",
-      /async\s+function\s+startVideoFile\s*\([^)]*\)[\s\S]*?setMirrorPreference\s*\(\s*false\s*\)[\s\S]*?applyMirrorPreference\s*\(\s*\)/,
-    ],
     ["defines mirror preference helper", /function\s+setMirrorPreference\s*\(\s*mirrored\s*\)/],
     ["allows video file replacement while active", /videoFileInput\.disabled\s*=\s*missingRequiredDom\s*\|\|\s*state\.starting/],
     ["enables video controls for file replay", /video\.controls\s*=\s*true/],
@@ -580,6 +591,16 @@ function checkTrackerAppContract(app) {
   for (const [label, pattern] of lifecycleChecks) {
     checkPattern(app, pattern, `src/app.js: camera lifecycle contract missing - ${label}`);
   }
+  checkPattern(
+    startCameraSource,
+    /setMirrorPreference\s*\(\s*false\s*\)[\s\S]*?applyMirrorPreference\s*\(\s*\)/,
+    "src/app.js: camera lifecycle contract missing - uses unmirrored preview for camera input",
+  );
+  checkPattern(
+    startVideoFileSource,
+    /setMirrorPreference\s*\(\s*false\s*\)[\s\S]*?applyMirrorPreference\s*\(\s*\)/,
+    "src/app.js: camera lifecycle contract missing - uses unmirrored replay for video file input",
+  );
 
   const drawingChecks = [
     ["pose connection array", /const\s+POSE_CONNECTIONS\s*=\s*\[/],

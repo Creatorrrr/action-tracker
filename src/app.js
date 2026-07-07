@@ -695,7 +695,7 @@ async function startCamera() {
     }
 
     resizeCanvasToVideoFrame();
-    setMirrorPreference(true);
+    setMirrorPreference(false);
     applyMirrorPreference();
     configureDetectionRuntime();
 

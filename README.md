@@ -239,7 +239,7 @@ Use the **Avatar skeleton** toggle to render the model's live bone skeleton over
 
 The 3D avatar viewport supports orbit inspection: drag inside the avatar canvas to rotate, use the wheel or trackpad to zoom, and use **Reset** or double-click the viewport to return to the default front view. Reset the view before recording validation numbers if you want the visual projection score to match the source-video orientation.
 
-Camera input is mirrored by default because that matches a normal webcam preview. Uploaded video files are replayed unmirrored by default so prerecorded clips are tested in their original left-right orientation. The **Mirror input** toggle can still be changed manually while tracking.
+Camera input and uploaded video files are unmirrored by default so live capture and prerecorded clips use the same left-right orientation. The **Mirror input** toggle can still be changed manually while tracking.
 
 ## 3D Avatar
 
