@@ -22,6 +22,24 @@ const TARGET_RELIABLE_CONFIDENCE = 0.5;
 const ARM_OCCLUSION_HOLD_MS = 260;
 const ARM_OCCLUSION_DECAY_MS = 760;
 const ARM_REACQUIRE_MAX_DEG_PER_SEC = 420;
+const SPINE_WAVE_MAX_OFFSET_RATIO = 0.08;
+const SPINE_WAVE_TWIST_GAIN = 0.32;
+const SPINE_WAVE_SIDE_GAIN = 0.12;
+const SPINE_WAVE_TWIST_DEADZONE = 0.035;
+const SPINE_WAVE_SIDE_DEADZONE_RATIO = 0.018;
+const SPINE_WAVE_MIN_CONFIDENCE = 0.45;
+const SPINE_WAVE_POINTS = Object.freeze([
+  Object.freeze({ name: "spineBase", t: 0.24 }),
+  Object.freeze({ name: "spineMid", t: 0.52 }),
+  Object.freeze({ name: "spineUpper", t: 0.76 }),
+  Object.freeze({ name: "chest", t: 0.9 }),
+]);
+const CLAVICLE_ELEVATION_START = 0.12;
+const CLAVICLE_ELEVATION_FULL = 0.72;
+const CLAVICLE_ELEVATION_OFFSET_RATIO = 0.045;
+const CLAVICLE_PROTRACTION_DEADZONE = 0.18;
+const CLAVICLE_PROTRACTION_OFFSET_RATIO = 0.035;
+const ZERO_VECTOR = Object.freeze({ x: 0, y: 0, z: 0 });
 const LOWER_BODY_TARGET_BONES = Object.freeze([
   "LeftUpLeg",
   "LeftLeg",
@@ -54,14 +72,14 @@ const POSE = {
 };
 
 const BODY_TARGETS = [
-  { bone: "Hips", from: "hipMid", to: "shoulderMid", group: "torso" },
-  { bone: "Spine", from: "hipMid", to: "shoulderMid", group: "torso" },
-  { bone: "Spine1", from: "hipMid", to: "shoulderMid", group: "torso" },
-  { bone: "Spine2", from: "hipMid", to: "shoulderMid", group: "torso" },
-  { bone: "Neck", from: "shoulderMid", to: "headAimBase", group: "head" },
+  { bone: "Hips", from: "hipMid", to: "spineBase", group: "torso" },
+  { bone: "Spine", from: "spineBase", to: "spineMid", group: "torso" },
+  { bone: "Spine1", from: "spineMid", to: "spineUpper", group: "torso" },
+  { bone: "Spine2", from: "spineUpper", to: "chest", group: "torso" },
+  { bone: "Neck", from: "chest", to: "headAimBase", group: "head" },
   { bone: "Head", from: "headAimBase", to: "headCrown", group: "head" },
-  { bone: "LeftShoulder", from: "shoulderMid", to: "leftShoulder", group: "shoulder" },
-  { bone: "RightShoulder", from: "shoulderMid", to: "rightShoulder", group: "shoulder" },
+  { bone: "LeftShoulder", from: "shoulderMid", to: "leftClavicle", group: "shoulder" },
+  { bone: "RightShoulder", from: "shoulderMid", to: "rightClavicle", group: "shoulder" },
   { bone: "LeftArm", from: "leftShoulder", to: "leftElbow", group: "arms" },
   { bone: "LeftForeArm", from: "leftElbow", to: "leftWrist", group: "arms", hinge: "leftElbow" },
   { bone: "RightArm", from: "rightShoulder", to: "rightElbow", group: "arms" },
@@ -539,8 +557,155 @@ function buildPosePoints(motionFrame) {
         y: points.nose.y + 0.12,
       }
     : null;
+  assignSpineWavePoints(points);
 
   return points;
+}
+
+function assignSpineWavePoints(points) {
+  if (!points?.hipMid || !points?.shoulderMid) {
+    return;
+  }
+
+  const torsoVector = subtract(points.shoulderMid, points.hipMid);
+  const torsoLength = magnitude(torsoVector);
+
+  if (torsoLength < MIN_DIRECTION_LENGTH) {
+    return;
+  }
+
+  const up = normalize(torsoVector);
+  const shoulderAxis = points.leftShoulder && points.rightShoulder
+    ? normalize(subtract(points.leftShoulder, points.rightShoulder))
+    : null;
+  const hipAxis = points.leftHip && points.rightHip
+    ? normalize(subtract(points.leftHip, points.rightHip))
+    : null;
+  const blendedAxis = shoulderAxis && hipAxis
+    ? normalize(add(shoulderAxis, hipAxis)) ?? shoulderAxis
+    : shoulderAxis ?? hipAxis;
+  const left = blendedAxis && up ? rejectAxis(blendedAxis, up) ?? blendedAxis : blendedAxis;
+  const forward = left && up ? normalize(cross(up, left)) : null;
+  const twistSignedSin = shoulderAxis && hipAxis && up
+    ? clamp(dot(cross(hipAxis, shoulderAxis), up), -1, 1)
+    : 0;
+  const confidence = retargetConfidence(
+    points.leftShoulder,
+    points.rightShoulder,
+    points.leftHip,
+    points.rightHip,
+  );
+  const confidenceScale = ramp01((confidence - SPINE_WAVE_MIN_CONFIDENCE) / (1 - SPINE_WAVE_MIN_CONFIDENCE));
+  const twistSignal = applySignedDeadzone(twistSignedSin, SPINE_WAVE_TWIST_DEADZONE);
+  const sideRatio = left ? dot(torsoVector, left) / torsoLength : 0;
+  const sideSignal = applySignedDeadzone(sideRatio, SPINE_WAVE_SIDE_DEADZONE_RATIO);
+  const maxOffset = torsoLength * SPINE_WAVE_MAX_OFFSET_RATIO;
+  const twistOffset = forward
+    ? clamp(twistSignal * torsoLength * SPINE_WAVE_TWIST_GAIN * confidenceScale, -maxOffset, maxOffset)
+    : 0;
+  const sideOffset = left
+    ? clamp(sideSignal * torsoLength * SPINE_WAVE_SIDE_GAIN * confidenceScale, -maxOffset * 0.6, maxOffset * 0.6)
+    : 0;
+  const metadata = {
+    source: "shoulder_hip_axis",
+    twistSin: round(twistSignedSin),
+    twistSignal: round(twistSignal),
+    twistOffset: round(twistOffset),
+    sideRatio: round(sideRatio),
+    sideSignal: round(sideSignal),
+    sideOffset: round(sideOffset),
+    confidence: round(confidence),
+    active: Math.abs(twistOffset) > MIN_DIRECTION_LENGTH || Math.abs(sideOffset) > MIN_DIRECTION_LENGTH,
+  };
+
+  for (const { name, t } of SPINE_WAVE_POINTS) {
+    const curve = Math.sin(Math.PI * t);
+    const upperBodyFallback = name === "chest" && confidence < SPINE_WAVE_MIN_CONFIDENCE;
+    const base = upperBodyFallback
+      ? points.shoulderMid
+      : add(points.hipMid, multiply(torsoVector, t));
+    const wavePoint = add(
+      base,
+      upperBodyFallback
+        ? ZERO_VECTOR
+        : add(
+            forward ? multiply(forward, twistOffset * curve) : ZERO_VECTOR,
+            left ? multiply(left, sideOffset * curve * (1 - t)) : ZERO_VECTOR,
+          ),
+    );
+    const visibility = name === "chest" && confidence < SPINE_WAVE_MIN_CONFIDENCE
+      ? points.shoulderMid.visibility ?? 1
+      : Math.min(points.hipMid.visibility ?? 1, points.shoulderMid.visibility ?? 1);
+
+    points[name] = {
+      ...wavePoint,
+      visibility,
+      spineWave: {
+        ...metadata,
+        upperBodyFallback,
+      },
+    };
+  }
+
+  assignClaviclePoints(points, {
+    up,
+    forward,
+    torsoLength,
+  });
+}
+
+function assignClaviclePoints(points, basis) {
+  if (!points?.shoulderMid) {
+    return;
+  }
+
+  assignClaviclePoint(points, "left", basis);
+  assignClaviclePoint(points, "right", basis);
+}
+
+function assignClaviclePoint(points, side, basis) {
+  const shoulderName = `${side}Shoulder`;
+  const elbowName = `${side}Elbow`;
+  const targetName = `${side}Clavicle`;
+  const shoulder = points[shoulderName];
+
+  if (!shoulder) {
+    return;
+  }
+
+  const elbow = points[elbowName];
+  const upperArmDirection = elbow ? normalize(subtract(elbow, shoulder)) : null;
+  const confidence = elbow
+    ? retargetConfidence(shoulder, elbow, points.shoulderMid)
+    : retargetConfidence(shoulder, points.shoulderMid);
+  const confidenceScale = ramp01((confidence - SPINE_WAVE_MIN_CONFIDENCE) / (1 - SPINE_WAVE_MIN_CONFIDENCE));
+  const elevation = upperArmDirection && basis.up
+    ? ramp01((dot(upperArmDirection, basis.up) - CLAVICLE_ELEVATION_START) /
+      (CLAVICLE_ELEVATION_FULL - CLAVICLE_ELEVATION_START))
+    : 0;
+  const protraction = upperArmDirection && basis.forward
+    ? Math.max(0, applySignedDeadzone(dot(upperArmDirection, basis.forward), CLAVICLE_PROTRACTION_DEADZONE))
+    : 0;
+  const elevationOffset = basis.up
+    ? multiply(basis.up, basis.torsoLength * CLAVICLE_ELEVATION_OFFSET_RATIO * elevation * confidenceScale)
+    : ZERO_VECTOR;
+  const protractionOffset = basis.forward
+    ? multiply(basis.forward, basis.torsoLength * CLAVICLE_PROTRACTION_OFFSET_RATIO * protraction * confidenceScale)
+    : ZERO_VECTOR;
+  const claviclePoint = add(shoulder, add(elevationOffset, protractionOffset));
+  const metadata = {
+    source: "shoulder_arm_proxy",
+    elevation: round(elevation),
+    protraction: round(protraction),
+    confidence: round(confidence),
+    active: elevation > 0 || protraction > 0,
+  };
+
+  points[targetName] = {
+    ...claviclePoint,
+    visibility: Math.min(shoulder.visibility ?? 1, points.shoulderMid.visibility ?? 1, elbow?.visibility ?? 1),
+    virtualJoint: metadata,
+  };
 }
 
 function solveTarget(target, points) {
@@ -566,6 +731,8 @@ function solveTarget(target, points) {
     direction,
     length: round(distance(from, to), 6),
     confidence: round(retargetConfidence(from, to), 6),
+    ...(from.spineWave || to.spineWave ? { spineWave: from.spineWave ?? to.spineWave } : {}),
+    ...(from.virtualJoint || to.virtualJoint ? { virtualJoint: from.virtualJoint ?? to.virtualJoint } : {}),
   };
 }
 
@@ -901,6 +1068,22 @@ function subtract(a, b) {
   };
 }
 
+function add(a, b) {
+  return {
+    x: a.x + b.x,
+    y: a.y + b.y,
+    z: a.z + b.z,
+  };
+}
+
+function multiply(vector, scalar) {
+  return {
+    x: vector.x * scalar,
+    y: vector.y * scalar,
+    z: vector.z * scalar,
+  };
+}
+
 function dot(a, b) {
   return a.x * b.x + a.y * b.y + a.z * b.z;
 }
@@ -925,6 +1108,36 @@ function normalize(vector) {
     y: round(vector.y / length, 6),
     z: round(vector.z / length, 6),
   };
+}
+
+function rejectAxis(vector, axis) {
+  const axisUnit = normalize(axis);
+
+  if (!axisUnit) {
+    return null;
+  }
+
+  return normalize(subtract(vector, multiply(axisUnit, dot(vector, axisUnit))));
+}
+
+function applySignedDeadzone(value, deadzone) {
+  const numericValue = Number(value);
+  const numericDeadzone = Math.max(0, Number(deadzone) || 0);
+  const magnitudeValue = Math.abs(numericValue);
+
+  if (!Number.isFinite(numericValue) || magnitudeValue <= numericDeadzone) {
+    return 0;
+  }
+
+  return Math.sign(numericValue) * ((magnitudeValue - numericDeadzone) / Math.max(0.000001, 1 - numericDeadzone));
+}
+
+function ramp01(value) {
+  if (!Number.isFinite(Number(value))) {
+    return 0;
+  }
+
+  return clamp(Number(value), 0, 1);
 }
 
 function magnitude(vector) {

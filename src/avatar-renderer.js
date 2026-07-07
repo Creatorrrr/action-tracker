@@ -116,6 +116,23 @@ const FACE_HEAD_REACQUIRE_BLEND_MS = 260;
 const FACE_HEAD_JUMP_THRESHOLD_DEG_PER_SEC = 600;
 const HEAD_CROWN_NOSE_OFFSET_BLEND = 0.72;
 const HEAD_CROWN_MAX_NOSE_OFFSET_SCALE = 0.9;
+const SPINE_WAVE_MAX_OFFSET_RATIO = 0.08;
+const SPINE_WAVE_TWIST_GAIN = 0.32;
+const SPINE_WAVE_SIDE_GAIN = 0.12;
+const SPINE_WAVE_TWIST_DEADZONE = 0.035;
+const SPINE_WAVE_SIDE_DEADZONE_RATIO = 0.018;
+const SPINE_WAVE_MIN_CONFIDENCE = 0.45;
+const SPINE_WAVE_POINTS = [
+  { name: 'spineBase', t: 0.24 },
+  { name: 'spineMid', t: 0.52 },
+  { name: 'spineUpper', t: 0.76 },
+  { name: 'chest', t: 0.9 },
+];
+const CLAVICLE_ELEVATION_START = 0.12;
+const CLAVICLE_ELEVATION_FULL = 0.72;
+const CLAVICLE_ELEVATION_OFFSET_RATIO = 0.045;
+const CLAVICLE_PROTRACTION_DEADZONE = 0.18;
+const CLAVICLE_PROTRACTION_OFFSET_RATIO = 0.035;
 const PERFORMANCE_SAMPLE_LIMIT = 240;
 const VRM_SPRING_MOTION_THRESHOLD = 0.006;
 const VRM_SPRING_MOTION_FULL = 0.035;
@@ -337,14 +354,14 @@ const OPTIONAL_FINGER_BONES = [
 ];
 
 const BODY_RETARGETS = [
-  { bone: 'Hips', from: 'hipMid', to: 'shoulderMid', strength: 0.5, maxAngle: 0.75, maxTwist: 0.3, smoothing: 'torso' },
-  { bone: 'Spine', from: 'hipMid', to: 'shoulderMid', strength: 0.75, maxAngle: 0.9, maxTwist: 0.24, smoothing: 'torso' },
-  { bone: 'Spine1', from: 'hipMid', to: 'shoulderMid', strength: 0.82, maxAngle: 0.92, maxTwist: 0.24, smoothing: 'torso' },
-  { bone: 'Spine2', from: 'hipMid', to: 'shoulderMid', strength: 0.9, maxAngle: 0.95, maxTwist: 0.26, smoothing: 'torso' },
-  { bone: 'Neck', from: 'shoulderMid', to: 'headAimBase', secondaryFrom: 'leftShoulder', secondaryTo: 'rightShoulder', strength: 0.9, maxAngle: 1.05, maxTwist: 0.35, smoothing: 'neck', profileKey: 'neck' },
+  { bone: 'Hips', from: 'hipMid', to: 'spineBase', strength: 0.5, maxAngle: 0.75, maxTwist: 0.3, smoothing: 'torso' },
+  { bone: 'Spine', from: 'spineBase', to: 'spineMid', strength: 0.75, maxAngle: 0.9, maxTwist: 0.24, smoothing: 'torso' },
+  { bone: 'Spine1', from: 'spineMid', to: 'spineUpper', strength: 0.82, maxAngle: 0.92, maxTwist: 0.24, smoothing: 'torso' },
+  { bone: 'Spine2', from: 'spineUpper', to: 'chest', strength: 0.9, maxAngle: 0.95, maxTwist: 0.26, smoothing: 'torso' },
+  { bone: 'Neck', from: 'chest', to: 'headAimBase', secondaryFrom: 'leftShoulder', secondaryTo: 'rightShoulder', strength: 0.9, maxAngle: 1.05, maxTwist: 0.35, smoothing: 'neck', profileKey: 'neck' },
   { bone: 'Head', from: 'headAimBase', to: 'headCrown', secondaryFrom: 'headAimBase', secondaryTo: 'nose', strength: 0.75, maxAngle: 0.95, maxTwist: 0.38, smoothing: 'head', profileKey: 'head' },
-  { bone: 'LeftShoulder', from: 'shoulderMid', to: 'leftShoulder', strength: 0.25, maxAngle: 0.5, maxTwist: 0.25, smoothing: 'shoulder' },
-  { bone: 'RightShoulder', from: 'shoulderMid', to: 'rightShoulder', strength: 0.25, maxAngle: 0.5, maxTwist: 0.25, smoothing: 'shoulder' },
+  { bone: 'LeftShoulder', from: 'shoulderMid', to: 'leftClavicle', strength: 0.18, maxAngle: 0.42, maxTwist: 0.2, smoothing: 'shoulder' },
+  { bone: 'RightShoulder', from: 'shoulderMid', to: 'rightClavicle', strength: 0.18, maxAngle: 0.42, maxTwist: 0.2, smoothing: 'shoulder' },
   { bone: 'LeftArm', from: 'leftShoulder', to: 'leftElbow', strength: 1, maxAngle: 2.35, maxTwist: 0.65, smoothing: 'upperArm' },
   { bone: 'LeftForeArm', from: 'leftElbow', to: 'leftWrist', strength: 1, maxAngle: 2.45, maxTwist: 0.45, smoothing: 'foreArm' },
   { bone: 'RightArm', from: 'rightShoulder', to: 'rightElbow', strength: 1, maxAngle: 2.35, maxTwist: 0.65, smoothing: 'upperArm' },
@@ -359,7 +376,12 @@ const BODY_RETARGETS = [
 
 const BODY_VALIDATION_SEGMENTS = [
   { name: 'torso', group: 'torso', bone: 'Spine2', from: 'hipMid', to: 'shoulderMid' },
-  { name: 'neck', group: 'torso', bone: 'Neck', from: 'shoulderMid', to: 'headAimBase' },
+  { name: 'hips', group: 'torso', bone: 'Hips', from: 'hipMid', to: 'spineBase' },
+  { name: 'spine', group: 'torso', bone: 'Spine', from: 'spineBase', to: 'spineMid' },
+  { name: 'spine1', group: 'torso', bone: 'Spine1', from: 'spineMid', to: 'spineUpper' },
+  { name: 'spine2', group: 'torso', bone: 'Spine2', from: 'spineUpper', to: 'chest' },
+  { name: 'chest', group: 'torso', bone: 'Spine2', from: 'chest', to: 'shoulderMid' },
+  { name: 'neck', group: 'torso', bone: 'Neck', from: 'chest', to: 'headAimBase' },
   { name: 'head', group: 'head', bone: 'Head', from: 'headAimBase', to: 'headCrown' },
   { name: 'leftUpperArm', group: 'arms', bone: 'LeftArm', from: 'leftShoulder', to: 'leftElbow' },
   { name: 'leftForeArm', group: 'arms', bone: 'LeftForeArm', from: 'leftElbow', to: 'leftWrist' },
@@ -2462,8 +2484,7 @@ export function createAvatarRenderer(options = {}) {
           ? resolveBodySecondaryAxis(target, points)
           : null
         : resolveBodySecondaryAxis(target, points) ?? limbPlaneNormals[target.bone] ?? null;
-      const maxAngle = target.maxAngle * (profile?.maxAngleScale ?? 1);
-      const maxTwist = target.maxTwist * (profile?.maxTwistScale ?? 1);
+      const { maxAngle, maxTwist } = resolveBodyRetargetLimits(target, profile, strictModeActive);
 
       if (!strictModeActive && confidence <= RETARGET_LOW_CONFIDENCE_HOLD) {
         applyOccludedBodyBone(target.bone, timestamp, delta);
@@ -2493,6 +2514,20 @@ export function createAvatarRenderer(options = {}) {
       sourceAvatarDivergence: getSourceAvatarDivergenceSnapshot(),
       occlusion: getOcclusionSnapshot(),
       trackingRecovery: getTrackingRecoverySnapshot(),
+    };
+  }
+
+  function resolveBodyRetargetLimits(target, profile, strictModeActive) {
+    if (strictModeActive && !profile) {
+      return {
+        maxAngle: undefined,
+        maxTwist: undefined,
+      };
+    }
+
+    return {
+      maxAngle: target.maxAngle * (profile?.maxAngleScale ?? 1),
+      maxTwist: profile ? target.maxTwist * (profile.maxTwistScale ?? 1) : undefined,
     };
   }
 
@@ -4488,8 +4523,158 @@ function buildPosePoints(landmarks, mirrored, depthOptions = {}) {
   points.earMid = midpoint(points.leftEar, points.rightEar);
   points.headAimBase = points.earMid || points.eyeMid;
   points.headCrown = estimateHeadCrown(points);
+  assignSpineWavePoints(points);
 
   return points;
+}
+
+function assignSpineWavePoints(points) {
+  if (!points?.hipMid || !points?.shoulderMid) {
+    return;
+  }
+
+  const torsoVector = new THREE.Vector3().subVectors(points.shoulderMid, points.hipMid);
+  const torsoLength = torsoVector.length();
+
+  if (torsoLength < 0.000001) {
+    return;
+  }
+
+  const up = torsoVector.clone().normalize();
+  const shoulderAxis = points.leftShoulder && points.rightShoulder
+    ? safeNormalizeVector3(new THREE.Vector3().subVectors(points.leftShoulder, points.rightShoulder))
+    : null;
+  const hipAxis = points.leftHip && points.rightHip
+    ? safeNormalizeVector3(new THREE.Vector3().subVectors(points.leftHip, points.rightHip))
+    : null;
+  const blendedAxis = shoulderAxis && hipAxis
+    ? safeNormalizeVector3(shoulderAxis.clone().add(hipAxis)) ?? shoulderAxis
+    : shoulderAxis ?? hipAxis;
+  const left = blendedAxis
+    ? safeNormalizeVector3(blendedAxis.clone().addScaledVector(up, -blendedAxis.dot(up))) ?? blendedAxis
+    : null;
+  const forward = left ? safeNormalizeVector3(new THREE.Vector3().crossVectors(up, left)) : null;
+  const twistSignedSin = shoulderAxis && hipAxis
+    ? clamp(new THREE.Vector3().crossVectors(hipAxis, shoulderAxis).dot(up), -1, 1)
+    : 0;
+  const confidence = derivedPointConfidence(
+    points.leftShoulder,
+    points.rightShoulder,
+    points.leftHip,
+    points.rightHip,
+  );
+  const confidenceScale = ramp01((confidence - SPINE_WAVE_MIN_CONFIDENCE) / (1 - SPINE_WAVE_MIN_CONFIDENCE));
+  const twistSignal = applySignedDeadzone(twistSignedSin, SPINE_WAVE_TWIST_DEADZONE);
+  const sideRatio = left ? torsoVector.dot(left) / torsoLength : 0;
+  const sideSignal = applySignedDeadzone(sideRatio, SPINE_WAVE_SIDE_DEADZONE_RATIO);
+  const maxOffset = torsoLength * SPINE_WAVE_MAX_OFFSET_RATIO;
+  const twistOffset = forward
+    ? clamp(twistSignal * torsoLength * SPINE_WAVE_TWIST_GAIN * confidenceScale, -maxOffset, maxOffset)
+    : 0;
+  const sideOffset = left
+    ? clamp(sideSignal * torsoLength * SPINE_WAVE_SIDE_GAIN * confidenceScale, -maxOffset * 0.6, maxOffset * 0.6)
+    : 0;
+  const metadata = {
+    source: 'shoulder_hip_axis',
+    twistSin: round(twistSignedSin),
+    twistSignal: round(twistSignal),
+    twistOffset: round(twistOffset),
+    sideRatio: round(sideRatio),
+    sideSignal: round(sideSignal),
+    sideOffset: round(sideOffset),
+    confidence: round(confidence),
+    active: Math.abs(twistOffset) > 0.000001 || Math.abs(sideOffset) > 0.000001,
+  };
+
+  for (const { name, t } of SPINE_WAVE_POINTS) {
+    const curve = Math.sin(Math.PI * t);
+    const upperBodyFallback = name === 'chest' && confidence < SPINE_WAVE_MIN_CONFIDENCE;
+    const point = upperBodyFallback
+      ? points.shoulderMid.clone()
+      : points.hipMid.clone().addScaledVector(torsoVector, t);
+
+    if (!upperBodyFallback && forward) {
+      point.addScaledVector(forward, twistOffset * curve);
+    }
+
+    if (!upperBodyFallback && left) {
+      point.addScaledVector(left, sideOffset * curve * (1 - t));
+    }
+
+    points[name] = name === 'chest' && upperBodyFallback
+      ? copyDerivedPointMetadata(point, points.shoulderMid)
+      : copyDerivedPointMetadata(point, points.hipMid, points.shoulderMid);
+    points[name].spineWave = {
+      ...metadata,
+      upperBodyFallback,
+    };
+  }
+
+  assignClaviclePoints(points, {
+    up,
+    forward,
+    torsoLength,
+  });
+}
+
+function assignClaviclePoints(points, basis) {
+  if (!points?.shoulderMid) {
+    return;
+  }
+
+  assignClaviclePoint(points, 'left', basis);
+  assignClaviclePoint(points, 'right', basis);
+}
+
+function assignClaviclePoint(points, side, basis) {
+  const shoulderName = `${side}Shoulder`;
+  const elbowName = `${side}Elbow`;
+  const targetName = `${side}Clavicle`;
+  const shoulder = points[shoulderName];
+
+  if (!shoulder) {
+    return;
+  }
+
+  const elbow = points[elbowName];
+  const upperArmDirection = elbow
+    ? safeNormalizeVector3(new THREE.Vector3().subVectors(elbow, shoulder))
+    : null;
+  const confidence = elbow
+    ? derivedPointConfidence(shoulder, elbow, points.shoulderMid)
+    : derivedPointConfidence(shoulder, points.shoulderMid);
+  const confidenceScale = ramp01((confidence - SPINE_WAVE_MIN_CONFIDENCE) / (1 - SPINE_WAVE_MIN_CONFIDENCE));
+  const elevation = upperArmDirection && basis.up
+    ? ramp01((upperArmDirection.dot(basis.up) - CLAVICLE_ELEVATION_START) /
+      (CLAVICLE_ELEVATION_FULL - CLAVICLE_ELEVATION_START))
+    : 0;
+  const protraction = upperArmDirection && basis.forward
+    ? Math.max(0, applySignedDeadzone(upperArmDirection.dot(basis.forward), CLAVICLE_PROTRACTION_DEADZONE))
+    : 0;
+  const point = shoulder.clone();
+
+  if (basis.up) {
+    point.addScaledVector(
+      basis.up,
+      basis.torsoLength * CLAVICLE_ELEVATION_OFFSET_RATIO * elevation * confidenceScale,
+    );
+  }
+
+  if (basis.forward) {
+    point.addScaledVector(
+      basis.forward,
+      basis.torsoLength * CLAVICLE_PROTRACTION_OFFSET_RATIO * protraction * confidenceScale,
+    );
+  }
+
+  points[targetName] = copyDerivedPointMetadata(point, shoulder, points.shoulderMid, elbow);
+  points[targetName].virtualJoint = {
+    source: 'shoulder_arm_proxy',
+    elevation: round(elevation),
+    protraction: round(protraction),
+    confidence: round(confidence),
+    active: elevation > 0 || protraction > 0,
+  };
 }
 
 function estimateHeadCrown(points) {
@@ -5417,6 +5602,62 @@ function clamp01(value) {
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+function safeNormalizeVector3(vector) {
+  if (!vector || vector.lengthSq() < 0.000001) {
+    return null;
+  }
+
+  return vector.normalize();
+}
+
+function derivedPointConfidence(...points) {
+  const visibilities = points
+    .map((point) => point?.visibility)
+    .filter((value) => Number.isFinite(value));
+
+  if (visibilities.length === 0) {
+    return 1;
+  }
+
+  const visibility = Math.min(...visibilities);
+
+  if (visibility >= RETARGET_FULL_CONFIDENCE_VISIBILITY) {
+    return 1;
+  }
+
+  return ramp01(
+    (visibility - RETARGET_LOW_CONFIDENCE_HOLD) /
+    (RETARGET_FULL_CONFIDENCE_VISIBILITY - RETARGET_LOW_CONFIDENCE_HOLD),
+  );
+}
+
+function applySignedDeadzone(value, deadzone) {
+  const numericValue = Number(value);
+  const numericDeadzone = Math.max(0, Number(deadzone) || 0);
+  const magnitude = Math.abs(numericValue);
+
+  if (!Number.isFinite(numericValue) || magnitude <= numericDeadzone) {
+    return 0;
+  }
+
+  return Math.sign(numericValue) * ((magnitude - numericDeadzone) / Math.max(0.000001, 1 - numericDeadzone));
+}
+
+function ramp01(value) {
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) {
+    return 0;
+  }
+
+  return clamp(number, 0, 1);
+}
+
+function round(value, digits = 6) {
+  const scale = 10 ** digits;
+  return Math.round(value * scale) / scale;
 }
 
 function shortestAngle(value) {

@@ -124,12 +124,129 @@ assert.equal(findTarget(upperBodySolved, "RightLeg").anatomy?.reason, "lower_bod
 assert.equal(findHinge(upperBodySolved, "leftKnee").reason, "low_confidence");
 assert.equal(findHinge(upperBodySolved, "rightKnee").reason, "low_confidence");
 assert.ok(
+  findTarget(upperBodySolved, "Neck").confidence >= 0.5,
+  "upper-body fallback should keep neck retarget confidence when hips are low-confidence",
+);
+assert.ok(
+  findTarget(upperBodySolved, "LeftShoulder").confidence >= 0.5,
+  "upper-body fallback should keep shoulder retarget confidence when hips are low-confidence",
+);
+assert.ok(
   upperBody.poseLandmarks[LANDMARK_INDEX.leftHip].visibility < 0.5,
   "upper-body fixture should mark hips low-confidence",
 );
 assert.ok(
   upperBody.poseLandmarks[LANDMARK_INDEX.leftShoulder].visibility > 0.8,
   "upper-body fixture should keep shoulders reliable",
+);
+
+const staticTorsoFrame = {
+  poseLandmarks: [],
+  poseWorldLandmarks: makePose33({
+    leftShoulder: p(-0.3, 1.42, 0),
+    rightShoulder: p(0.3, 1.42, 0),
+    leftElbow: p(-0.62, 1.1, 0),
+    rightElbow: p(0.62, 1.1, 0),
+    leftWrist: p(-0.66, 0.82, 0),
+    rightWrist: p(0.66, 0.82, 0),
+    leftHip: p(-0.22, 0.9, 0),
+    rightHip: p(0.22, 0.9, 0),
+    leftKnee: p(-0.2, 0.45, 0),
+    rightKnee: p(0.2, 0.45, 0),
+    leftAnkle: p(-0.2, 0.1, 0),
+    rightAnkle: p(0.2, 0.1, 0),
+  }),
+  timestamp: 1000,
+};
+const staticTorsoSolved = solvePoseFrame(staticTorsoFrame, {}, { targetStabilization: false });
+const staticSpineTargets = ["Hips", "Spine", "Spine1", "Spine2"].map((bone) =>
+  findTarget(staticTorsoSolved, bone)
+);
+const staticSpineSeparation = Math.max(...pairwiseDirectionAngles(staticSpineTargets.map((target) => target.direction)));
+assert.ok(
+  staticSpineSeparation <= 0.01,
+  `static torso should keep virtual spine neutral, got ${staticSpineSeparation.toFixed(3)}deg separation`,
+);
+assert.equal(
+  staticSpineTargets.every((target) => target.spineWave?.active === false),
+  true,
+  "static torso should not synthesize an active spine wave",
+);
+assert.equal(
+  ["LeftShoulder", "RightShoulder"].every((bone) =>
+    findTarget(staticTorsoSolved, bone)?.virtualJoint?.active === false
+  ),
+  true,
+  "static lowered arms should keep clavicle proxies neutral",
+);
+assert.ok(
+  ["LeftShoulder", "RightShoulder"].every((bone) =>
+    Math.abs(findTarget(staticTorsoSolved, bone)?.direction?.y ?? 1) <= 0.01
+  ),
+  "static lowered arms should not add shoulder shrug/elevation",
+);
+
+const spineWaveFrame = {
+  poseLandmarks: [],
+  poseWorldLandmarks: makePose33({
+    leftShoulder: p(-0.34, 1.42, -0.09),
+    rightShoulder: p(0.2, 1.38, 0.04),
+    leftElbow: p(-0.72, 1.32, -0.08),
+    rightElbow: p(0.55, 1.28, 0.06),
+    leftWrist: p(-0.92, 1.12, -0.08),
+    rightWrist: p(0.75, 1.08, 0.06),
+    leftHip: p(-0.18, 0.9, 0.02),
+    rightHip: p(0.18, 0.9, -0.02),
+    leftKnee: p(-0.18, 0.45, 0),
+    rightKnee: p(0.18, 0.45, 0),
+    leftAnkle: p(-0.18, 0.1, 0),
+    rightAnkle: p(0.18, 0.1, 0),
+  }),
+  timestamp: 1000,
+};
+const spineWaveSolved = solvePoseFrame(spineWaveFrame, {}, { targetStabilization: false });
+const spineWaveTargets = ["Hips", "Spine", "Spine1", "Spine2"].map((bone) =>
+  findTarget(spineWaveSolved, bone)
+);
+const spineWaveSeparations = pairwiseDirectionAngles(spineWaveTargets.map((target) => target.direction));
+assert.ok(
+  Math.max(...spineWaveSeparations) >= 2,
+  `spine wave proxy should distribute torso motion across spine bones, got max ${Math.max(...spineWaveSeparations).toFixed(3)}deg`,
+);
+assert.equal(
+  spineWaveTargets.every((target) => target.spineWave?.source === "shoulder_hip_axis"),
+  true,
+  "spine wave targets should expose the shoulder/hip proxy source",
+);
+
+const raisedArmFrame = {
+  poseLandmarks: [],
+  poseWorldLandmarks: makePose33({
+    leftShoulder: p(-0.3, 1.42, 0),
+    rightShoulder: p(0.3, 1.42, 0),
+    leftElbow: p(-0.34, 1.92, 0.02),
+    rightElbow: p(0.62, 1.1, 0),
+    leftWrist: p(-0.38, 2.2, 0.02),
+    rightWrist: p(0.66, 0.82, 0),
+    leftHip: p(-0.22, 0.9, 0),
+    rightHip: p(0.22, 0.9, 0),
+    leftKnee: p(-0.2, 0.45, 0),
+    rightKnee: p(0.2, 0.45, 0),
+    leftAnkle: p(-0.2, 0.1, 0),
+    rightAnkle: p(0.2, 0.1, 0),
+  }),
+  timestamp: 1000,
+};
+const raisedArmSolved = solvePoseFrame(raisedArmFrame, {}, { targetStabilization: false });
+assert.equal(
+  findTarget(raisedArmSolved, "LeftShoulder")?.virtualJoint?.active,
+  true,
+  "raised upper arm should activate the matching clavicle proxy",
+);
+assert.equal(
+  findTarget(raisedArmSolved, "RightShoulder")?.virtualJoint?.active,
+  false,
+  "lowered opposite arm should keep its clavicle proxy neutral",
 );
 
 const occluded = createSyntheticMotionFrame({
@@ -403,6 +520,18 @@ function directionAngleDeg(a, b) {
   }
 
   return (Math.acos(Math.max(-1, Math.min(1, dot / mag))) / Math.PI) * 180;
+}
+
+function pairwiseDirectionAngles(directions) {
+  const angles = [];
+
+  for (let left = 0; left < directions.length; left += 1) {
+    for (let right = left + 1; right < directions.length; right += 1) {
+      angles.push(directionAngleDeg(directions[left], directions[right]));
+    }
+  }
+
+  return angles;
 }
 
 function subtract(a, b) {
