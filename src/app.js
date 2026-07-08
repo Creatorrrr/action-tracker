@@ -4,7 +4,7 @@ import {
   HandLandmarker,
   PoseLandmarker,
 } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/vision_bundle.mjs";
-import { createAvatarRenderer } from "./avatar-renderer.js?v=20260708-fist-curl-1";
+import { createAvatarRenderer } from "./avatar-renderer.js?v=20260708-source-proportions-1";
 import {
   MOTION_RECORDING_FRAME_LIMIT,
   createMotionFrame,

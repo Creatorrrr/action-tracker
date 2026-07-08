@@ -78,8 +78,8 @@ const files = {
 const mediaPipeVersion = "0.10.35";
 const threeVersion = "0.184.0";
 const threeVrmVersion = "3.5.4";
-const appRuntimeToken = "20260708-fist-curl-1";
-const avatarRuntimeToken = "20260708-fist-curl-1";
+const appRuntimeToken = "20260708-source-proportions-1";
+const avatarRuntimeToken = "20260708-source-proportions-1";
 const retargetOrientationRuntimeToken = "20260708-thumb-segments-1";
 const handRetargetingRuntimeToken = "20260708-fist-curl-1";
 const handSideRuntimeToken = "20260708-single-hand-side-1";
@@ -905,7 +905,11 @@ function checkAvatarRendererContract(avatarRenderer) {
     ["maps solver yaw to avatar yaw explicitly", /resolveAvatarYawDeg[\s\S]*avatarTargetYawDeg[\s\S]*avatarYawSign/],
     ["limits parent-relative twist", /function\s+limitTwistFromRest\s*\([^)]*\)[\s\S]*extractTwist/],
     ["stabilizes root facing before yaw changes", /ROOT_ORIENTATION_SWITCH_FRAMES[\s\S]*candidateFacingFrames[\s\S]*function\s+updateStableRootFacing/],
-    ["freezes proportion calibration", /const\s+PROPORTION_CALIBRATION_FRAMES\s*=\s*30[\s\S]*function\s+freezeProportionCalibration\s*\(/],
+    ["defines avatar-proportion source normalization segments", /const\s+SOURCE_PROPORTION_NORMALIZATION_SEGMENTS\s*=\s*Object\.freeze\(\s*\[[\s\S]*leftUpperArm[\s\S]*leftForeArm[\s\S]*rightUpperArm[\s\S]*rightForeArm/],
+    ["caches avatar rest proportions without mutating bones", /function\s+cacheAvatarProportionReference\s*\([^)]*\)[\s\S]*buildAvatarProportionReferencePoints\s*\(\s*\)[\s\S]*referenceRatios[\s\S]*proportionCalibration\.frozen\s*=/],
+    ["normalizes source skeleton to avatar proportions before solving", /function\s+applyPose\s*\([^)]*\)[\s\S]*const\s+\{\s*points\s*:\s*sourcePoints[\s\S]*normalizePosePointsToAvatarProportions\s*\(\s*sourcePoints\s*\)[\s\S]*solvePoseTargetsFromPoints\s*\(\s*points/],
+    ["normalizes distal pose points instead of avatar bone positions", /function\s+normalizePosePointsToAvatarProportions\s*\([^)]*\)[\s\S]*bodyScale2D\s*\(\s*sourcePoints\s*\)[\s\S]*copyDerivedPointMetadata[\s\S]*rebuildDerivedPosePoints\s*\(/],
+    ["reports source-proportion normalization diagnostics", /sourceProportions\s*:\s*\{[\s\S]*referenceSegments[\s\S]*normalizedSegments[\s\S]*lastInputScale/],
     ["exposes avatar performance snapshot", /function\s+getPerformanceSnapshot\s*\([^)]*\)[\s\S]*PERFORMANCE_BUDGETS_MS/],
     ["reports pose solver timing", /poseSolverMs[\s\S]*samples\s*:\s*\{[\s\S]*poseSolver\s*:\s*summarizePerformanceSamples/],
     ["reports pose solver hinge metrics", /hingeViolations[\s\S]*hingeLimitWarnings[\s\S]*lowConfidenceHinges[\s\S]*solvedPose\.hinges\.map/],
@@ -941,6 +945,15 @@ function checkAvatarRendererContract(avatarRenderer) {
   for (const [label, pattern] of rendererChecks) {
     checkPattern(avatarRenderer, pattern, `src/avatar-renderer.js: contract missing - ${label}`);
   }
+
+  check(
+    !/ARM_JOINT_CONNECTOR|AvatarArmJointConnector|armJointConnectors|jointConnectors\s*:/.test(avatarRenderer),
+    "src/avatar-renderer.js: visual arm joint connector overlay must not be present; fix the rig/retarget path instead of hiding gaps with primitives",
+  );
+  check(
+    !/bone\.position\.copy\(\s*rest\.position\s*\)\.multiplyScalar/.test(avatarRenderer),
+    "src/avatar-renderer.js: proportion calibration must not mutate avatar bone positions; normalize the source skeleton instead",
+  );
 
   checkFingerAimLimitContract(avatarRenderer);
 

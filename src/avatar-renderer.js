@@ -79,12 +79,6 @@ const DEPTH_MATCH_THRESHOLD_DEG = 35;
 const DEPTH_SALIENT_Z_RATIO = 0.18;
 const DEPTH_CALIBRATION_SMOOTHING_MS = 70;
 const PROPORTION_CALIBRATION_FRAMES = 30;
-const PROPORTION_CALIBRATION_MIN_SEGMENTS = 6;
-const PROPORTION_CALIBRATION_MIN_UPPER_BODY_SEGMENTS = 4;
-const PROPORTION_CALIBRATION_PERCENTILE = 0.35;
-const MIN_BONE_LENGTH_SCALE = 0.72;
-const MAX_BONE_LENGTH_SCALE = 1.38;
-const MAX_HAND_LENGTH_SCALE = 1.65;
 const ROOT_MOTION_CALIBRATION_FRAMES = 12;
 const ROOT_MOTION_MIN_SCALE = 0.035;
 const ROOT_MOTION_HORIZONTAL_SCALE = 0.9;
@@ -426,20 +420,18 @@ const BODY_VISUAL_JOINTS = [
   { name: 'rightAnkle', group: 'legs', source: 'rightAnkle', avatarBone: 'RightFoot' },
 ];
 
-const SCREEN_LENGTH_CALIBRATION_SEGMENTS = [
-  { bone: 'LeftArm', sourceFrom: 'shoulderMid', sourceTo: 'leftShoulder', avatarFrom: 'shoulderMid', avatarTo: 'leftShoulder' },
-  { bone: 'RightArm', sourceFrom: 'shoulderMid', sourceTo: 'rightShoulder', avatarFrom: 'shoulderMid', avatarTo: 'rightShoulder' },
-  { bone: 'LeftUpLeg', sourceFrom: 'hipMid', sourceTo: 'leftHip', avatarFrom: 'hipMid', avatarTo: 'leftHip' },
-  { bone: 'RightUpLeg', sourceFrom: 'hipMid', sourceTo: 'rightHip', avatarFrom: 'hipMid', avatarTo: 'rightHip' },
-  { bone: 'LeftForeArm', sourceFrom: 'leftShoulder', sourceTo: 'leftElbow', avatarFrom: 'leftShoulder', avatarTo: 'leftElbow' },
-  { bone: 'RightForeArm', sourceFrom: 'rightShoulder', sourceTo: 'rightElbow', avatarFrom: 'rightShoulder', avatarTo: 'rightElbow' },
-  { bone: 'LeftHand', sourceFrom: 'leftElbow', sourceTo: 'leftWrist', avatarFrom: 'leftElbow', avatarTo: 'leftWrist', maxScale: MAX_HAND_LENGTH_SCALE },
-  { bone: 'RightHand', sourceFrom: 'rightElbow', sourceTo: 'rightWrist', avatarFrom: 'rightElbow', avatarTo: 'rightWrist', maxScale: MAX_HAND_LENGTH_SCALE },
-  { bone: 'LeftLeg', sourceFrom: 'leftHip', sourceTo: 'leftKnee', avatarFrom: 'leftHip', avatarTo: 'leftKnee' },
-  { bone: 'RightLeg', sourceFrom: 'rightHip', sourceTo: 'rightKnee', avatarFrom: 'rightHip', avatarTo: 'rightKnee' },
-  { bone: 'LeftFoot', sourceFrom: 'leftKnee', sourceTo: 'leftAnkle', avatarFrom: 'leftKnee', avatarTo: 'leftAnkle' },
-  { bone: 'RightFoot', sourceFrom: 'rightKnee', sourceTo: 'rightAnkle', avatarFrom: 'rightKnee', avatarTo: 'rightAnkle' },
-];
+const SOURCE_PROPORTION_NORMALIZATION_SEGMENTS = Object.freeze([
+  Object.freeze({ name: 'leftUpperArm', from: 'leftShoulder', to: 'leftElbow', avatarFrom: 'leftShoulder', avatarTo: 'leftElbow' }),
+  Object.freeze({ name: 'leftForeArm', from: 'leftElbow', to: 'leftWrist', avatarFrom: 'leftElbow', avatarTo: 'leftWrist' }),
+  Object.freeze({ name: 'rightUpperArm', from: 'rightShoulder', to: 'rightElbow', avatarFrom: 'rightShoulder', avatarTo: 'rightElbow' }),
+  Object.freeze({ name: 'rightForeArm', from: 'rightElbow', to: 'rightWrist', avatarFrom: 'rightElbow', avatarTo: 'rightWrist' }),
+  Object.freeze({ name: 'leftUpperLeg', from: 'leftHip', to: 'leftKnee', avatarFrom: 'leftHip', avatarTo: 'leftKnee' }),
+  Object.freeze({ name: 'leftLowerLeg', from: 'leftKnee', to: 'leftAnkle', avatarFrom: 'leftKnee', avatarTo: 'leftAnkle' }),
+  Object.freeze({ name: 'rightUpperLeg', from: 'rightHip', to: 'rightKnee', avatarFrom: 'rightHip', avatarTo: 'rightKnee' }),
+  Object.freeze({ name: 'rightLowerLeg', from: 'rightKnee', to: 'rightAnkle', avatarFrom: 'rightKnee', avatarTo: 'rightAnkle' }),
+  Object.freeze({ name: 'leftFoot', from: 'leftAnkle', to: 'leftFootIndex', avatarFrom: 'leftAnkle', avatarTo: 'leftFootIndex' }),
+  Object.freeze({ name: 'rightFoot', from: 'rightAnkle', to: 'rightFootIndex', avatarFrom: 'rightAnkle', avatarTo: 'rightFootIndex' }),
+]);
 
 const KNOWN_AVATAR_BONE_NAMES = new Set([
   ...REQUIRED_BONES,
@@ -588,9 +580,10 @@ export function createAvatarRenderer(options = {}) {
   const proportionCalibration = {
     frames: 0,
     frozen: false,
-    samples: new Map(),
-    lastAppliedCount: 0,
-    lastMaxScaleDelta: 0,
+    referenceRatios: {},
+    referenceSegmentCount: 0,
+    lastNormalizedCount: 0,
+    lastInputScale: 0,
     appliedScales: {},
   };
   const depthCalibration = {
@@ -753,6 +746,7 @@ export function createAvatarRenderer(options = {}) {
       cacheRestPose();
       buildRetargetMaps();
       frameModel();
+      cacheAvatarProportionReference();
       resize();
       ready = true;
       failed = false;
@@ -793,7 +787,6 @@ export function createAvatarRenderer(options = {}) {
 
       if (poseLandmarks) {
         applyPose(poseLandmarks, frameMirrored, delta, worldLandmarks, frameTimestamp);
-        applyScreenSpaceProportionCalibration(poseLandmarks, frameMirrored);
       } else {
         relaxBody(relaxAlpha * 0.45);
       }
@@ -1139,9 +1132,14 @@ export function createAvatarRenderer(options = {}) {
       calibration: {
         frames: proportionCalibration.frames,
         frozen: proportionCalibration.frozen,
-        appliedSegments: proportionCalibration.lastAppliedCount,
-        maxScaleDelta: proportionCalibration.lastMaxScaleDelta,
+        appliedSegments: 0,
+        maxScaleDelta: 0,
         appliedScales: { ...proportionCalibration.appliedScales },
+        sourceProportions: {
+          referenceSegments: proportionCalibration.referenceSegmentCount,
+          normalizedSegments: proportionCalibration.lastNormalizedCount,
+          lastInputScale: proportionCalibration.lastInputScale,
+        },
       },
       rootMotion: {
         frames: rootMotion.frames,
@@ -1415,7 +1413,7 @@ export function createAvatarRenderer(options = {}) {
     bodyBoneNames.clear();
     fingerChains.Left.clear();
     fingerChains.Right.clear();
-    resetProportionCalibration();
+    resetProportionCalibration({ preserveReference: false });
     resetDepthCalibration();
     activeModelProfile = HEAD_NECK_PROFILE_DEFAULTS.default;
     activeModelKind = 'default';
@@ -2408,7 +2406,8 @@ export function createAvatarRenderer(options = {}) {
   }
 
   function applyPose(landmarks, mirrored, delta, worldLandmarks = null, timestamp = 0) {
-    const { points } = getPoseFramePoints(landmarks, mirrored, worldLandmarks, timestamp, delta);
+    const { points: sourcePoints } = getPoseFramePoints(landmarks, mirrored, worldLandmarks, timestamp, delta);
+    const points = normalizePosePointsToAvatarProportions(sourcePoints);
     const limbPlaneNormals = computeLimbPlaneNormals(points);
     const solverStartedAt = nowMs();
     const solvedPose = solvePoseTargetsFromPoints(points, poseSolverState, { timestamp });
@@ -3338,119 +3337,138 @@ export function createAvatarRenderer(options = {}) {
     model.updateMatrixWorld(true);
   }
 
-  function applyScreenSpaceProportionCalibration(landmarks, mirrored) {
-    if (!model || !camera || proportionCalibration.frozen || !activeModelProfile.proportionCalibration) {
-      return;
+  function cacheAvatarProportionReference() {
+    const referencePoints = buildAvatarProportionReferencePoints();
+    const sourceScale = bodyScale2D(referencePoints);
+    const referenceRatios = {};
+
+    for (const segment of SOURCE_PROPORTION_NORMALIZATION_SEGMENTS) {
+      const from = referencePoints[segment.avatarFrom];
+      const to = referencePoints[segment.avatarTo];
+      const length = distance3D(from, to);
+
+      if (sourceScale < 0.0001 || length < 0.0001) {
+        continue;
+      }
+
+      referenceRatios[segment.name] = length / sourceScale;
+    }
+
+    proportionCalibration.referenceRatios = referenceRatios;
+    proportionCalibration.referenceSegmentCount = Object.keys(referenceRatios).length;
+    proportionCalibration.frozen = proportionCalibration.referenceSegmentCount > 0;
+    proportionCalibration.frames = proportionCalibration.frozen ? PROPORTION_CALIBRATION_FRAMES : 0;
+    proportionCalibration.lastNormalizedCount = 0;
+    proportionCalibration.lastInputScale = 0;
+    proportionCalibration.appliedScales = {};
+  }
+
+  function buildAvatarProportionReferencePoints() {
+    if (!model) {
+      return {};
     }
 
     model.updateWorldMatrix(true, true);
 
-    const sourceNormalized = normalizePose2D(buildPosePoints2D(landmarks, mirrored));
-    const avatarNormalized = normalizePose2D(buildAvatarProjectedPoints());
-    let validSegments = 0;
-    let lowerBodySegments = 0;
+    const points = {
+      leftShoulder: getBoneWorldPoint('LeftArm'),
+      rightShoulder: getBoneWorldPoint('RightArm'),
+      leftElbow: getBoneWorldPoint('LeftForeArm'),
+      rightElbow: getBoneWorldPoint('RightForeArm'),
+      leftWrist: getBoneWorldPoint('LeftHand'),
+      rightWrist: getBoneWorldPoint('RightHand'),
+      leftHip: getBoneWorldPoint('LeftUpLeg'),
+      rightHip: getBoneWorldPoint('RightUpLeg'),
+      leftKnee: getBoneWorldPoint('LeftLeg'),
+      rightKnee: getBoneWorldPoint('RightLeg'),
+      leftAnkle: getBoneWorldPoint('LeftFoot'),
+      rightAnkle: getBoneWorldPoint('RightFoot'),
+      leftFootIndex: getBoneWorldPoint('LeftToeBase'),
+      rightFootIndex: getBoneWorldPoint('RightToeBase'),
+    };
 
-    for (const segment of SCREEN_LENGTH_CALIBRATION_SEGMENTS) {
-      const bone = getBone(segment.bone);
-      const rest = getBoneRest(bone);
-      const sourceFrom = sourceNormalized.points[segment.sourceFrom];
-      const sourceTo = sourceNormalized.points[segment.sourceTo];
-      const avatarFrom = avatarNormalized.points[segment.avatarFrom];
-      const avatarTo = avatarNormalized.points[segment.avatarTo];
+    points.shoulderMid = midpoint(points.leftShoulder, points.rightShoulder);
+    points.hipMid = midpoint(points.leftHip, points.rightHip);
+    return points;
+  }
 
-      if (!bone || !rest || !sourceFrom || !sourceTo || !avatarFrom || !avatarTo) {
+  function getBoneWorldPoint(name) {
+    const bone = getBone(name);
+
+    if (!bone) {
+      return null;
+    }
+
+    return copyPointMetadata(bone, bone.getWorldPosition(new THREE.Vector3()));
+  }
+
+  function normalizePosePointsToAvatarProportions(sourcePoints) {
+    if (!activeModelProfile.proportionCalibration || !proportionCalibration.frozen) {
+      proportionCalibration.lastNormalizedCount = 0;
+      proportionCalibration.lastInputScale = bodyScale2D(sourcePoints);
+      return sourcePoints;
+    }
+
+    const inputScale = bodyScale2D(sourcePoints);
+
+    if (inputScale < 0.0001) {
+      proportionCalibration.lastNormalizedCount = 0;
+      proportionCalibration.lastInputScale = inputScale;
+      return sourcePoints;
+    }
+
+    const points = clonePosePoints(sourcePoints);
+    let normalizedCount = 0;
+
+    for (const segment of SOURCE_PROPORTION_NORMALIZATION_SEGMENTS) {
+      const ratio = proportionCalibration.referenceRatios[segment.name];
+      const from = points[segment.from];
+      const to = points[segment.to];
+
+      if (!Number.isFinite(ratio) || ratio <= 0 || !from || !to) {
         continue;
       }
 
-      const sourceLength = distance2D(sourceFrom, sourceTo);
-      const avatarLength = distance2D(avatarFrom, avatarTo);
+      const direction = tmpVectorA.subVectors(to, from);
 
-      if (sourceLength < 0.0001 || avatarLength < 0.0001 || rest.position.lengthSq() < 0.000001) {
+      if (direction.lengthSq() < 0.000001) {
         continue;
       }
 
-      const targetScale = clamp(
-        sourceLength / avatarLength,
-        MIN_BONE_LENGTH_SCALE,
-        segment.maxScale ?? MAX_BONE_LENGTH_SCALE,
-      );
-      recordProportionCalibrationSample(bone.name, targetScale);
-      validSegments += 1;
-
-      if (isLowerBodyScreenCalibrationSegment(segment)) {
-        lowerBodySegments += 1;
-      }
+      const next = from.clone().addScaledVector(direction.normalize(), ratio * inputScale);
+      points[segment.to] = copyDerivedPointMetadata(next, from, to);
+      normalizedCount += 1;
     }
 
-    const requiredSegments = lowerBodySegments > 0
-      ? PROPORTION_CALIBRATION_MIN_SEGMENTS
-      : PROPORTION_CALIBRATION_MIN_UPPER_BODY_SEGMENTS;
-
-    if (validSegments >= requiredSegments) {
-      proportionCalibration.frames += 1;
-    }
-
-    if (proportionCalibration.frames >= PROPORTION_CALIBRATION_FRAMES) {
-      freezeProportionCalibration();
-    }
+    rebuildDerivedPosePoints(points);
+    proportionCalibration.frames = Math.min(proportionCalibration.frames + 1, PROPORTION_CALIBRATION_FRAMES);
+    proportionCalibration.lastNormalizedCount = normalizedCount;
+    proportionCalibration.lastInputScale = inputScale;
+    return points;
   }
 
-  function isLowerBodyScreenCalibrationSegment(segment) {
-    return /(?:UpLeg|Leg|Foot|Hip|Knee|Ankle)/.test(
-      `${segment.bone} ${segment.sourceFrom} ${segment.sourceTo} ${segment.avatarFrom} ${segment.avatarTo}`,
-    );
+  function rebuildDerivedPosePoints(points) {
+    points.shoulderMid = midpoint(points.leftShoulder, points.rightShoulder);
+    points.hipMid = midpoint(points.leftHip, points.rightHip);
+    points.eyeMid = midpoint(points.leftEye, points.rightEye) || midpoint(points.leftEar, points.rightEar);
+    points.earMid = midpoint(points.leftEar, points.rightEar);
+    points.headAimBase = points.earMid || points.eyeMid;
+    points.headCrown = estimateHeadCrown(points);
+    assignSpineWavePoints(points);
   }
 
-  function recordProportionCalibrationSample(boneNameKey, scale) {
-    const samples = proportionCalibration.samples.get(boneNameKey) ?? [];
-    samples.push(scale);
-    proportionCalibration.samples.set(boneNameKey, samples);
-  }
+  function resetProportionCalibration(options = {}) {
+    const preserveReference = options.preserveReference !== false;
+    const referenceRatios = preserveReference ? proportionCalibration.referenceRatios : {};
+    const referenceSegmentCount = preserveReference ? proportionCalibration.referenceSegmentCount : 0;
 
-  function freezeProportionCalibration() {
-    if (proportionCalibration.frozen) {
-      return;
-    }
-
-    let appliedCount = 0;
-    let maxScaleDelta = 0;
-
-    const appliedScales = {};
-
-    for (const [boneNameKey, samples] of proportionCalibration.samples) {
-      const bone = bones.get(boneNameKey);
-      const rest = getBoneRest(bone);
-
-      if (!bone || !rest || samples.length < Math.max(4, PROPORTION_CALIBRATION_FRAMES / 4)) {
-        continue;
-      }
-
-      const averageScale = clamp(
-        percentile(samples.slice().sort((a, b) => a - b), PROPORTION_CALIBRATION_PERCENTILE),
-        MIN_BONE_LENGTH_SCALE,
-        MAX_HAND_LENGTH_SCALE,
-      );
-      bone.position.copy(rest.position).multiplyScalar(averageScale);
-      bone.updateMatrixWorld(true);
-      appliedCount += 1;
-      maxScaleDelta = Math.max(maxScaleDelta, Math.abs(averageScale - 1));
-      appliedScales[boneNameKey] = averageScale;
-    }
-
-    proportionCalibration.lastAppliedCount = appliedCount;
-    proportionCalibration.lastMaxScaleDelta = maxScaleDelta;
-    proportionCalibration.appliedScales = appliedScales;
-    proportionCalibration.frozen = true;
-    proportionCalibration.samples.clear();
-  }
-
-  function resetProportionCalibration() {
-    proportionCalibration.frames = 0;
-    proportionCalibration.frozen = false;
-    proportionCalibration.lastAppliedCount = 0;
-    proportionCalibration.lastMaxScaleDelta = 0;
+    proportionCalibration.frames = referenceSegmentCount > 0 ? PROPORTION_CALIBRATION_FRAMES : 0;
+    proportionCalibration.frozen = referenceSegmentCount > 0;
+    proportionCalibration.referenceRatios = referenceRatios;
+    proportionCalibration.referenceSegmentCount = referenceSegmentCount;
+    proportionCalibration.lastNormalizedCount = 0;
+    proportionCalibration.lastInputScale = 0;
     proportionCalibration.appliedScales = {};
-    proportionCalibration.samples.clear();
   }
 
   function resetRootMotion(clearCalibration = true) {
@@ -4315,7 +4333,7 @@ export function createAvatarRenderer(options = {}) {
     boneAliasesByBone.clear();
     restPose.clear();
     restPoseByBone.clear();
-    resetProportionCalibration();
+    resetProportionCalibration({ preserveReference: false });
     resetDepthCalibration();
     loadedGltf = null;
     activeVrm = null;
