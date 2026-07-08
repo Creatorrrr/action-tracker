@@ -1,7 +1,7 @@
 const MIN_VECTOR_LENGTH = 0.000001;
 const DEFAULT_AVATAR_YAW_SIGN = -1;
 const DEFAULT_PALM_NORMAL_SIGNS = Object.freeze({
-  Left: -1,
+  Left: 1,
   Right: -1,
 });
 

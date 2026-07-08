@@ -156,6 +156,42 @@ const poseAnchoredFrame = createMotionFrame({
 assert.equal(poseAnchoredFrame.rightHandLandmarks, physicalRightHand);
 assert.equal(poseAnchoredFrame.leftHandLandmarks, physicalLeftHand);
 
+const poseWithOnlyRightWrist = landmarks(33, 0.45);
+poseWithOnlyRightWrist[15] = { x: 0.74, y: 0.5, z: 0, visibility: 0.05 };
+poseWithOnlyRightWrist[16] = { x: 0.24, y: 0.5, z: 0, visibility: 0.95 };
+const singleRightPoseAnchoredFrame = createMotionFrame({
+  mirrored: false,
+  poseResults: {
+    landmarks: [poseWithOnlyRightWrist],
+  },
+  handResults: {
+    landmarks: [physicalRightHand],
+    handedness: [
+      [{ categoryName: "Right", score: 0.9 }],
+    ],
+  },
+});
+assert.equal(singleRightPoseAnchoredFrame.rightHandLandmarks, physicalRightHand);
+assert.equal(singleRightPoseAnchoredFrame.leftHandLandmarks, null);
+
+const poseWithOnlyLeftWrist = landmarks(33, 0.45);
+poseWithOnlyLeftWrist[15] = { x: 0.74, y: 0.5, z: 0, visibility: 0.95 };
+poseWithOnlyLeftWrist[16] = { x: 0.24, y: 0.5, z: 0, visibility: 0.05 };
+const singleLeftPoseAnchoredFrame = createMotionFrame({
+  mirrored: false,
+  poseResults: {
+    landmarks: [poseWithOnlyLeftWrist],
+  },
+  handResults: {
+    landmarks: [physicalLeftHand],
+    handedness: [
+      [{ categoryName: "Left", score: 0.9 }],
+    ],
+  },
+});
+assert.equal(singleLeftPoseAnchoredFrame.leftHandLandmarks, physicalLeftHand);
+assert.equal(singleLeftPoseAnchoredFrame.rightHandLandmarks, null);
+
 const recording = createMotionRecording({
   source: { inputKind: "video", videoFileName: "sample.mp4", videoRef: "sample.mp4" },
   frames: [frame],

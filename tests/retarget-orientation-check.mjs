@@ -7,6 +7,7 @@ import {
 } from "../src/retarget-orientation.js";
 import {
   HAND_FINGERS,
+  getFingerSegmentCount,
   resolveFingerSegmentPoints,
 } from "../src/hand-retargeting.js";
 
@@ -19,9 +20,9 @@ assert.deepEqual(roundVector(rawNormal), { x: 0, y: 0, z: 1 });
 
 const leftPalm = resolveHandPalmNormal({ wrist, indexBase, pinkyBase, side: "Left" });
 assert.equal(leftPalm.valid, true);
-assert.equal(leftPalm.sign, -1);
+assert.equal(leftPalm.sign, 1);
 assert.deepEqual(roundVector(leftPalm.rawNormal), { x: 0, y: 0, z: 1 });
-assert.deepEqual(roundVector(leftPalm.normal), { x: 0, y: 0, z: -1 });
+assert.deepEqual(roundVector(leftPalm.normal), { x: 0, y: 0, z: 1 });
 
 const rightPalm = resolveHandPalmNormal({ wrist, indexBase, pinkyBase, side: "Right" });
 assert.equal(rightPalm.valid, true);
@@ -33,10 +34,27 @@ const customPalm = resolveHandPalmNormal({
   indexBase,
   pinkyBase,
   side: "Left",
-  normalSigns: { Left: 1 },
+  normalSigns: { Left: -1 },
 });
-assert.equal(customPalm.sign, 1);
-assert.deepEqual(roundVector(customPalm.normal), { x: 0, y: 0, z: 1 });
+assert.equal(customPalm.sign, -1);
+assert.deepEqual(roundVector(customPalm.normal), { x: 0, y: 0, z: -1 });
+
+const leftPalmFacingCamera = resolveHandPalmNormal({
+  wrist,
+  indexBase: { x: -0.2, y: 1, z: 0 },
+  pinkyBase: { x: 0.2, y: 1, z: 0 },
+  side: "Left",
+});
+const rightPalmFacingCamera = resolveHandPalmNormal({
+  wrist,
+  indexBase: { x: 0.2, y: 1, z: 0 },
+  pinkyBase: { x: -0.2, y: 1, z: 0 },
+  side: "Right",
+});
+assert.deepEqual(roundVector(leftPalmFacingCamera.rawNormal), { x: 0, y: 0, z: -1 });
+assert.deepEqual(roundVector(rightPalmFacingCamera.rawNormal), { x: 0, y: 0, z: 1 });
+assert.deepEqual(roundVector(leftPalmFacingCamera.normal), { x: 0, y: 0, z: -1 });
+assert.deepEqual(roundVector(rightPalmFacingCamera.normal), { x: 0, y: 0, z: -1 });
 
 assert.equal(resolveHandPalmNormal({ wrist, side: "Left" }).valid, false);
 assert.equal(resolveAvatarYawDeg(90), -90);
@@ -50,19 +68,21 @@ const handPoints = Array.from({ length: 21 }, (_, index) => ({ index }));
 assert.deepEqual([...HAND_FINGERS.Thumb], [1, 2, 3, 4]);
 
 const thumbBaseSegment = resolveFingerSegmentPoints(handPoints, "Thumb", 0);
-assert.equal(thumbBaseSegment.fromIndex, 0);
-assert.equal(thumbBaseSegment.toIndex, 1);
+assert.equal(thumbBaseSegment.fromIndex, 1);
+assert.equal(thumbBaseSegment.toIndex, 2);
 assert.equal(thumbBaseSegment.jointKind, "thumb-cmc");
 
 const thumbMiddleSegment = resolveFingerSegmentPoints(handPoints, "Thumb", 1);
-assert.equal(thumbMiddleSegment.fromIndex, 1);
-assert.equal(thumbMiddleSegment.toIndex, 2);
+assert.equal(thumbMiddleSegment.fromIndex, 2);
+assert.equal(thumbMiddleSegment.toIndex, 3);
 assert.equal(thumbMiddleSegment.jointKind, "thumb-mcp");
 
-const thumbTipSegment = resolveFingerSegmentPoints(handPoints, "Thumb", 3);
+const thumbTipSegment = resolveFingerSegmentPoints(handPoints, "Thumb", 2);
 assert.equal(thumbTipSegment.fromIndex, 3);
 assert.equal(thumbTipSegment.toIndex, 4);
-assert.equal(thumbTipSegment.jointKind, "thumb-tip");
+assert.equal(thumbTipSegment.jointKind, "thumb-ip");
+assert.equal(resolveFingerSegmentPoints(handPoints, "Thumb", 3), null);
+assert.equal(getFingerSegmentCount("Thumb"), 3);
 
 const indexBaseSegment = resolveFingerSegmentPoints(handPoints, "Index", 0);
 assert.equal(indexBaseSegment.fromIndex, 5);
@@ -73,6 +93,8 @@ const indexDipSegment = resolveFingerSegmentPoints(handPoints, "Index", 2);
 assert.equal(indexDipSegment.fromIndex, 7);
 assert.equal(indexDipSegment.toIndex, 8);
 assert.equal(indexDipSegment.jointKind, "dip");
+assert.equal(resolveFingerSegmentPoints(handPoints, "Index", 3), null);
+assert.equal(getFingerSegmentCount("Index"), 3);
 
 console.log("Retarget orientation check passed.");
 

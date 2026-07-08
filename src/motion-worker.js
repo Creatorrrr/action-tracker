@@ -8,7 +8,7 @@ import {
   createMotionFrame,
   normalizeFace,
   serializeMotionFrame,
-} from "./motion-frame.js?v=20260618-tracked-channels-1";
+} from "./motion-frame.js?v=20260708-single-hand-side-1";
 
 let vision = null;
 let poseLandmarker = null;

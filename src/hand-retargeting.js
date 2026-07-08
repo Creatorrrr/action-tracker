@@ -10,11 +10,9 @@ const FINGER_SEGMENTS = Object.freeze([
   Object.freeze({ from: 0, to: 1, fallbackFrom: 0 }),
   Object.freeze({ from: 1, to: 2, fallbackFrom: 0 }),
   Object.freeze({ from: 2, to: 3, fallbackFrom: 1 }),
-  Object.freeze({ from: 3, to: 4, fallbackFrom: 2 }),
 ]);
 
 const THUMB_FINGER_SEGMENTS = Object.freeze([
-  Object.freeze({ from: "wrist", to: 0, fallbackFrom: "wrist" }),
   Object.freeze({ from: 0, to: 1, fallbackFrom: "wrist" }),
   Object.freeze({ from: 1, to: 2, fallbackFrom: 0 }),
   Object.freeze({ from: 2, to: 3, fallbackFrom: 1 }),

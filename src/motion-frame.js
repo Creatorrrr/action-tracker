@@ -18,6 +18,7 @@ const POSE_RIGHT_WRIST = 16;
 const HAND_WRIST = 0;
 const MIN_POSE_WRIST_CONFIDENCE = 0.2;
 const MIN_POSE_WRIST_SEPARATION = 0.08;
+const MAX_SINGLE_POSE_WRIST_MATCH_DISTANCE = 0.3;
 const POSE_WRIST_MATCH_EPSILON = 0.000001;
 
 export function createMotionFrame({
@@ -353,20 +354,31 @@ function inferHandSideFromPoseWrist(handLandmarks, poseLandmarks, usedSides) {
   const leftWrist = poseLandmarks[POSE_LEFT_WRIST];
   const rightWrist = poseLandmarks[POSE_RIGHT_WRIST];
 
-  if (!isUsablePoseWrist(leftWrist) || !isUsablePoseWrist(rightWrist)) {
+  const candidates = [
+    { side: "Left", wrist: leftWrist },
+    { side: "Right", wrist: rightWrist },
+  ]
+    .filter((candidate) => isUsablePoseWrist(candidate.wrist))
+    .filter((candidate) => !usedSides.has(candidate.side))
+    .map((candidate) => ({
+      side: candidate.side,
+      distance: landmarkDistanceSquared(wrist, candidate.wrist),
+    }))
+    .sort((a, b) => a.distance - b.distance);
+
+  if (candidates.length === 0) {
     return null;
+  }
+
+  if (candidates.length === 1) {
+    return candidates[0].distance <= MAX_SINGLE_POSE_WRIST_MATCH_DISTANCE ** 2
+      ? candidates[0].side
+      : null;
   }
 
   if (landmarkDistanceSquared(leftWrist, rightWrist) < MIN_POSE_WRIST_SEPARATION ** 2) {
     return null;
   }
-
-  const candidates = [
-    { side: "Left", distance: landmarkDistanceSquared(wrist, leftWrist) },
-    { side: "Right", distance: landmarkDistanceSquared(wrist, rightWrist) },
-  ]
-    .filter((candidate) => !usedSides.has(candidate.side))
-    .sort((a, b) => a.distance - b.distance);
 
   if (!candidates[0]) {
     return null;

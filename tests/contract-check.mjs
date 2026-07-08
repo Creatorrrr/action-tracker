@@ -78,6 +78,10 @@ const files = {
 const mediaPipeVersion = "0.10.35";
 const threeVersion = "0.184.0";
 const threeVrmVersion = "3.5.4";
+const appRuntimeToken = "20260708-single-hand-side-1";
+const avatarRuntimeToken = "20260708-thumb-segments-1";
+const handRetargetingRuntimeToken = "20260708-thumb-segments-1";
+const handSideRuntimeToken = "20260708-single-hand-side-1";
 
 const requiredTrackerDomIds = [
   "camera-status",
@@ -190,6 +194,44 @@ function check(condition, message) {
 
 function checkPattern(source, pattern, message) {
   check(pattern.test(source), message);
+}
+
+function checkRuntimeCacheContract(html, app, avatarRenderer, motionWorker) {
+  checkPattern(
+    html,
+    new RegExp(`<script\\b[^>]+src\\s*=\\s*["']\\.\\/src\\/app\\.js\\?v=${escapeRegExp(appRuntimeToken)}["']`),
+    "index.html: app module cache token must include the latest runtime fix",
+  );
+  checkPattern(
+    app,
+    new RegExp(`from\\s*["']\\.\\/avatar-renderer\\.js\\?v=${escapeRegExp(avatarRuntimeToken)}["']`),
+    "src/app.js: avatar-renderer import cache token must include the left palm normal fix",
+  );
+  checkPattern(
+    avatarRenderer,
+    new RegExp(`from\\s*["']\\.\\/retarget-orientation\\.js\\?v=${escapeRegExp(avatarRuntimeToken)}["']`),
+    "src/avatar-renderer.js: retarget-orientation import cache token must include the left palm normal fix",
+  );
+  checkPattern(
+    avatarRenderer,
+    new RegExp(`from\\s*["']\\.\\/hand-retargeting\\.js\\?v=${escapeRegExp(handRetargetingRuntimeToken)}["']`),
+    "src/avatar-renderer.js: hand-retargeting import cache token must include the thumb segment fix",
+  );
+  checkPattern(
+    app,
+    new RegExp(`from\\s*["']\\.\\/motion-frame\\.js\\?v=${escapeRegExp(handSideRuntimeToken)}["']`),
+    "src/app.js: motion-frame import cache token must include the camera hand-side fix",
+  );
+  checkPattern(
+    app,
+    new RegExp(`new\\s+URL\\s*\\(\\s*["']\\.\\/motion-worker\\.js\\?v=${escapeRegExp(handSideRuntimeToken)}["']\\s*,\\s*import\\.meta\\.url\\s*\\)`),
+    "src/app.js: motion-worker cache token must include the camera hand-side fix",
+  );
+  checkPattern(
+    motionWorker,
+    new RegExp(`from\\s*["']\\.\\/motion-frame\\.js\\?v=${escapeRegExp(handSideRuntimeToken)}["']`),
+    "src/motion-worker.js: motion-frame import cache token must include the camera hand-side fix",
+  );
 }
 
 function sourceBetween(source, startNeedle, endNeedle) {
@@ -827,7 +869,7 @@ function checkAvatarRendererContract(avatarRenderer) {
     ["smooths strict root yaw", /ROOT_ORIENTATION_MAX_YAW_RATE_DEG_PER_SEC[\s\S]*function\s+applyStrictRootOrientation[\s\S]*strictYawSmoothingAlpha[\s\S]*rootMotion\.yawOffset\s*\+=\s*yawStep/],
     ["applies face expressions after hand retargeting", /applyHands\s*\([\s\S]*?\)[\s\S]*?applyFaceExpressions\s*\(/],
     ["reports expression diagnostics", /expressionPresetCount[\s\S]*resolvedMorphTargetCount[\s\S]*missingPresets/],
-    ["imports hand retargeting helpers", /from\s+["']\.\/hand-retargeting\.js["']/],
+    ["imports hand retargeting helpers", /from\s+["']\.\/hand-retargeting\.js(?:\?[^"']+)?["']/],
     [
       "builds side-specific finger chains",
       /for\s*\(\s*const\s+side\s+of\s+\[\s*["']Left["']\s*,\s*["']Right["']\s*\]\s*\)[\s\S]*?\$\{side\}Hand\$\{fingerName\}\$\{segment\}/,
@@ -869,10 +911,10 @@ function checkHandRetargetingContract(handRetargeting) {
   const helperChecks = [
     ["exports finger landmark mappings", /export\s+const\s+HAND_FINGERS\s*=/],
     ["defines generic finger segment mappings", /const\s+FINGER_SEGMENTS\s*=\s*Object\.freeze\(\s*\[[\s\S]*?fallbackFrom/],
-    ["defines thumb-specific segment mappings", /const\s+THUMB_FINGER_SEGMENTS\s*=\s*Object\.freeze\(\s*\[[\s\S]*?from\s*:\s*["']wrist["'][\s\S]*?to\s*:\s*0/],
+    ["defines thumb-specific segment mappings", /const\s+THUMB_FINGER_SEGMENTS\s*=\s*Object\.freeze\(\s*\[[\s\S]*?from\s*:\s*0[\s\S]*?to\s*:\s*1[\s\S]*?from\s*:\s*1[\s\S]*?to\s*:\s*2[\s\S]*?from\s*:\s*2[\s\S]*?to\s*:\s*3/],
     ["resolves segment points", /export\s+function\s+resolveFingerSegmentPoints\s*\(/],
     ["exposes segment count", /export\s+function\s+getFingerSegmentCount\s*\(/],
-    ["keeps thumb base anchored at wrist", /fingerName\s*===\s*["']Thumb["'][\s\S]*THUMB_FINGER_SEGMENTS/],
+    ["keeps thumb segments on anatomical thumb joints", /fingerName\s*===\s*["']Thumb["'][\s\S]*THUMB_FINGER_SEGMENTS/],
     ["resolves wrist landmark token", /token\s*===\s*["']wrist["'][\s\S]*return\s+0/],
   ];
 
@@ -1019,6 +1061,7 @@ const avatarModelJson = parseGlbJson(avatarModelBytes, files.avatarModel);
 checkPackageContract(packageJson);
 checkReadmeContract(readme);
 checkHtmlContract(html);
+checkRuntimeCacheContract(html, app, avatarRenderer, motionWorker);
 checkClaudeCodexBridge(claudeSettings, claudeCodexCommand, claudeCodexScript, readme);
 checkTrackerAppContract(app);
 checkAvatarAppContract(app);

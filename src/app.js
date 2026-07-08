@@ -4,7 +4,7 @@ import {
   HandLandmarker,
   PoseLandmarker,
 } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/vision_bundle.mjs";
-import { createAvatarRenderer } from "./avatar-renderer.js?v=20260706-anatomy-diagnostics-1";
+import { createAvatarRenderer } from "./avatar-renderer.js?v=20260708-thumb-segments-1";
 import {
   MOTION_RECORDING_FRAME_LIMIT,
   createMotionFrame,
@@ -17,7 +17,7 @@ import {
   parseMotionRecordingJsonl,
   serializeMotionFrame,
   serializeMotionRecordingJsonl,
-} from "./motion-frame.js?v=20260702-recording-jsonl-1";
+} from "./motion-frame.js?v=20260708-single-hand-side-1";
 import { createMotionForwarder } from "./motion-forwarding.js?v=20260529-face-expression-1";
 import {
   createPresenceState,
@@ -1230,7 +1230,7 @@ function getOrCreateTrackingWorker() {
   }
 
   const worker = new Worker(
-    new URL("./motion-worker.js?v=20260702-delegate-latest-wins-1", import.meta.url),
+    new URL("./motion-worker.js?v=20260708-single-hand-side-1", import.meta.url),
     { type: "module" },
   );
   worker.addEventListener("message", handleTrackingWorkerMessage);

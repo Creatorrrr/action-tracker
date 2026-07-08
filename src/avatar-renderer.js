@@ -43,14 +43,14 @@ import {
   HAND_FINGERS,
   getFingerSegmentCount,
   resolveFingerSegmentPoints,
-} from './hand-retargeting.js';
+} from './hand-retargeting.js?v=20260708-thumb-segments-1';
 import { sanitizeZeroAlphaVertexColors } from './vrm-rendering-compat.js';
 import {
   DEFAULT_AVATAR_YAW_SIGN,
   DEFAULT_PALM_NORMAL_SIGNS,
   resolveAvatarYawDeg,
   resolveHandPalmNormal,
-} from './retarget-orientation.js';
+} from './retarget-orientation.js?v=20260708-thumb-segments-1';
 import {
   RETARGET_MODE_LEGACY,
   RETARGET_MODE_STRICT,
