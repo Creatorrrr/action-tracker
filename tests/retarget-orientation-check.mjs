@@ -7,6 +7,8 @@ import {
 } from "../src/retarget-orientation.js";
 import {
   HAND_FINGERS,
+  estimateFingerCurlStrength,
+  estimateHandPalmCenter,
   getFingerSegmentCount,
   resolveFingerSegmentPoints,
 } from "../src/hand-retargeting.js";
@@ -96,7 +98,55 @@ assert.equal(indexDipSegment.jointKind, "dip");
 assert.equal(resolveFingerSegmentPoints(handPoints, "Index", 3), null);
 assert.equal(getFingerSegmentCount("Index"), 3);
 
+const openHandPoints = buildHandPoints({
+  Index: [
+    { x: 0.2, y: 1, z: 0 },
+    { x: 0.2, y: 1.55, z: 0 },
+    { x: 0.2, y: 2.05, z: 0 },
+    { x: 0.2, y: 2.55, z: 0 },
+  ],
+});
+const curledHandPoints = buildHandPoints({
+  Index: [
+    { x: 0.2, y: 1, z: 0 },
+    { x: 0.42, y: 0.62, z: 0 },
+    { x: 0.08, y: 0.38, z: 0 },
+    { x: -0.08, y: 0.72, z: 0 },
+  ],
+});
+const palmCenter = estimateHandPalmCenter(openHandPoints);
+
+assert.deepEqual(roundVector(palmCenter), { x: -0.08, y: 0.76, z: 0 });
+assert.equal(estimateFingerCurlStrength(openHandPoints, "Index"), 0);
+assert.ok(estimateFingerCurlStrength(curledHandPoints, "Index") > 0.85);
+assert.equal(estimateFingerCurlStrength([], "Index"), 0);
+
 console.log("Retarget orientation check passed.");
+
+function buildHandPoints(overrides = {}) {
+  const points = Array.from({ length: 21 }, () => ({ x: 0, y: 0, z: 0 }));
+  const base = {
+    0: { x: 0, y: 0, z: 0 },
+    5: { x: 0.2, y: 1, z: 0 },
+    9: { x: 0, y: 1.1, z: 0 },
+    13: { x: -0.2, y: 1, z: 0 },
+    17: { x: -0.4, y: 0.7, z: 0 },
+  };
+
+  for (const [index, point] of Object.entries(base)) {
+    points[Number(index)] = point;
+  }
+
+  for (const [fingerName, fingerPoints] of Object.entries(overrides)) {
+    const indices = HAND_FINGERS[fingerName];
+
+    fingerPoints.forEach((point, index) => {
+      points[indices[index]] = point;
+    });
+  }
+
+  return points;
+}
 
 function roundVector(vector) {
   return {

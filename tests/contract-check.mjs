@@ -78,9 +78,10 @@ const files = {
 const mediaPipeVersion = "0.10.35";
 const threeVersion = "0.184.0";
 const threeVrmVersion = "3.5.4";
-const appRuntimeToken = "20260708-single-hand-side-1";
-const avatarRuntimeToken = "20260708-thumb-segments-1";
-const handRetargetingRuntimeToken = "20260708-thumb-segments-1";
+const appRuntimeToken = "20260708-fist-curl-1";
+const avatarRuntimeToken = "20260708-fist-curl-1";
+const retargetOrientationRuntimeToken = "20260708-thumb-segments-1";
+const handRetargetingRuntimeToken = "20260708-fist-curl-1";
 const handSideRuntimeToken = "20260708-single-hand-side-1";
 
 const requiredTrackerDomIds = [
@@ -205,12 +206,12 @@ function checkRuntimeCacheContract(html, app, avatarRenderer, motionWorker) {
   checkPattern(
     app,
     new RegExp(`from\\s*["']\\.\\/avatar-renderer\\.js\\?v=${escapeRegExp(avatarRuntimeToken)}["']`),
-    "src/app.js: avatar-renderer import cache token must include the left palm normal fix",
+    "src/app.js: avatar-renderer import cache token must include the latest avatar retarget fix",
   );
   checkPattern(
     avatarRenderer,
-    new RegExp(`from\\s*["']\\.\\/retarget-orientation\\.js\\?v=${escapeRegExp(avatarRuntimeToken)}["']`),
-    "src/avatar-renderer.js: retarget-orientation import cache token must include the left palm normal fix",
+    new RegExp(`from\\s*["']\\.\\/retarget-orientation\\.js\\?v=${escapeRegExp(retargetOrientationRuntimeToken)}["']`),
+    "src/avatar-renderer.js: retarget-orientation import cache token must include the latest orientation fix",
   );
   checkPattern(
     avatarRenderer,
@@ -247,6 +248,55 @@ function sourceBetween(source, startNeedle, endNeedle) {
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function collectFingerAimLimitDegrees(source, groupName) {
+  const match = new RegExp(`${groupName}\\s*:\\s*Object\\.freeze\\(\\s*\\[([\\s\\S]*?)\\]\\s*\\)`).exec(source);
+
+  if (!match) {
+    return [];
+  }
+
+  return [...match[1].matchAll(/\{\s*maxAngleDeg\s*:\s*([0-9.]+)\s*,\s*maxTwistDeg\s*:\s*([0-9.]+)\s*\}/g)]
+    .map(([, maxAngleDeg, maxTwistDeg]) => ({
+      maxAngleDeg: Number(maxAngleDeg),
+      maxTwistDeg: Number(maxTwistDeg),
+    }));
+}
+
+function checkFingerAimLimitContract(avatarRenderer) {
+  const thumbLimits = collectFingerAimLimitDegrees(avatarRenderer, "Thumb");
+  const defaultLimits = collectFingerAimLimitDegrees(avatarRenderer, "Default");
+
+  check(thumbLimits.length >= 3, `${files.avatarRenderer}: expected thumb finger aim limits for all driven thumb segments`);
+  check(defaultLimits.length >= 3, `${files.avatarRenderer}: expected default finger aim limits for all driven finger segments`);
+  checkPattern(
+    avatarRenderer,
+    /function\s+getFingerAimConstraint\s*\([^)]*\)[\s\S]*FINGER_AIM_CONSTRAINTS_DEG[\s\S]*THREE\.MathUtils\.degToRad\s*\(\s*constraint\.maxAngleDeg\s*\)[\s\S]*THREE\.MathUtils\.degToRad\s*\(\s*constraint\.maxTwistDeg\s*\)/,
+    `${files.avatarRenderer}: expected finger aim constraints to use shared degree limits`,
+  );
+
+  const minimums = [
+    [thumbLimits, 0, "thumb base", 110, 60],
+    [thumbLimits, 1, "thumb middle", 95, 34],
+    [thumbLimits, 2, "thumb distal", 95, 30],
+    [defaultLimits, 0, "finger base", 110, 34],
+    [defaultLimits, 1, "finger middle", 110, 26],
+    [defaultLimits, 2, "finger distal", 95, 22],
+  ];
+
+  for (const [limits, index, label, minAngleDeg, minTwistDeg] of minimums) {
+    const limit = limits[index];
+
+    check(
+      limit?.maxAngleDeg >= minAngleDeg,
+      `${files.avatarRenderer}: ${label} maxAngleDeg must allow clenched-fist curl (expected >= ${minAngleDeg})`,
+    );
+    check(
+      limit?.maxTwistDeg >= minTwistDeg,
+      `${files.avatarRenderer}: ${label} maxTwistDeg must preserve fist-side splay (expected >= ${minTwistDeg})`,
+    );
+  }
 }
 
 function hasId(html, id) {
@@ -849,6 +899,9 @@ function checkAvatarRendererContract(avatarRenderer) {
     ["computes palm normal", /resolveHandPalmNormal[\s\S]*palmOrientation/],
     ["uses hand world landmarks for palm normal when present", /worldLandmarks[\s\S]*worldPoints[\s\S]*resolveHandPalmNormal[\s\S]*worldPoints\[0\]/],
     ["reports hand orientation diagnostics", /handOrientation[\s\S]*rawPalmNormal[\s\S]*avatarPalmNormal/],
+    ["imports finger curl helpers", /estimateFingerCurlStrength[\s\S]*estimateHandPalmCenter[\s\S]*from\s+["']\.\/hand-retargeting\.js(?:\?[^"']+)?["']/],
+    ["defines segment-specific fist curl bias", /const\s+FIST_CURL_BIAS_BY_SEGMENT\s*=\s*Object\.freeze\(\s*\{[\s\S]*Thumb[\s\S]*Default/],
+    ["applies measured fist curl bias before finger aim", /estimateHandPalmCenter\s*\(\s*points\s*\)[\s\S]*estimateFingerCurlStrength\s*\(\s*points\s*,\s*fingerName\s*\)[\s\S]*applyFingerFistCurlBias\s*\(/],
     ["maps solver yaw to avatar yaw explicitly", /resolveAvatarYawDeg[\s\S]*avatarTargetYawDeg[\s\S]*avatarYawSign/],
     ["limits parent-relative twist", /function\s+limitTwistFromRest\s*\([^)]*\)[\s\S]*extractTwist/],
     ["stabilizes root facing before yaw changes", /ROOT_ORIENTATION_SWITCH_FRAMES[\s\S]*candidateFacingFrames[\s\S]*function\s+updateStableRootFacing/],
@@ -889,6 +942,8 @@ function checkAvatarRendererContract(avatarRenderer) {
     checkPattern(avatarRenderer, pattern, `src/avatar-renderer.js: contract missing - ${label}`);
   }
 
+  checkFingerAimLimitContract(avatarRenderer);
+
   check(
     !/activeVrm\.update\s*\(/.test(avatarRenderer),
     "src/avatar-renderer.js: VRM runtime updates must not call activeVrm.update() because it clears app-owned expression morph targets",
@@ -914,6 +969,8 @@ function checkHandRetargetingContract(handRetargeting) {
     ["defines thumb-specific segment mappings", /const\s+THUMB_FINGER_SEGMENTS\s*=\s*Object\.freeze\(\s*\[[\s\S]*?from\s*:\s*0[\s\S]*?to\s*:\s*1[\s\S]*?from\s*:\s*1[\s\S]*?to\s*:\s*2[\s\S]*?from\s*:\s*2[\s\S]*?to\s*:\s*3/],
     ["resolves segment points", /export\s+function\s+resolveFingerSegmentPoints\s*\(/],
     ["exposes segment count", /export\s+function\s+getFingerSegmentCount\s*\(/],
+    ["estimates palm center", /export\s+function\s+estimateHandPalmCenter\s*\(/],
+    ["estimates measured finger curl", /export\s+function\s+estimateFingerCurlStrength\s*\(/],
     ["keeps thumb segments on anatomical thumb joints", /fingerName\s*===\s*["']Thumb["'][\s\S]*THUMB_FINGER_SEGMENTS/],
     ["resolves wrist landmark token", /token\s*===\s*["']wrist["'][\s\S]*return\s+0/],
   ];

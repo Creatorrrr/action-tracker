@@ -41,9 +41,11 @@ import {
 } from './vrm-expression-mapping.js';
 import {
   HAND_FINGERS,
+  estimateFingerCurlStrength,
+  estimateHandPalmCenter,
   getFingerSegmentCount,
   resolveFingerSegmentPoints,
-} from './hand-retargeting.js?v=20260708-thumb-segments-1';
+} from './hand-retargeting.js?v=20260708-fist-curl-1';
 import { sanitizeZeroAlphaVertexColors } from './vrm-rendering-compat.js';
 import {
   DEFAULT_AVATAR_YAW_SIGN,
@@ -205,6 +207,22 @@ const RETARGET_SMOOTHING_MS = {
   finger: 34,
   relax: 76,
 };
+const FINGER_AIM_CONSTRAINTS_DEG = Object.freeze({
+  Thumb: Object.freeze([
+    Object.freeze({ maxAngleDeg: 110, maxTwistDeg: 65 }),
+    Object.freeze({ maxAngleDeg: 105, maxTwistDeg: 42 }),
+    Object.freeze({ maxAngleDeg: 105, maxTwistDeg: 34 }),
+  ]),
+  Default: Object.freeze([
+    Object.freeze({ maxAngleDeg: 118, maxTwistDeg: 40 }),
+    Object.freeze({ maxAngleDeg: 115, maxTwistDeg: 30 }),
+    Object.freeze({ maxAngleDeg: 105, maxTwistDeg: 26 }),
+  ]),
+});
+const FIST_CURL_BIAS_BY_SEGMENT = Object.freeze({
+  Thumb: Object.freeze([0.35, 0.58, 0.66]),
+  Default: Object.freeze([0.52, 0.82, 0.92]),
+});
 const AVATAR_SMOOTHING_MODE_OFF = 'off';
 const AVATAR_SMOOTHING_MODE_RETARGET = 'retarget';
 const AVATAR_SMOOTHING_MODE_STRONG = 'strong';
@@ -3746,6 +3764,7 @@ export function createAvatarRenderer(options = {}) {
     const palmNormal = palmOrientation?.normal
       ? plainVectorToThree(palmOrientation.normal, tmpVectorD)
       : null;
+    const fistCurlTarget = estimateHandPalmCenter(points);
 
     if (wrist && middleBase) {
       tmpVectorC.subVectors(middleBase, wrist);
@@ -3766,6 +3785,7 @@ export function createAvatarRenderer(options = {}) {
     for (const fingerName of Object.keys(HAND_FINGERS)) {
       const chain = fingerChains[side].get(fingerName) ?? [];
       const segmentCount = getFingerSegmentCount(fingerName);
+      const fingerCurlStrength = estimateFingerCurlStrength(points, fingerName);
 
       for (let i = 0; i < Math.min(chain.length, segmentCount); i += 1) {
         const segmentPoints = resolveFingerSegmentPoints(points, fingerName, i);
@@ -3780,6 +3800,7 @@ export function createAvatarRenderer(options = {}) {
           ? smoothingAlpha(delta, RETARGET_SMOOTHING_MS.fingerBase)
           : fingerAlpha;
         tmpVectorC.subVectors(to, from);
+        applyFingerFistCurlBias(tmpVectorC, from, fistCurlTarget, fingerName, i, fingerCurlStrength);
         const fingerConstraint = getFingerAimConstraint(fingerName, i);
         applyAimToBone(chain[i], tmpVectorC, strictHandAlpha ?? segmentAlpha * spreadStrength, fingerConstraint.maxAngle, {
           maxTwist: fingerConstraint.maxTwist,
@@ -3789,17 +3810,38 @@ export function createAvatarRenderer(options = {}) {
   }
 
   function getFingerAimConstraint(fingerName, segmentIndex) {
-    if (fingerName === "Thumb") {
-      return segmentIndex === 0
-        ? { maxAngle: THREE.MathUtils.degToRad(90), maxTwist: THREE.MathUtils.degToRad(60) }
-        : { maxAngle: THREE.MathUtils.degToRad(75), maxTwist: THREE.MathUtils.degToRad(28) };
+    const constraints = fingerName === "Thumb"
+      ? FINGER_AIM_CONSTRAINTS_DEG.Thumb
+      : FINGER_AIM_CONSTRAINTS_DEG.Default;
+    const constraint = constraints[Math.min(segmentIndex, constraints.length - 1)];
+
+    return {
+      maxAngle: THREE.MathUtils.degToRad(constraint.maxAngleDeg),
+      maxTwist: THREE.MathUtils.degToRad(constraint.maxTwistDeg),
+    };
+  }
+
+  function applyFingerFistCurlBias(direction, from, palmTarget, fingerName, segmentIndex, curlStrength) {
+    if (!palmTarget || curlStrength <= 0.01 || direction.lengthSq() < 0.000001) {
+      return;
     }
 
-    if (segmentIndex === 0) {
-      return { maxAngle: THREE.MathUtils.degToRad(95), maxTwist: THREE.MathUtils.degToRad(28) };
+    const profile = fingerName === "Thumb"
+      ? FIST_CURL_BIAS_BY_SEGMENT.Thumb
+      : FIST_CURL_BIAS_BY_SEGMENT.Default;
+    const bias = clamp01(curlStrength * profile[Math.min(segmentIndex, profile.length - 1)]);
+    const directionLength = direction.length();
+    const fistDirection = plainVectorToThree(palmTarget, tmpVectorG).sub(from);
+
+    if (bias <= 0.01 || fistDirection.lengthSq() < 0.000001) {
+      return;
     }
 
-    return { maxAngle: THREE.MathUtils.degToRad(82), maxTwist: THREE.MathUtils.degToRad(18) };
+    direction
+      .normalize()
+      .lerp(fistDirection.normalize(), bias)
+      .normalize()
+      .multiplyScalar(directionLength);
   }
 
   function computeLimbPlaneNormals(points) {
