@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://action-tracker.invalid/sam-goal/manual-review-operations/handoff-report-v1.schema.json",
+  "title": "SAM Goal manual review handoff report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifactType", "schemaVersion", "authorityClass", "compilerInput", "p0Authority", "cycleId", "presentationContractSha256", "reviewAReceiptByteSha256", "reviewBReceiptByteSha256", "rawABReportByteSha256", "c0LedgerByteSha256", "revealReceiptByteSha256", "deviationEvidenceByteSha256", "formalReviewAByteSha256", "formalReviewBByteSha256", "formalAdjudicationByteSha256", "status", "reviewASessionTreeSha256", "reviewBSessionTreeSha256", "c0SessionTreeSha256", "revealSessionTreeSha256"],
+  "properties": {
+    "artifactType": {"const": "sam-goal-manual-review-handoff-v1"}, "schemaVersion": {"const": 1},
+    "authorityClass": {"const": "process-evidence-only"}, "compilerInput": {"const": false}, "p0Authority": {"const": false},
+    "cycleId": {"$ref": "bundle-manifest-v1.schema.json#/$defs/cycleId"},
+    "presentationContractSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"},
+    "reviewAReceiptByteSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"}, "reviewBReceiptByteSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"}, "rawABReportByteSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"}, "c0LedgerByteSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"}, "revealReceiptByteSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"}, "deviationEvidenceByteSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"}, "formalReviewAByteSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"}, "formalReviewBByteSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"}, "formalAdjudicationByteSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"}, "reviewASessionTreeSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"}, "reviewBSessionTreeSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"}, "c0SessionTreeSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"}, "revealSessionTreeSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"},
+    "status": {"const": "ready_for_manual_pack_compiler"}
+  }
+}

@@ -1,0 +1,592 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://action-tracker.local/schemas/sam-goal-source-v1.json",
+  "title": "SAM goal exact source artifacts",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/sourceContract"
+    },
+    {
+      "$ref": "#/$defs/decoderRow"
+    },
+    {
+      "$ref": "#/$defs/sourceInventory"
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "positiveRational": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "numerator",
+        "denominator"
+      ],
+      "properties": {
+        "numerator": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "denominator": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "sourceSchemaIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "canonicalSha256"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "canonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "pairedSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clipId",
+        "video"
+      ],
+      "properties": {
+        "clipId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "video": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "unpairedSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clipId",
+        "video",
+        "pairedDecoderRows"
+      ],
+      "properties": {
+        "clipId": {
+          "const": "jujae-full"
+        },
+        "video": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pairedDecoderRows": {
+          "const": 0
+        }
+      }
+    },
+    "sourceContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "artifactType",
+        "sourceSchema",
+        "paired",
+        "unpaired",
+        "expectedCanonicalHash"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "artifactType": {
+          "const": "sam-goal-source-contract"
+        },
+        "sourceSchema": {
+          "$ref": "#/$defs/sourceSchemaIdentity"
+        },
+        "paired": {
+          "type": "array",
+          "minItems": 7,
+          "maxItems": 7,
+          "prefixItems": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/pairedSource"
+                },
+                {
+                  "properties": {
+                    "clipId": {
+                      "const": "arms-crossed"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/pairedSource"
+                },
+                {
+                  "properties": {
+                    "clipId": {
+                      "const": "csi-pose"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/pairedSource"
+                },
+                {
+                  "properties": {
+                    "clipId": {
+                      "const": "dance-16x9-padded"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/pairedSource"
+                },
+                {
+                  "properties": {
+                    "clipId": {
+                      "const": "jujae-regression-0-16_5"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/pairedSource"
+                },
+                {
+                  "properties": {
+                    "clipId": {
+                      "const": "shorts-keGbIts0CA0-16x9-padded"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/pairedSource"
+                },
+                {
+                  "properties": {
+                    "clipId": {
+                      "const": "shorts-new-dance-E9_h_ZW5z0U-16x9-padded"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/pairedSource"
+                },
+                {
+                  "properties": {
+                    "clipId": {
+                      "const": "shorts-vc0GDveRIp0-16x9-padded"
+                    }
+                  }
+                }
+              ]
+            }
+          ],
+          "items": false
+        },
+        "unpaired": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {
+            "$ref": "#/$defs/unpairedSource"
+          }
+        },
+        "expectedCanonicalHash": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "decoderRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifactType",
+        "clipId",
+        "sourceFrameIndex",
+        "ptsTicks",
+        "timeBase",
+        "loopEpoch",
+        "decodeStatus",
+        "decodeReason"
+      ],
+      "properties": {
+        "artifactType": {
+          "const": "decoder-pts"
+        },
+        "clipId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sourceFrameIndex": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ptsTicks": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)$"
+        },
+        "timeBase": {
+          "$ref": "#/$defs/positiveRational"
+        },
+        "loopEpoch": {
+          "const": 0
+        },
+        "decodeStatus": {
+          "const": "decoded"
+        },
+        "decodeReason": {
+          "type": "null"
+        }
+      }
+    },
+    "videoIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "bytes",
+        "sha256"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "mediaIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "streamIndex",
+        "codec",
+        "width",
+        "height",
+        "averageFrameRate",
+        "timeBase",
+        "duration"
+      ],
+      "properties": {
+        "streamIndex": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "codec": {
+          "type": "string",
+          "minLength": 1
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "averageFrameRate": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*/[1-9][0-9]*$"
+        },
+        "timeBase": {
+          "$ref": "#/$defs/positiveRational"
+        },
+        "duration": {
+          "type": "string",
+          "pattern": "^[0-9]+(\\.[0-9]+)?$"
+        }
+      }
+    },
+    "pairedInventoryEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clipId",
+        "video",
+        "media",
+        "decoderRowCount",
+        "firstPtsTicks",
+        "lastPtsTicks"
+      ],
+      "properties": {
+        "clipId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "video": {
+          "$ref": "#/$defs/videoIdentity"
+        },
+        "media": {
+          "$ref": "#/$defs/mediaIdentity"
+        },
+        "decoderRowCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "firstPtsTicks": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)$"
+        },
+        "lastPtsTicks": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)$"
+        }
+      }
+    },
+    "unpairedInventoryEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clipId",
+        "video",
+        "media",
+        "decodedFrameCount",
+        "firstPtsTicks",
+        "lastPtsTicks",
+        "pairedDecoderRows"
+      ],
+      "properties": {
+        "clipId": {
+          "const": "jujae-full"
+        },
+        "video": {
+          "$ref": "#/$defs/videoIdentity"
+        },
+        "media": {
+          "$ref": "#/$defs/mediaIdentity"
+        },
+        "decodedFrameCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "firstPtsTicks": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)$"
+        },
+        "lastPtsTicks": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)$"
+        },
+        "pairedDecoderRows": {
+          "const": 0
+        }
+      }
+    },
+    "sourceContractIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "expectedCanonicalHash",
+        "canonicalSha256"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expectedCanonicalHash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "canonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "ffprobeIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "streamSelector",
+        "framePtsField",
+        "frameTimeBaseMode",
+        "streamCommandProfile",
+        "frameCommandProfile"
+      ],
+      "properties": {
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "streamSelector": {
+          "const": "v:0"
+        },
+        "framePtsField": {
+          "const": "frame.best_effort_timestamp"
+        },
+        "frameTimeBaseMode": {
+          "const": "selected-stream-time_base"
+        },
+        "streamCommandProfile": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "frameCommandProfile": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "serializationIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "json",
+        "lineEnding",
+        "terminalNewline",
+        "canonicalRowOrder",
+        "arrayOrderSemantic"
+      ],
+      "properties": {
+        "json": {
+          "const": "sorted-key-compact-json-v1"
+        },
+        "lineEnding": {
+          "const": "LF"
+        },
+        "terminalNewline": {
+          "const": true
+        },
+        "canonicalRowOrder": {
+          "const": "ffprobe-presentation-order"
+        },
+        "arrayOrderSemantic": {
+          "const": true
+        }
+      }
+    },
+    "decoderManifestIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "rowCount",
+        "byteSha256",
+        "canonicalRowsSha256"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rowCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "byteSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "canonicalRowsSha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "sourceInventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "artifactType",
+        "sourceContract",
+        "sourceSchema",
+        "ffprobe",
+        "serialization",
+        "paired",
+        "unpaired",
+        "decoderManifest",
+        "expectedCanonicalHash"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "artifactType": {
+          "const": "sam-goal-source-inventory"
+        },
+        "sourceContract": {
+          "$ref": "#/$defs/sourceContractIdentity"
+        },
+        "sourceSchema": {
+          "$ref": "#/$defs/sourceSchemaIdentity"
+        },
+        "ffprobe": {
+          "$ref": "#/$defs/ffprobeIdentity"
+        },
+        "serialization": {
+          "$ref": "#/$defs/serializationIdentity"
+        },
+        "paired": {
+          "type": "array",
+          "minItems": 7,
+          "maxItems": 7,
+          "items": {
+            "$ref": "#/$defs/pairedInventoryEntry"
+          }
+        },
+        "unpaired": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {
+            "$ref": "#/$defs/unpairedInventoryEntry"
+          }
+        },
+        "decoderManifest": {
+          "$ref": "#/$defs/decoderManifestIdentity"
+        },
+        "expectedCanonicalHash": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    }
+  }
+}

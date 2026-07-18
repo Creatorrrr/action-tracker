@@ -26,6 +26,9 @@ function estimateFacingState(points, previousFacing = undefined, options = {}) {
 
 function estimateFacingYaw(points, options = {}) {
   const lowConfidence = Number(options.lowConfidence ?? DEFAULT_LOW_CONFIDENCE);
+  const yawOffsetDeg = Number.isFinite(Number(options.yawOffsetDeg))
+    ? Number(options.yawOffsetDeg)
+    : 0;
   const leftShoulder = points?.leftShoulder;
   const rightShoulder = points?.rightShoulder;
   const leftHip = points?.leftHip;
@@ -46,8 +49,8 @@ function estimateFacingYaw(points, options = {}) {
 
   const shoulderMid = midpoint(leftShoulder, rightShoulder);
   const hipMid = midpoint(leftHip, rightHip);
-  const across = normalize(subtract(leftShoulder, rightShoulder));
   const up = normalize(subtract(shoulderMid, hipMid));
+  const across = normalize(subtract(leftShoulder, rightShoulder));
   const confidence = Math.min(
     leftShoulder.visibility ?? 1,
     rightShoulder.visibility ?? 1,
@@ -79,7 +82,9 @@ function estimateFacingYaw(points, options = {}) {
     };
   }
 
-  const yawDeg = normalizeAngleDeg(Math.atan2(-forward.x, forward.z) * (180 / Math.PI));
+  const yawDeg = normalizeAngleDeg(
+    Math.atan2(-forward.x, forward.z) * (180 / Math.PI) + yawOffsetDeg,
+  );
 
   return {
     yawDeg,
@@ -97,6 +102,7 @@ function estimateFacingYaw(points, options = {}) {
 function updateFacingState(previousFacing, estimate, options = {}) {
   const hasPrevious = previousFacing !== undefined && previousFacing !== null;
   const previous = normalizeFacingState(previousFacing);
+  const lockYawHypothesis = options.lockYawHypothesis === true;
   const minTransitionFrames = Math.max(1, Math.trunc(Number(options.minTransitionFrames ?? DEFAULT_TRANSITION_FRAMES)));
   const lowConfidence = Number(options.lowConfidence ?? DEFAULT_LOW_CONFIDENCE);
   const timestamp = Number(options.timestamp ?? estimate?.timestamp);
@@ -126,7 +132,9 @@ function updateFacingState(previousFacing, estimate, options = {}) {
   const observedYaw = reliableEstimate
     ? useRecoveryHypothesis
       ? normalizeAngleDeg(rawEstimateYawDeg)
-      : chooseYawHypothesis(rawEstimateYawDeg, previous, estimate, hasPrevious)
+      : lockYawHypothesis
+        ? normalizeAngleDeg(rawEstimateYawDeg)
+        : chooseYawHypothesis(rawEstimateYawDeg, previous, estimate, hasPrevious)
     : previous.yawDeg;
   const unwrappedObservedYaw = reliableEstimate
     ? unwrapAngleDeg(observedYaw, previous.unwrappedYawDeg)
@@ -146,7 +154,9 @@ function updateFacingState(previousFacing, estimate, options = {}) {
     Math.abs(observedSideOrderSign) === 1 &&
     previous.sideOrderSign !== observedSideOrderSign;
   const rawYawJump = !useRecoveryHypothesis && Math.abs(rawYawDeltaDeg) > unreliableYawJumpDeg;
-  const unstableYawCandidate = hasPrevious && reliableEstimate && !useRecoveryHypothesis && (rawYawJump || sideOrderFlip);
+  const unstableYawCandidate = hasPrevious && reliableEstimate && !useRecoveryHypothesis && (
+    rawYawJump || (!lockYawHypothesis && sideOrderFlip)
+  );
   const previousUnstableCandidate = optionalNumber(previous.unstableYawCandidateDeg);
   const unstableCandidateMatches = unstableYawCandidate &&
     Number.isFinite(previousUnstableCandidate) &&
@@ -174,7 +184,7 @@ function updateFacingState(previousFacing, estimate, options = {}) {
   const initialState = hasPrevious ? previous.state : candidateState;
   const sideOrderSign = holdYawUnreliable ? previous.sideOrderSign : observedSideOrderSign;
   const sideOrderConfidence = observedSideOrderConfidence;
-  const effectiveMinTransitionFrames = sideOrderFlip
+  const effectiveMinTransitionFrames = !lockYawHypothesis && sideOrderFlip
     ? Math.max(minTransitionFrames, DEFAULT_TRANSITION_FRAMES + 1)
     : minTransitionFrames;
   const candidateFrames = candidateState === previous.state
@@ -210,7 +220,6 @@ function updateFacingState(previousFacing, estimate, options = {}) {
     unwrappedYawDeg,
     useRecoveryHypothesis,
   });
-
   return {
     state,
     legacyState: toLegacyFacing(state),
@@ -221,6 +230,7 @@ function updateFacingState(previousFacing, estimate, options = {}) {
     limitedYawDeltaDeg: round(limitedYawDeltaDeg, 3),
     rawYawJump,
     yawFlipCount: previous.yawFlipCount + (rawYawJump ? 1 : 0),
+    yawHypothesisLocked: lockYawHypothesis,
     sideOrderSign,
     sideOrderConfidence: round(sideOrderConfidence, 3),
     sideOrderFlip,
@@ -264,6 +274,7 @@ function normalizeFacingState(value) {
       limitedYawDeltaDeg: Number.isFinite(Number(value.limitedYawDeltaDeg)) ? Number(value.limitedYawDeltaDeg) : 0,
       rawYawJump: Boolean(value.rawYawJump),
       yawFlipCount: Math.max(0, Math.trunc(Number(value.yawFlipCount ?? 0))),
+      yawHypothesisLocked: Boolean(value.yawHypothesisLocked),
       sideOrderSign: Number.isFinite(Number(value.sideOrderSign)) ? Math.sign(Number(value.sideOrderSign)) : 0,
       sideOrderConfidence: Number.isFinite(Number(value.sideOrderConfidence)) ? Number(value.sideOrderConfidence) : 0,
       sideOrderFlip: Boolean(value.sideOrderFlip),
@@ -304,6 +315,7 @@ function normalizeFacingState(value) {
     limitedYawDeltaDeg: 0,
     rawYawJump: false,
     yawFlipCount: 0,
+    yawHypothesisLocked: false,
     sideOrderSign: 0,
     sideOrderConfidence: 0,
     sideOrderFlip: false,

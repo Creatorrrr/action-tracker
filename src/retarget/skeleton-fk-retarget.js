@@ -25,7 +25,7 @@ function normalizeAvatarRetargetMode(value, fallback = RETARGET_MODE_STRICT) {
   return RETARGET_MODE_ALIASES[normalized] ?? fallback;
 }
 
-function buildStrictRetargetFrame({ points = {}, solvedPose = null, previousState = {}, rigBasis = {}, yawSign = -1 } = {}) {
+function buildStrictRetargetFrame({ points = {}, solvedPose = null, previousState = {}, yawSign = -1 } = {}) {
   const root = buildRootFrame(points, solvedPose, previousState, yawSign);
   const bones = {};
   const targets = Array.isArray(solvedPose?.targets) ? solvedPose.targets : [];
@@ -38,11 +38,6 @@ function buildStrictRetargetFrame({ points = {}, solvedPose = null, previousStat
       continue;
     }
 
-    const rig = rigBasis?.bones?.[target.bone] ?? rigBasis?.[target.bone] ?? {};
-    const restAxis = normalizeVector(arrayOrVector(rig.restAxis ?? rig.axisLocal));
-    const localRotation = restAxis
-      ? quaternionFromUnitVectors(restAxis, sourceDirection)
-      : null;
     const confidence = clamp01(Number(target.confidence ?? 1));
 
     if (confidence < 0.5) {
@@ -56,7 +51,13 @@ function buildStrictRetargetFrame({ points = {}, solvedPose = null, previousStat
       to: target.to ?? null,
       confidence,
       sourceDirection,
-      localRotation,
+      // This frame is built before the renderer has the bone's current parent
+      // world rotation. A world target cannot be compared directly with a rig
+      // local rest axis, so the absolute local quaternion is deliberately
+      // deferred to the rig-local solver at application time.
+      localRotation: null,
+      localRotationDeferred: true,
+      localRotationDeferredReason: "requires-current-parent-world-rotation",
       usedTorsoLocalDirection: false,
       occlusionState: target.occlusionState ?? "tracking",
       anatomy: target.anatomy ?? null,
@@ -213,71 +214,6 @@ function estimateYawFromBodyFrame(points) {
   }
 
   return radToDeg(Math.atan2(lateral.z, lateral.x));
-}
-
-function quaternionFromUnitVectors(from, to) {
-  const source = normalizeVector(from);
-  const target = normalizeVector(to);
-
-  if (!source || !target) {
-    return null;
-  }
-
-  const dot = clamp(dotVectors(source, target), -1, 1);
-
-  if (dot < -0.999999) {
-    const axis = chooseOrthogonalAxis(source);
-    return quaternionFromAxisAngle(axis, Math.PI);
-  }
-
-  const cross = crossVectors(source, target);
-  const quaternion = {
-    x: cross.x,
-    y: cross.y,
-    z: cross.z,
-    w: 1 + dot,
-  };
-
-  return normalizeQuaternion(quaternion);
-}
-
-function quaternionFromAxisAngle(axis, angle) {
-  const normalizedAxis = normalizeVector(axis);
-
-  if (!normalizedAxis) {
-    return { x: 0, y: 0, z: 0, w: 1 };
-  }
-
-  const half = angle / 2;
-  const scale = Math.sin(half);
-  return {
-    x: normalizedAxis.x * scale,
-    y: normalizedAxis.y * scale,
-    z: normalizedAxis.z * scale,
-    w: Math.cos(half),
-  };
-}
-
-function normalizeQuaternion(quaternion) {
-  const length = Math.hypot(quaternion.x, quaternion.y, quaternion.z, quaternion.w);
-
-  if (!Number.isFinite(length) || length < MIN_VECTOR_LENGTH) {
-    return { x: 0, y: 0, z: 0, w: 1 };
-  }
-
-  return {
-    x: quaternion.x / length,
-    y: quaternion.y / length,
-    z: quaternion.z / length,
-    w: quaternion.w / length,
-  };
-}
-
-function chooseOrthogonalAxis(vector) {
-  const reference = Math.abs(vector.x) < 0.9
-    ? { x: 1, y: 0, z: 0 }
-    : { x: 0, y: 1, z: 0 };
-  return normalizeVector(crossVectors(vector, reference));
 }
 
 function summarizeValues(values) {

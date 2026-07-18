@@ -1,0 +1,590 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schemaVersion": 3,
+  "contractId": "sam_goal.evaluation_contract@v3",
+  "interfaceVersion": 3,
+  "canonicalization": {
+    "profile": "sorted-json-utf8-root-exclusion-v2",
+    "hashAlgorithm": "sha256",
+    "orderSensitiveArrays": true,
+    "excludedRootKeys": [
+      "expectedCanonicalHash"
+    ],
+    "wallClockKeysForbidden": [
+      "generatedAt",
+      "auditedAt",
+      "elapsedMs",
+      "reviewedAt"
+    ]
+  },
+  "labelSchema": {
+    "path": "tests/fixtures/sam-goal-v2/evaluation-v3/label-schema.json",
+    "canonicalSha256": "afe645d7c062e3644db96cea20b2f6724892077f1993de829a28deeb38d138f8"
+  },
+  "sourceBinding": {
+    "sourceContract": {
+      "path": "tests/fixtures/sam-goal-v2/source-contract.json",
+      "canonicalSha256": "39b8e1742f9be749dc34e1130b4395bb993a922374ac687b4fdd0f296be09873"
+    },
+    "sourceSchema": {
+      "path": "tests/fixtures/sam-goal-v2/source-schema.json",
+      "canonicalSha256": "ffc7bd71da31c07781b65e9579ed29e9b47cd3b2229b39c7b4df8e841e6a9244"
+    },
+    "sourceInventory": {
+      "path": "tests/fixtures/sam-goal-v2/labels/source-inventory.json",
+      "canonicalSha256": "64ea4c592e4a35f8c7483e33824ef2755cd1c35af77e0f631e9b9ad7f3243d8d"
+    },
+    "decoderManifest": {
+      "path": "tests/fixtures/sam-goal-v2/labels/decoder-manifest.jsonl",
+      "rowCount": 6711,
+      "byteSha256": "d300ac13f9386293f8f1abe746bb64a3ac99f7bd942813286b550375e201cb79",
+      "canonicalRowsSha256": "dde8d9e02fa82341986e535ccf378d4ad555aefaf88d0a27531187db1afecd4d"
+    },
+    "paired": [
+      {
+        "clipId": "arms-crossed",
+        "startPtsTicks": "512",
+        "endPtsTicksExclusive": "197633",
+        "rows": 386
+      },
+      {
+        "clipId": "csi-pose",
+        "startPtsTicks": "0",
+        "endPtsTicksExclusive": "1458177",
+        "rows": 2849
+      },
+      {
+        "clipId": "dance-16x9-padded",
+        "startPtsTicks": "0",
+        "endPtsTicksExclusive": "644759",
+        "rows": 359
+      },
+      {
+        "clipId": "jujae-regression-0-16_5",
+        "startPtsTicks": "0",
+        "endPtsTicksExclusive": "989990",
+        "rows": 990
+      },
+      {
+        "clipId": "shorts-keGbIts0CA0-16x9-padded",
+        "startPtsTicks": "0",
+        "endPtsTicksExclusive": "316417",
+        "rows": 1237
+      },
+      {
+        "clipId": "shorts-new-dance-E9_h_ZW5z0U-16x9-padded",
+        "startPtsTicks": "0",
+        "endPtsTicksExclusive": "224257",
+        "rows": 439
+      },
+      {
+        "clipId": "shorts-vc0GDveRIp0-16x9-padded",
+        "startPtsTicks": "0",
+        "endPtsTicksExclusive": "230401",
+        "rows": 451
+      }
+    ],
+    "unpaired": {
+      "clipId": "jujae-full",
+      "decodedFrameCount": 2189,
+      "pairedDecoderRows": 0
+    }
+  },
+  "clipInventory": [
+    {
+      "clipId": "arms-crossed",
+      "role": "hard_test",
+      "sourceGroup": "arms-crossed-source",
+      "teacher": "sam-3d-body-skeletons/arms-crossed"
+    },
+    {
+      "clipId": "csi-pose",
+      "role": "hard_test",
+      "sourceGroup": "csi-pose-source",
+      "teacher": "sam-3d-body-skeletons/csi-pose"
+    },
+    {
+      "clipId": "dance-16x9-padded",
+      "role": "validation",
+      "sourceGroup": "dance-16x9-padded-source",
+      "teacher": "sam-3d-body-skeletons/dance-16x9-padded"
+    },
+    {
+      "clipId": "jujae-regression-0-16_5",
+      "role": "hard_test",
+      "sourceGroup": "jujae-source",
+      "teacher": "sam-3d-body-skeletons/jujae-regression-0-16_5"
+    },
+    {
+      "clipId": "shorts-keGbIts0CA0-16x9-padded",
+      "role": "train_candidate",
+      "sourceGroup": "shorts-keGbIts0CA0-source",
+      "teacher": "sam-3d-body-skeletons/shorts-keGbIts0CA0-16x9-padded"
+    },
+    {
+      "clipId": "shorts-new-dance-E9_h_ZW5z0U-16x9-padded",
+      "role": "train_candidate",
+      "sourceGroup": "shorts-new-dance-E9_h_ZW5z0U-source",
+      "teacher": "sam-3d-body-skeletons/shorts-new-dance-E9_h_ZW5z0U-16x9-padded"
+    },
+    {
+      "clipId": "shorts-vc0GDveRIp0-16x9-padded",
+      "role": "train_candidate",
+      "sourceGroup": "shorts-vc0GDveRIp0-source",
+      "teacher": "sam-3d-body-skeletons/shorts-vc0GDveRIp0-16x9-padded"
+    }
+  ],
+  "unpairedInventory": [
+    {
+      "clipId": "jujae-full",
+      "role": "unpaired_final",
+      "sourceGroup": "jujae-source",
+      "teacher": null,
+      "allowedUses": [
+        "unpaired_runtime_only"
+      ]
+    }
+  ],
+  "splitPolicy": {
+    "isolationUnits": [
+      "clipId",
+      "sourceAssetSha256",
+      "sourceGroup",
+      "sessionId",
+      "personId"
+    ],
+    "parameterSelectionRoles": [
+      "train_candidate",
+      "validation"
+    ],
+    "protectedRoles": [
+      "hard_test",
+      "unpaired_final"
+    ],
+    "hardTestMayTune": false,
+    "unpairedMayTrainTuneOrScore": false,
+    "allowedProtectedAliasSourceGroups": [
+      "jujae-source"
+    ]
+  },
+  "timeIdentity": {
+    "key": [
+      "clipId",
+      "sourceFrameIndex",
+      "ptsTicks",
+      "timeBaseNumerator",
+      "timeBaseDenominator",
+      "loopEpoch"
+    ],
+    "ptsEncoding": "base10-nonnegative-integer-string",
+    "intervalConvention": "start-inclusive-end-exclusive",
+    "fpsRoundingAllowed": false,
+    "duplicateIdentityAllowed": false
+  },
+  "manualWindows": {
+    "basePurposeTag": "full_clip_denominator",
+    "baseWindowCount": 7,
+    "requiredUnionRows": 6711,
+    "perClipStructuralCoverage": 1,
+    "boundaryDomain": "decoder_pts_or_terminal_plus_one_tick",
+    "overlaysMayChangeDenominator": false,
+    "compilerSplitsAtEveryMembershipBoundary": true,
+    "purposeTags": [
+      "full_clip_denominator",
+      "absence_reacquire",
+      "self_occlusion",
+      "fast_motion",
+      "contact_transition",
+      "multi_person",
+      "crop_out_of_frame",
+      "duplicate_detection",
+      "turning",
+      "hand_observability"
+    ]
+  },
+  "scenarioTaxonomy": [
+    "neutral",
+    "entry_exit",
+    "reacquire",
+    "arms_crossed",
+    "self_occlusion",
+    "side_view",
+    "back_view",
+    "fast_motion",
+    "jump",
+    "footwork",
+    "turn",
+    "leg_extension",
+    "distance_change",
+    "partial_body_crop",
+    "multi_person_background",
+    "duplicate_detection_challenge",
+    "hand_closeup",
+    "full_body_dance",
+    "upper_body_only"
+  ],
+  "manualSubjectSelection": {
+    "artifact": "manual-subject-selection.jsonl",
+    "rowKinds": [
+      "frame",
+      "interval"
+    ],
+    "states": [
+      "selected",
+      "absent",
+      "ambiguous",
+      "unknown"
+    ],
+    "selectedRequiresStableManualTargetId": true,
+    "multiplePeopleSelectedRequiresNormalizedAnchor": true,
+    "anchorEvidence": "manual_video",
+    "personStateIsPhysicalPeopleState": true,
+    "samCandidateCountMaySetPersonState": false
+  },
+  "semanticTruthRules": [
+    "absent_requires_absent_subject_unknown_contacts_unobservable_hands_endpoints",
+    "known_contact_requires_present_and_observable_corresponding_foot",
+    "observable_hand_requires_observable_or_partial_hand_and_observable_wrist",
+    "observable_endpoint_forbidden_for_occluded_out_of_frame_or_unknown_part",
+    "multiple_people_requires_selected_with_anchor_or_ambiguous_subject",
+    "single_target_requires_selected_subject",
+    "one_manual_and_subject_row_per_decoder_identity"
+  ],
+  "manualReview": {
+    "passes": [
+      "manual-review-pass1.jsonl",
+      "manual-review-pass2.jsonl"
+    ],
+    "adjudication": "manual-adjudication.jsonl",
+    "independentSubjectFields": [
+      "subjectSelection.state",
+      "subjectSelection.manualTargetId",
+      "subjectSelection.anchor"
+    ],
+    "subjectReviewRule": "both complete pre-adjudication passes independently record subject state, stable manual target ID, and normalized anchor on every exact decoder identity; every subject disagreement is explicitly adjudicated and the agreed/adjudicated result must equal manual-subject-selection",
+    "subjectFieldsExcludedFromKappaButNotFromReview": true,
+    "distinctReviewerHashes": true,
+    "completeRowsPerPass": 6711,
+    "adjudicateAllDisagreements": true,
+    "doubleReviewEventTypes": [
+      "presence_transition",
+      "subject_transition",
+      "contact_transition",
+      "observability_transition"
+    ],
+    "agreement": {
+      "statistic": "unweighted_cohen_kappa",
+      "unknownIncluded": true,
+      "missingRowsHardFailure": true,
+      "presencePersonState": "joint_tuple_per_clip_macro_7",
+      "contact": "class_per_clip_per_foot_macro_14",
+      "observability": "field_per_clip_macro",
+      "zeroVariance": "one_if_identical_constants_else_zero",
+      "adjudicatedRowsForbiddenAsPassInput": true,
+      "minimum": {
+        "presencePersonStateKappa": 0.99,
+        "contactKappa": 0.9,
+        "observabilityKappa": 0.95
+      }
+    },
+    "automatedCandidateMayClaimReviewedOrAdjudicated": false,
+    "scenarioArraysRequiredOnReviewAndAdjudication": true,
+    "scenarioOnlyDisagreementRequiresAdjudication": true
+  },
+  "contactPolicy": {
+    "classes": [
+      "planted",
+      "moving",
+      "unknown"
+    ],
+    "preMaskMinimumObservableKnownFramesPerFootAndClass": 300,
+    "preMaskSupportMinimumClips": 2,
+    "postMaskMinimumTeacherValidFramesPerFootAndClass": 100,
+    "unknownOrOutOfFrameExcludedButReported": true,
+    "supportFailureMayChangeManualDenominator": false,
+    "stablePlantConfirmationMs": 100,
+    "confirmationInterval": "inclusive first-to-last exact decoder sample delta",
+    "confirmationArithmetic": "BigInt deltaTicks*timeBase.numerator*1000 >= 100*timeBase.denominator",
+    "gapInheritance": false,
+    "postGapRequiresFreshConfirmation": true,
+    "preMaskMinimumObservableHeadFrames": 300,
+    "postMaskMinimumTeacherValidHeadFrames": 100,
+    "preMaskMinimumObservableHandFramesPerSide": 300,
+    "postMaskMinimumTeacherValidHandFramesPerSide": 100,
+    "headAndHandMinimumClips": 2
+  },
+  "reacquirePolicy": {
+    "minimumP0CandidateEvents": 3,
+    "minimumHardTestClips": 2,
+    "minimumUnreliableIntervalMs": 200,
+    "intervalConvention": "start_inclusive_end_exclusive",
+    "statePredicates": {
+      "absent": "manual presence=absent and subjectSelection=absent",
+      "unreliable": "manual presence=unknown, or subjectSelection is ambiguous/unknown, or occlusion.body is occluded/out_of_frame/unknown",
+      "reliable": "manual presence=present, subjectSelection=selected, and occlusion.body is observable/partial"
+    },
+    "p0CandidateMaterialization": "a maximal contiguous interval [startPts,endPts) in which every exact decoder identity satisfies absent or unreliable, lasting at least 200ms in exact rational PTS, followed by the first decoder identity at or after endPts satisfying reliable",
+    "deduplication": "one event per maximal qualifying interval; overlapping/nested intervals merge, adjacent intervals merge when no present decoder identity lies between them, and each start identity is unique",
+    "maximalIntervalsOnly": true,
+    "uniqueStartIdentity": true,
+    "p1Start": "first_teacher_valid_present_identity_at_or_after_candidate_end",
+    "latencyEnd": "first_three_consecutive_processed_presence_true_and_major_bone_error_lte_30deg"
+  },
+  "teacherValidity": {
+    "ruleId": "sam_goal.teacher_valid@v3",
+    "policyCanonicalSha256": "e92f68b231dec9bfd8be218b734a423783937010a73f534acf585c4c6c264b3f",
+    "nativeJointConfidenceAbsentInCurrentTeacher": true,
+    "neverImputeNativeJointConfidence": true,
+    "detectorScoreMustNotBecomeJointConfidence": true,
+    "rawTargetRole": "hard",
+    "refinedTargetRole": "watch",
+    "refinedMayReplaceHardGate": false,
+    "scopeNames": [
+      "torsoFacing",
+      "fullBody",
+      "head",
+      "leftArm",
+      "rightArm",
+      "leftHand",
+      "rightHand",
+      "leftLeg",
+      "rightLeg",
+      "calibration",
+      "leftContact",
+      "rightContact"
+    ],
+    "scopeReasonsDerivedByAuditor": true,
+    "producerGeometryFlagsTrusted": false,
+    "contactInheritsFullBody": true,
+    "unrelatedScopeContaminationForbidden": true,
+    "temporalPredecessor": "most recent earlier detector_hit successfully-selected same manualTargetId",
+    "nonHitBreaksCadence": true
+  },
+  "phaseLocks": {
+    "p0CandidatePhase": "p0-candidate",
+    "p0VerifiedPhase": "p0",
+    "p1CandidatePhase": "p1-candidate",
+    "p1VerifiedPhase": "p1",
+    "candidateOnlyMayClaimFrozenOrVerified": false,
+    "verifiedP0RequiresExternalAnchorPath": true,
+    "verifiedP1RequiresExternalAnchorPath": true,
+    "p0RequiredCliFlags": [
+      "--label-dir",
+      "--phase",
+      "--p0-anchor",
+      "--expected-p0-anchor-sha256",
+      "--review-a",
+      "--review-b",
+      "--adjudication"
+    ],
+    "p1RequiredCliFlags": [
+      "--label-dir",
+      "--phase",
+      "--p0-anchor",
+      "--expected-p0-anchor-sha256",
+      "--p1-anchor",
+      "--expected-p1-anchor-sha256"
+    ],
+    "p1RejectsSealedInputFlagsBeforeFilesystemAccess": true,
+    "p1ReopensSealedInputs": false,
+    "p0AnchorReadCountPerAudit": 1,
+    "cliRelativePathBase": "process.cwd",
+    "sealedInputs": {
+      "reviewA": {
+        "role": "first",
+        "logicalPath": "sealed/review-a.json"
+      },
+      "reviewB": {
+        "role": "second",
+        "logicalPath": "sealed/review-b.json"
+      },
+      "adjudication": {
+        "role": "adjudication",
+        "logicalPath": "sealed/adjudication.json"
+      },
+      "logicalPathsAreFilesystemResolved": false,
+      "callerPathsPersisted": false,
+      "sameBufferRoleActorAndHashValidation": true
+    },
+    "independentlySuppliedExpectedAnchorCanonicalHash": true,
+    "p1Parent": "external_p0_anchor_canonical_hash",
+    "candidatePackHashAsParentForbidden": true,
+    "p0Artifacts": [
+      "evaluationContract",
+      "labelSchema",
+      "authoringSchema",
+      "teacherInputInventory",
+      "teacherPolicy",
+      "teacherSchema",
+      "p0AnchorSchema",
+      "p1AnchorSchema",
+      "sourceInventory",
+      "decoderManifest",
+      "manualWindows",
+      "manualLabels",
+      "manualSubjectSelection",
+      "manualReviewPassA",
+      "manualReviewPassB",
+      "manualAdjudication",
+      "manualPolicy",
+      "manualSummary",
+      "manualCompiler",
+      "labelAuditor"
+    ],
+    "p0CompiledArtifacts": [
+      "evaluation-pack.json",
+      "manual-windows.json",
+      "manual-labels.jsonl",
+      "manual-subject-selection.jsonl",
+      "manual-review-pass1.jsonl",
+      "manual-review-pass2.jsonl",
+      "manual-adjudication.jsonl",
+      "manual-policy.json",
+      "manual-summary.json"
+    ],
+    "p1Artifacts": [
+      "p0Pack",
+      "externalP0Anchor",
+      "evaluationContract",
+      "labelSchema",
+      "teacherInputInventory",
+      "teacherPolicy",
+      "teacherSchema",
+      "p0AnchorSchema",
+      "p1AnchorSchema",
+      "sourceInventory",
+      "decoderManifest",
+      "teacherSourceManifest",
+      "teacherDataset",
+      "teacherRefined",
+      "teacherMask",
+      "teacherSummary",
+      "teacherMaterializer",
+      "labelAuditor"
+    ],
+    "p1CompiledArtifacts": [
+      "evaluation-pack-p1.json",
+      "evaluation-lock-p1.json",
+      "teacher-source-manifest.json",
+      "teacher-dataset-v2.jsonl",
+      "teacher-refined.jsonl",
+      "teacher-mask-v2.jsonl",
+      "teacher-summary.json"
+    ],
+    "p1PackMustExclude": [
+      "evaluation-lock-p1.json",
+      "external-p1-anchor.json"
+    ],
+    "canonicalHashExclusion": "root expectedCanonicalHash only",
+    "descriptorPathPolicy": "ordinary descriptors use unique normalized relative POSIX paths; external anchors and sealed inputs use fixed role-specific logicalPath values that are durable identity only and are never filesystem-resolved",
+    "externalAnchorPolicy": "cwd-relative or absolute actual paths; ancestor/final/fd identity agreement; regular nonsymlink st_nlink=1; realpath outside pack; device+inode distinct; exactly one no-follow Buffer read with unchanged fstat and post-read ancestor/final revalidation",
+    "p1InheritedDescriptorPolicy": "every inherited descriptor is deep-equal including canonicalSha256 and byteSha256 and reuses the already verified P0 Buffer snapshot without reopening",
+    "p1NewSnapshots": [
+      "teacherSourceManifest",
+      "teacherDataset",
+      "teacherRefined",
+      "teacherMask",
+      "teacherSummary",
+      "teacherMaterializer"
+    ]
+  },
+  "artifacts": {
+    "packManifest": "evaluation-pack.json",
+    "p1PackManifest": "evaluation-pack-p1.json",
+    "manualWindows": "manual-windows.json",
+    "manualLabels": "manual-labels.jsonl",
+    "manualSubjectSelection": "manual-subject-selection.jsonl",
+    "manualReviewPass1": "manual-review-pass1.jsonl",
+    "manualReviewPass2": "manual-review-pass2.jsonl",
+    "manualAdjudication": "manual-adjudication.jsonl",
+    "manualPolicy": "manual-policy.json",
+    "manualSummary": "manual-summary.json",
+    "teacherSourceManifest": "teacher-source-manifest.json",
+    "teacherDataset": "teacher-dataset-v2.jsonl",
+    "teacherRefined": "teacher-refined.jsonl",
+    "teacherMask": "teacher-mask-v2.jsonl",
+    "teacherSummary": "teacher-summary.json",
+    "p1Lock": "evaluation-lock-p1.json"
+  },
+  "forbiddenDurableFamilies": [
+    "live",
+    "student",
+    "avatar",
+    "trackerOutput",
+    "retargetOutput",
+    "solverOutput",
+    "modelOutput",
+    "liveError",
+    "studentError",
+    "residual",
+    "mpjpe",
+    "angleError",
+    "quaternionError",
+    "endpointError",
+    "agreementToLive",
+    "latency",
+    "renderFps",
+    "dropRate",
+    "queueDepth",
+    "reportPath",
+    "studentModelHash"
+  ],
+  "supersedes": {
+    "contractId": "sam_goal.evaluation_contract@v2",
+    "canonicalSha256": "7a7f26a4734d0c971ecc2bef542dd05da11d67134478a2db286e1cd242bb5897",
+    "compatibility": "historical_read_only"
+  },
+  "teacherBindings": {
+    "teacherInputInventory": {
+      "path": "tests/fixtures/sam-goal-v2/evaluation-v3/teacher-input-inventory.json",
+      "canonicalSha256": "50756ed7c4d461632cea1c96a12fc53910b1112ebc15b92e2f514733e4830f04"
+    },
+    "teacherPolicy": {
+      "path": "tests/fixtures/sam-goal-v2/evaluation-v3/teacher-policy.json",
+      "canonicalSha256": "d38b9583cd5b9d9cd57d947866c1f5140e880f93095024b54c613fc3d8c804d7"
+    },
+    "teacherSchema": {
+      "path": "tests/fixtures/sam-goal-v2/evaluation-v3/teacher-schema.json",
+      "canonicalSha256": "167e92cc6a499cf57a6d10d5d0b3df4d22c8a76fae662927a46b0ade61208035"
+    },
+    "p0AnchorSchema": {
+      "path": "tests/fixtures/sam-goal-v2/evaluation-v3/p0-lock-anchor-v2-schema.json",
+      "canonicalSha256": "827ef909587e99b0ed991638f36a2abd5c3941aec807a671e8030ba6a961ff84"
+    },
+    "p1AnchorSchema": {
+      "path": "tests/fixtures/sam-goal-v2/evaluation-v3/p1-lock-anchor-schema.json",
+      "canonicalSha256": "c709738e7214824b29985501ab7291be0919345aae69eb46d9e1ade9d316045c"
+    }
+  },
+  "targetRole": "raw_hard_refined_watch",
+  "provenancePolicy": {
+    "components": [
+      "extractor_code",
+      "sam_checkpoint",
+      "mhr_asset",
+      "detector_weights"
+    ],
+    "availability": "unavailable",
+    "sha256": null,
+    "reason": "artifact_bytes_not_present_in_workspace",
+    "resultBytes": "verified_result_bytes",
+    "upstreamSubstitutionForbidden": true
+  },
+  "requiredDownstreamMigration": {
+    "module": "manual-pack-compiler@r3",
+    "requiredBeforeRealP0": true,
+    "historicalCompilerR2Compatible": false,
+    "historicalV2P0AnchorSchemaByteSha256": "5fb22bf90e604acff911799344b7993239a463b6a4af278404aae766f3e49d85",
+    "historicalV2P0AnchorSchemaModified": false,
+    "authoringSchemaPath": "tests/fixtures/sam-goal-v2/evaluation-v3/authoring-schema.json",
+    "compilerPath": "scripts/sam-goal-manual-pack-v3.mjs",
+    "requirements": [
+      "consume evaluation-v3 contract/schema/p0-anchor-v2",
+      "bind teacher inventory/policy/schema/anchor and tool bytes",
+      "emit scenarios in review and adjudication rows",
+      "rerun r2 and migration attacks"
+    ]
+  },
+  "realP0GenerationBlockedUntil": "manual-pack-compiler@r3 accepted",
+  "expectedCanonicalHash": "5307a5d4e2c56e652b7a417713e1b0ebff5dabf712e591eefa94737e7318b1bd"
+}

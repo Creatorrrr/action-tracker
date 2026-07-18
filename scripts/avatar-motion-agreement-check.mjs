@@ -11,6 +11,7 @@ const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 const defaults = {
   video: "output/test-videos/dance-16x9-padded.mp4",
   output: "output/reports/avatar-motion-agreement-latest.json",
+  browserMode: "headless",
   warmupPoseFrames: 120,
   minPoseFrames: 240,
   timeoutMs: 240_000,
@@ -35,6 +36,7 @@ async function main() {
   const videos = resolveVideoInputs(args);
   const outputPath = args.output === "" ? null : path.resolve(projectRoot, args.output ?? defaults.output);
   const labelSet = await loadLabelSet(args.labels);
+  const referenceRecording = await loadReferenceRecording(args.referenceRecording);
   const models = args.onlyModels
     ? args.models
     : args.models.length > 0
@@ -46,7 +48,14 @@ async function main() {
   await assertInputFiles(videos, models);
 
   const staticServer = await startStaticServer(projectRoot);
-  const chrome = await startChrome();
+  let chrome;
+
+  try {
+    chrome = await startChrome(args.browserMode);
+  } catch (error) {
+    await staticServer.close();
+    throw error;
+  }
   const baseAppUrl = buildAppUrl(staticServer.port, args);
 
   try {
@@ -74,6 +83,9 @@ async function main() {
           measurementOnly: Boolean(args.measurementOnly),
           keyframeLabels,
           recordingOutputPath: resolveRecordingOutputPath(args, video, model, videos.length, models.length),
+          referenceRecording,
+          browserMode: chrome.browserMode,
+          browserProduct: chrome.browserVersion.product,
         });
         const resultWithVideo = {
           videoLabel: video.label,
@@ -128,6 +140,9 @@ async function main() {
         warmupPoseFrames: args.warmupPoseFrames ?? defaults.warmupPoseFrames,
         labels: labelSet?.relativePath ?? null,
         labelTarget: defaults.labelTarget,
+        browserMode: chrome.browserMode,
+        browserProduct: chrome.browserVersion.product,
+        referenceRecording: referenceRecording?.relativePath ?? null,
       },
       warnings,
       failures,
@@ -208,6 +223,10 @@ function parseArgs(rawArgs) {
       parsed.labels = rawArgs[++index];
     } else if (arg === "--recording-output") {
       parsed.recordingOutput = rawArgs[++index] ?? "";
+    } else if (arg === "--browser-mode") {
+      parsed.browserMode = readRequiredOptionValue(rawArgs, ++index, arg);
+    } else if (arg === "--reference-recording") {
+      parsed.referenceRecording = readRequiredOptionValue(rawArgs, ++index, arg);
     } else if (arg === "--model") {
       parsed.models.push(parseModelArg(rawArgs[++index]));
     } else if (arg === "--only-models") {
@@ -220,7 +239,28 @@ function parseArgs(rawArgs) {
     }
   }
 
+  parsed.browserMode = normalizeBrowserMode(parsed.browserMode);
   return parsed;
+}
+
+function readRequiredOptionValue(rawArgs, index, optionName) {
+  const value = rawArgs[index];
+
+  if (typeof value !== "string" || value.trim() === "" || value.startsWith("--")) {
+    throw new Error(`Missing value after ${optionName}`);
+  }
+
+  return value;
+}
+
+function normalizeBrowserMode(value) {
+  const normalized = String(value ?? defaults.browserMode).trim().toLowerCase();
+
+  if (normalized !== "headless" && normalized !== "headful") {
+    throw new Error(`Unsupported browser mode: ${value}. Expected headless or headful.`);
+  }
+
+  return normalized;
 }
 
 function resolveVideoInputs(args) {
@@ -337,6 +377,8 @@ Options:
   --avatar-retarget <mode>   Set ?avatar-retarget=legacy|strict.
   --labels <path>            Keyframe label JSON with videoPath/time/expected root-facing labels.
   --recording-output <path>  Save the captured tracker motion recording JSONL.
+  --reference-recording <p>  Replay a teacher MotionRecording on the same loaded rig and save referenceAvatarBody.
+  --browser-mode <mode>      Chrome mode: headless|headful. Default: ${defaults.browserMode}.
   --measurement-only         Keep readiness checks but skip numeric pass/fail gates.
 `);
 }
@@ -353,6 +395,31 @@ async function loadLabelSet(labelPath) {
     absolutePath,
     relativePath: path.relative(projectRoot, absolutePath),
     keyframes: normalizeKeyframeLabels(parsed),
+  };
+}
+
+async function loadReferenceRecording(recordingPath) {
+  if (!recordingPath) {
+    return null;
+  }
+
+  const absolutePath = path.resolve(projectRoot, recordingPath);
+  const fileStat = await stat(absolutePath);
+
+  if (!fileStat.isFile()) {
+    throw new Error(`Reference recording is not a file: ${absolutePath}`);
+  }
+
+  const jsonl = await readFile(absolutePath, "utf8");
+
+  if (!jsonl.trim()) {
+    throw new Error(`Reference recording is empty: ${absolutePath}`);
+  }
+
+  return {
+    absolutePath,
+    relativePath: path.relative(projectRoot, absolutePath),
+    jsonl,
   };
 }
 
@@ -509,53 +576,126 @@ function contentType(filePath) {
   }[ext] ?? "application/octet-stream";
 }
 
-async function startChrome() {
+async function startChrome(browserMode = defaults.browserMode) {
+  const normalizedBrowserMode = normalizeBrowserMode(browserMode);
+  const chromePath = resolveChromePath(normalizedBrowserMode);
+
+  if (!existsSync(chromePath)) {
+    throw new Error(`Chrome executable does not exist: ${chromePath}`);
+  }
+
   const debugPort = await getFreePort();
   const userDataDir = await mkdtemp(path.join(tmpdir(), "action-tracker-chrome-"));
-  const chromePath = resolveChromePath();
-  const chromeProcess = spawn(chromePath, [
-    "--headless=new",
+
+  const launchArgs = [
+    ...(normalizedBrowserMode === "headless" ? ["--headless=new"] : []),
     "--disable-background-networking",
+    "--disable-background-timer-throttling",
+    "--disable-backgrounding-occluded-windows",
     "--disable-default-apps",
     "--disable-dev-shm-usage",
     "--disable-extensions",
     "--disable-popup-blocking",
+    "--disable-renderer-backgrounding",
     "--disable-setuid-sandbox",
     "--mute-audio",
     "--no-sandbox",
     "--no-first-run",
     "--autoplay-policy=no-user-gesture-required",
-    "--enable-unsafe-swiftshader",
+    ...(normalizedBrowserMode === "headless" ? ["--enable-unsafe-swiftshader"] : []),
     "--enable-webgl",
     "--ignore-gpu-blocklist",
-    "--use-gl=swiftshader",
+    ...(normalizedBrowserMode === "headless" ? ["--use-gl=swiftshader"] : []),
     `--remote-debugging-port=${debugPort}`,
     `--user-data-dir=${userDataDir}`,
     "about:blank",
-  ], {
+  ];
+  const chromeProcess = spawn(chromePath, launchArgs, {
     stdio: ["ignore", "ignore", "pipe"],
   });
 
   let stderr = "";
+  let launchError = null;
   chromeProcess.stderr.on("data", (chunk) => {
     stderr += chunk.toString();
   });
+  chromeProcess.once("error", (error) => {
+    launchError = error;
+  });
 
-  await waitForChrome(debugPort, chromeProcess, () => stderr);
+  try {
+    await waitForChrome(debugPort, chromeProcess, () => stderr, () => launchError);
+    const browserVersion = await readBrowserVersion(debugPort);
 
-  return {
-    debugPort,
-    close: async () => {
-      chromeProcess.kill("SIGTERM");
-      await onceExit(chromeProcess);
-      await rm(userDataDir, { recursive: true, force: true });
-    },
-  };
+    return {
+      debugPort,
+      browserMode: normalizedBrowserMode,
+      browserVersion,
+      close: async () => {
+        chromeProcess.kill("SIGTERM");
+        await onceExit(chromeProcess);
+        await removeTempUserDataDir(userDataDir);
+      },
+    };
+  } catch (error) {
+    chromeProcess.kill("SIGTERM");
+    await onceExit(chromeProcess);
+    await removeTempUserDataDir(userDataDir);
+    throw error;
+  }
 }
 
-function resolveChromePath() {
+async function removeTempUserDataDir(userDataDir) {
+  await rm(userDataDir, {
+    recursive: true,
+    force: true,
+    maxRetries: 8,
+    retryDelay: 100,
+  });
+}
+
+async function readBrowserVersion(debugPort) {
+  const response = await fetch(`http://127.0.0.1:${debugPort}/json/version`);
+
+  if (!response.ok) {
+    throw new Error(`Unable to read Chrome DevTools version target: ${response.status} ${response.statusText}`);
+  }
+
+  const target = await response.json();
+
+  if (!target.webSocketDebuggerUrl) {
+    throw new Error("Chrome DevTools version target did not return a browser websocket URL");
+  }
+
+  const client = new CdpClient(target.webSocketDebuggerUrl);
+  await client.open();
+
+  try {
+    const version = await client.send("Browser.getVersion");
+
+    if (typeof version.product !== "string" || !version.product.trim()) {
+      throw new Error("Browser.getVersion did not return a product");
+    }
+
+    return version;
+  } finally {
+    await client.close();
+  }
+}
+
+function resolveChromePath(browserMode = defaults.browserMode) {
   if (process.env.CHROME_PATH) {
     return process.env.CHROME_PATH;
+  }
+
+  if (normalizeBrowserMode(browserMode) === "headful") {
+    const systemChromePath = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+
+    if (!existsSync(systemChromePath)) {
+      throw new Error(`Headful browser mode requires CHROME_PATH or system Chrome at ${systemChromePath}`);
+    }
+
+    return systemChromePath;
   }
 
   const candidates = [
@@ -581,10 +721,14 @@ async function getFreePort() {
   return port;
 }
 
-async function waitForChrome(debugPort, chromeProcess, readStderr) {
+async function waitForChrome(debugPort, chromeProcess, readStderr, readLaunchError = () => null) {
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < 45_000) {
+    if (readLaunchError()) {
+      throw new Error(`Unable to launch Chrome: ${readLaunchError().message}`);
+    }
+
     if (chromeProcess.exitCode !== null) {
       throw new Error(`Chrome exited before DevTools became available: ${readStderr()}`);
     }
@@ -628,6 +772,9 @@ async function runModelCheck({
   measurementOnly,
   keyframeLabels = [],
   recordingOutputPath = "",
+  referenceRecording = null,
+  browserMode = defaults.browserMode,
+  browserProduct = "",
 }) {
   const page = await createPage(debugPort, appUrl);
   const client = new CdpClient(page.webSocketDebuggerUrl);
@@ -666,11 +813,21 @@ async function runModelCheck({
         }
       })()`);
     }
+    const initializationPoseFrames = Math.max(1, warmupPoseFrames);
     await waitForExpression(
       client,
-      `window.motionTrackerDebug?.getBodyValidationReport?.()?.framesWithPose >= ${warmupPoseFrames}`,
+      `window.motionTrackerDebug?.getBodyValidationProgress?.()?.framesWithPose >= ${initializationPoseFrames}`,
       timeoutMs,
     );
+    await seekVideoTime(client, 0);
+    await evaluate(client, `(() => {
+      const video = document.querySelector("#camera-video");
+      if (video) {
+        video.pause();
+        video.loop = false;
+        video.playbackRate = ${JSON.stringify(Number(playbackRate))};
+      }
+    })()`);
     await evaluate(client, "window.motionTrackerDebug?.clearAppPerformanceSamples?.()");
     await evaluate(client, "window.motionTrackerDebug?.clearAvatarPerformanceSamples?.()");
     await evaluate(client, "window.motionTrackerDebug?.clearBodyValidation?.()");
@@ -681,18 +838,20 @@ async function runModelCheck({
     }
     if (keyframeLabels.length > 0) {
       await collectKeyframeSamples(client, keyframeLabels, timeoutMs);
+    } else {
+      await evaluate(client, "document.querySelector(\"#camera-video\")?.play?.()");
     }
     const latestLabelTime = latestKeyframeLabelTime(keyframeLabels);
     const completionExpression = Number.isFinite(latestLabelTime)
       ? `(() => {
-        const report = window.motionTrackerDebug?.getBodyValidationReport?.();
-        const frames = report?.framesWithPose ?? 0;
-        const lastTime = window.motionTrackerDebug?.getLastBodyValidationSample?.()?.videoTime ?? 0;
+        const progress = window.motionTrackerDebug?.getBodyValidationProgress?.();
+        const frames = progress?.framesWithPose ?? 0;
+        const lastTime = progress?.lastVideoTime ?? 0;
         const video = document.querySelector("#camera-video");
         return frames >= ${minPoseFrames} || (frames > 0 && (lastTime >= ${latestLabelTime.toFixed(3)} || Boolean(video?.ended)));
       })()`
       : `(() => {
-        const frames = window.motionTrackerDebug?.getBodyValidationReport?.()?.framesWithPose ?? 0;
+        const frames = window.motionTrackerDebug?.getBodyValidationProgress?.()?.framesWithPose ?? 0;
         const video = document.querySelector("#camera-video");
         return frames >= ${minPoseFrames} || (frames > 0 && Boolean(video?.ended));
       })()`;
@@ -713,16 +872,19 @@ async function runModelCheck({
     }
 
     const recording = shouldRecordMotion
-      ? await evaluate(client, "window.motionTrackerDebug?.stopMotionRecording?.()")
+      ? await evaluate(
+        client,
+        "window.motionTrackerDebug?.stopMotionRecording?.({ returnRecording: false })",
+      )
       : null;
     const recordingJsonl = recording
-      ? await evaluate(client, "window.motionTrackerDebug?.getMotionRecordingJsonl?.()")
+      ? await readMotionRecordingJsonlWithoutBlockingTracker(client, recording)
       : "";
     if (recordingOutputPath && recordingJsonl) {
       await mkdir(path.dirname(recordingOutputPath), { recursive: true });
       await writeFile(recordingOutputPath, recordingJsonl);
     }
-    const payload = await evaluate(client, `(() => ({
+    const livePayload = await evaluate(client, `(() => ({
       avatarStatus: document.querySelector("#avatar-status")?.textContent ?? "",
       cameraStatus: document.querySelector("#camera-status")?.textContent ?? "",
       modelStatus: document.querySelector("#model-status")?.textContent ?? "",
@@ -739,6 +901,13 @@ async function runModelCheck({
     const labelValidation = keyframeLabels.length > 0
       ? buildKeyframeLabelValidation(model, keyframeLabels, bodySamples)
       : null;
+    const referenceAvatarBody = referenceRecording
+      ? await captureReferenceAvatarBody(client, referenceRecording, timeoutMs)
+      : null;
+    const payload = {
+      ...livePayload,
+      referenceAvatarBody,
+    };
     const recordingReplay = shouldCheckRecordingReplay && recording
       ? await runRecordingReplayCheck(client, recording, recordingJsonl, payload.body, minPoseFrames, timeoutMs)
       : null;
@@ -746,6 +915,8 @@ async function runModelCheck({
       measurementOnly,
       labelValidation,
       recordingReplay,
+      browserMode,
+      browserProduct,
     });
     if (measurementCompletionError) {
       summary.warnings.push(`${model.label}: measurement completion timed out; saved partial recording when available (${measurementCompletionError.message})`);
@@ -755,6 +926,9 @@ async function runModelCheck({
       label: model.label,
       modelPath: model.path,
       playbackRate,
+      browserMode,
+      browserProduct,
+      referenceRecordingPath: referenceRecording?.relativePath ?? null,
       ...summary,
       labelValidation,
       recordingReplay,
@@ -764,6 +938,67 @@ async function runModelCheck({
     await client.close();
     await closePage(debugPort, page.id);
   }
+}
+
+async function captureReferenceAvatarBody(client, referenceRecording, timeoutMs) {
+  const replayStart = await evaluate(client, `(() => {
+    const debug = window.motionTrackerDebug;
+    const requiredMethods = [
+      "stopMotionReplay",
+      "clearBodyValidation",
+      "clearAppPerformanceSamples",
+      "clearAvatarPerformanceSamples",
+      "loadMotionRecordingJsonl",
+      "getMotionReplayStatus",
+      "getBodyValidationReport"
+    ];
+
+    for (const method of requiredMethods) {
+      if (typeof debug?.[method] !== "function") {
+        throw new Error(\`Missing motionTrackerDebug.\${method}\`);
+      }
+    }
+
+    debug.stopMotionReplay();
+    debug.clearBodyValidation();
+    debug.clearAppPerformanceSamples();
+    debug.clearAvatarPerformanceSamples();
+    debug.loadMotionRecordingJsonl(${JSON.stringify(referenceRecording.jsonl)});
+    return debug.getMotionReplayStatus();
+  })()`);
+  const expectedFrameCount = Number(replayStart?.frameCount);
+
+  if (
+    replayStart?.active !== true ||
+    !Number.isInteger(expectedFrameCount) ||
+    expectedFrameCount < 1
+  ) {
+    throw new Error(`Reference recording did not start a non-empty replay: ${referenceRecording.relativePath}`);
+  }
+
+  await waitForExpression(
+    client,
+    `(() => {
+      const status = window.motionTrackerDebug?.getMotionReplayStatus?.();
+      return Boolean(status && !status.active);
+    })()`,
+    timeoutMs,
+  );
+
+  const result = await evaluate(client, `(() => ({
+    status: window.motionTrackerDebug?.getMotionReplayStatus?.(),
+    body: window.motionTrackerDebug?.getBodyValidationReport?.()
+  }))()`);
+
+  if (
+    result?.status?.active ||
+    (result?.body?.totalFrames ?? 0) < expectedFrameCount ||
+    (result?.body?.framesWithPose ?? 0) < 1
+  ) {
+    throw new Error(`Reference recording replay produced no complete avatar body report: ${referenceRecording.relativePath}`);
+  }
+
+  return result.body;
 }
 
 function resolveRecordingOutputPath(args, video, model, videoCount, modelCount) {
@@ -793,7 +1028,7 @@ function slugify(value) {
 }
 
 async function runRecordingReplayCheck(client, recording, recordingJsonl, liveBody, minPoseFrames, timeoutMs) {
-  const recordingFrameCount = recording?.frames?.length ?? 0;
+  const recordingFrameCount = recording?.frameCount ?? recording?.frames?.length ?? 0;
   const recordingJsonlLineCount = typeof recordingJsonl === "string"
     ? recordingJsonl.trim().split(/\r?\n/).filter(Boolean).length
     : 0;
@@ -1045,7 +1280,7 @@ async function waitForExpression(client, expression, timeoutMs) {
     cameraStatus: document.querySelector("#camera-status")?.textContent ?? "",
     modelStatus: document.querySelector("#model-status")?.textContent ?? "",
     error: document.querySelector("#error-message")?.textContent ?? "",
-    framesWithPose: window.motionTrackerDebug?.getBodyValidationReport?.()?.framesWithPose ?? 0
+    framesWithPose: window.motionTrackerDebug?.getBodyValidationProgress?.()?.framesWithPose ?? 0
   }))()`).catch((error) => ({ error: error.message }));
   throw new Error(`Timed out waiting for ${expression}: ${JSON.stringify(diagnostics)}`);
 }
@@ -1063,6 +1298,75 @@ async function evaluate(client, expression) {
   }
 
   return result.result?.value;
+}
+
+async function readMotionRecordingJsonlWithoutBlockingTracker(client, stopStatus) {
+  const supportsChunkExport = await evaluate(
+    client,
+    "typeof window.motionTrackerDebug?.getMotionRecordingJsonlChunk === 'function'",
+  );
+  if (!supportsChunkExport) {
+    return await evaluate(
+      client,
+      "window.motionTrackerDebug?.getMotionRecordingJsonl?.()",
+    );
+  }
+
+  const expectedRecordingId = stopStatus?.recordingId;
+  const expectedFrameCount = Number(stopStatus?.frameCount);
+  if (
+    !Number.isSafeInteger(expectedRecordingId) ||
+    !Number.isSafeInteger(expectedFrameCount) ||
+    expectedFrameCount < 0
+  ) {
+    throw new Error("Motion recording fast-stop returned invalid identity or frame count.");
+  }
+
+  const maxFrames = 16;
+  const chunks = [];
+  let cursor = 0;
+  let requestCount = 0;
+  const requestLimit = Math.ceil(expectedFrameCount / maxFrames) + 1;
+
+  do {
+    const chunk = await evaluate(
+      client,
+      `window.motionTrackerDebug.getMotionRecordingJsonlChunk(${cursor}, ${maxFrames})`,
+    );
+    requestCount += 1;
+    if (
+      !chunk ||
+      chunk.recordingId !== expectedRecordingId ||
+      chunk.frameCount !== expectedFrameCount ||
+      chunk.cursor !== cursor ||
+      typeof chunk.text !== "string" ||
+      !Number.isSafeInteger(chunk.nextCursor) ||
+      !Number.isSafeInteger(chunk.frameLines) ||
+      chunk.frameLines < 0 ||
+      chunk.frameLines > maxFrames ||
+      chunk.nextCursor !== cursor + chunk.frameLines ||
+      chunk.nextCursor > expectedFrameCount
+    ) {
+      throw new Error("Motion recording chunk export returned an invalid or stale cursor envelope.");
+    }
+    if (!chunk.done && chunk.nextCursor <= cursor) {
+      throw new Error("Motion recording chunk export did not advance its cursor.");
+    }
+    if (chunk.done !== (chunk.nextCursor >= expectedFrameCount)) {
+      throw new Error("Motion recording chunk export returned an inconsistent completion flag.");
+    }
+
+    chunks.push(chunk.text);
+    cursor = chunk.nextCursor;
+    if (chunk.done) {
+      break;
+    }
+    if (requestCount >= requestLimit) {
+      throw new Error("Motion recording chunk export exceeded its bounded request count.");
+    }
+  } while (true);
+
+  return chunks.join("");
 }
 
 function buildResultSummary(model, payload, options = {}) {
@@ -1339,6 +1643,8 @@ function buildResultSummary(model, payload, options = {}) {
       appFrameCallbackLagP95Ms: appPerformance?.samples?.frameCallbackLag?.p95Ms ?? null,
       appCallbackFps: appPerformance?.fps?.callback ?? null,
       appDetectionFps: appPerformance?.fps?.detection ?? null,
+      browserMode: options.browserMode ?? defaults.browserMode,
+      browserProduct: options.browserProduct ?? null,
       keyframeLabels: labelValidation
         ? {
             checked: labelValidation.checked,

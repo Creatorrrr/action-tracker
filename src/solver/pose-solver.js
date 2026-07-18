@@ -21,7 +21,7 @@ const HINGE_LIMIT_EPSILON_DEG = 2;
 const TARGET_RELIABLE_CONFIDENCE = 0.5;
 const ARM_OCCLUSION_HOLD_MS = 260;
 const ARM_OCCLUSION_DECAY_MS = 760;
-const ARM_REACQUIRE_MAX_DEG_PER_SEC = 420;
+const ARM_MAX_ANGULAR_VELOCITY_DEG_PER_SEC = 420;
 const SPINE_WAVE_MAX_OFFSET_RATIO = 0.08;
 const SPINE_WAVE_TWIST_GAIN = 0.32;
 const SPINE_WAVE_SIDE_GAIN = 0.12;
@@ -132,6 +132,7 @@ const HINGES = [
 ];
 
 export {
+  ARM_MAX_ANGULAR_VELOCITY_DEG_PER_SEC,
   BODY_TARGETS,
   HINGES,
   LOW_CONFIDENCE_VISIBILITY,
@@ -162,6 +163,9 @@ function solvePoseTargetsFromPoints(points, previousState = {}, options = {}) {
   const facingState = estimateFacingState(points, previousState.facing, {
     lowConfidence: LOW_CONFIDENCE_VISIBILITY,
     timestamp,
+    yawOffsetDeg: options.facingYawOffsetDeg,
+    lockYawHypothesis: options.lockFacingYawConvention,
+    maxYawRateDegPerSec: options.maxFacingYawRateDegPerSec,
   });
   const facing = toLegacyFacing(facingState.state);
   const torsoBasis = buildTorsoBasis(points);
@@ -309,8 +313,8 @@ function stabilizeReliableTarget(target, previousTarget, timestamp) {
     ? Math.max(0, timestamp - Number(previousTarget.timestamp))
     : 0;
   const maxReacquireAngleDeg = elapsedMs > 0
-    ? (elapsedMs / 1000) * ARM_REACQUIRE_MAX_DEG_PER_SEC
-    : ARM_REACQUIRE_MAX_DEG_PER_SEC / 30;
+    ? (elapsedMs / 1000) * ARM_MAX_ANGULAR_VELOCITY_DEG_PER_SEC
+    : ARM_MAX_ANGULAR_VELOCITY_DEG_PER_SEC / 30;
   const angleDeg = previousOccluded && previousTarget?.direction
     ? directionAngleDeg(previousTarget.direction, target.direction)
     : 0;

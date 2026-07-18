@@ -1,0 +1,1219 @@
+{
+  "$defs": {
+    "adjudication": {
+      "additionalProperties": false,
+      "properties": {
+        "adjudicated": {
+          "const": true
+        },
+        "adjudicatorPseudonymSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "artifactType": {
+          "const": "sam-goal-manual-adjudication-v3"
+        },
+        "decisions": {
+          "items": {
+            "$ref": "#/$defs/decision"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "disagreements": {
+          "items": {
+            "$ref": "#/$defs/disagreement"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "expectedCanonicalHash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "origin": {
+          "const": "manual_video"
+        },
+        "reviewAByteSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "reviewACanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "reviewAPseudonymSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "reviewBByteSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "reviewBCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "reviewBPseudonymSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "role": {
+          "const": "adjudication"
+        },
+        "schemaVersion": {
+          "const": 3
+        },
+        "windows": {
+          "items": {
+            "$ref": "#/$defs/window"
+          },
+          "minItems": 7,
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "artifactType",
+        "schemaVersion",
+        "role",
+        "origin",
+        "adjudicated",
+        "adjudicatorPseudonymSha256",
+        "reviewACanonicalSha256",
+        "reviewAByteSha256",
+        "reviewAPseudonymSha256",
+        "reviewBCanonicalSha256",
+        "reviewBByteSha256",
+        "reviewBPseudonymSha256",
+        "windows",
+        "disagreements",
+        "decisions",
+        "expectedCanonicalHash"
+      ],
+      "type": "object"
+    },
+    "anchor": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "x": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "y": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            }
+          },
+          "required": [
+            "x",
+            "y"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "anchorPath": {
+      "pattern": "^/clips/[A-Za-z0-9._-]+/segments/(0|[1-9][0-9]*)-([1-9][0-9]*)/subjectSelection/anchor$",
+      "type": "string"
+    },
+    "clipReview": {
+      "additionalProperties": false,
+      "properties": {
+        "clipId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "intervals": {
+          "items": {
+            "$ref": "#/$defs/interval"
+          },
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "clipId",
+        "intervals"
+      ],
+      "type": "object"
+    },
+    "contact": {
+      "additionalProperties": false,
+      "properties": {
+        "left": {
+          "$ref": "#/$defs/contactState"
+        },
+        "right": {
+          "$ref": "#/$defs/contactState"
+        }
+      },
+      "required": [
+        "left",
+        "right"
+      ],
+      "type": "object"
+    },
+    "contactState": {
+      "enum": [
+        "planted",
+        "moving",
+        "unknown"
+      ]
+    },
+    "contactStatePath": {
+      "pattern": "^/clips/[A-Za-z0-9._-]+/segments/(0|[1-9][0-9]*)-([1-9][0-9]*)/contact/(left|right)$",
+      "type": "string"
+    },
+    "decision": {
+      "allOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "$ref": "#/$defs/disagreementPath"
+            },
+            "value": {},
+            "valueType": {
+              "$ref": "#/$defs/valueType"
+            }
+          },
+          "required": [
+            "path",
+            "valueType",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "oneOf": [
+            {
+              "properties": {
+                "path": {
+                  "$ref": "#/$defs/scenarioArrayPath"
+                },
+                "value": {
+                  "$ref": "#/$defs/scenarioArray"
+                },
+                "valueType": {
+                  "const": "scenario-array"
+                }
+              }
+            },
+            {
+              "properties": {
+                "path": {
+                  "$ref": "#/$defs/presencePath"
+                },
+                "value": {
+                  "$ref": "#/$defs/presence"
+                },
+                "valueType": {
+                  "const": "presence"
+                }
+              }
+            },
+            {
+              "properties": {
+                "path": {
+                  "$ref": "#/$defs/personStatePath"
+                },
+                "value": {
+                  "$ref": "#/$defs/personState"
+                },
+                "valueType": {
+                  "const": "person-state"
+                }
+              }
+            },
+            {
+              "properties": {
+                "path": {
+                  "$ref": "#/$defs/occlusionStatePath"
+                },
+                "value": {
+                  "$ref": "#/$defs/occlusionState"
+                },
+                "valueType": {
+                  "const": "occlusion-state"
+                }
+              }
+            },
+            {
+              "properties": {
+                "path": {
+                  "$ref": "#/$defs/contactStatePath"
+                },
+                "value": {
+                  "$ref": "#/$defs/contactState"
+                },
+                "valueType": {
+                  "const": "contact-state"
+                }
+              }
+            },
+            {
+              "properties": {
+                "path": {
+                  "$ref": "#/$defs/handObservabilityStatePath"
+                },
+                "value": {
+                  "$ref": "#/$defs/observabilityState"
+                },
+                "valueType": {
+                  "const": "hand-observability-state"
+                }
+              }
+            },
+            {
+              "properties": {
+                "path": {
+                  "$ref": "#/$defs/endpointObservabilityStatePath"
+                },
+                "value": {
+                  "$ref": "#/$defs/observabilityState"
+                },
+                "valueType": {
+                  "const": "endpoint-observability-state"
+                }
+              }
+            },
+            {
+              "properties": {
+                "path": {
+                  "$ref": "#/$defs/subjectStatePath"
+                },
+                "value": {
+                  "$ref": "#/$defs/subjectState"
+                },
+                "valueType": {
+                  "const": "subject-state"
+                }
+              }
+            },
+            {
+              "properties": {
+                "path": {
+                  "$ref": "#/$defs/manualTargetIdPath"
+                },
+                "value": {
+                  "$ref": "#/$defs/manualTargetId"
+                },
+                "valueType": {
+                  "const": "manual-target-id"
+                }
+              }
+            },
+            {
+              "properties": {
+                "path": {
+                  "$ref": "#/$defs/anchorPath"
+                },
+                "value": {
+                  "$ref": "#/$defs/anchor"
+                },
+                "valueType": {
+                  "const": "anchor"
+                }
+              }
+            },
+            {
+              "properties": {
+                "path": {
+                  "$ref": "#/$defs/windowOrNullPath"
+                },
+                "value": {
+                  "$ref": "#/$defs/windowOrNull"
+                },
+                "valueType": {
+                  "const": "window-or-null"
+                }
+              }
+            },
+            {
+              "properties": {
+                "path": {
+                  "$ref": "#/$defs/startFrameIndexPath"
+                },
+                "value": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "valueType": {
+                  "const": "source-frame-index"
+                }
+              }
+            },
+            {
+              "properties": {
+                "path": {
+                  "$ref": "#/$defs/endFrameIndexExclusivePath"
+                },
+                "value": {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "valueType": {
+                  "const": "source-frame-index-exclusive"
+                }
+              }
+            },
+            {
+              "properties": {
+                "path": {
+                  "$ref": "#/$defs/purposeArrayPath"
+                },
+                "value": {
+                  "$ref": "#/$defs/purposeArray"
+                },
+                "valueType": {
+                  "const": "purpose-array"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "disagreement": {
+      "allOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "$ref": "#/$defs/disagreementPath"
+            },
+            "reviewAValue": {},
+            "reviewBValue": {},
+            "valueType": {
+              "$ref": "#/$defs/valueType"
+            }
+          },
+          "required": [
+            "path",
+            "valueType",
+            "reviewAValue",
+            "reviewBValue"
+          ],
+          "type": "object"
+        },
+        {
+          "oneOf": [
+            {
+              "properties": {
+                "path": {
+                  "$ref": "#/$defs/scenarioArrayPath"
+                },
+                "reviewAValue": {
+                  "$ref": "#/$defs/scenarioArray"
+                },
+                "reviewBValue": {
+                  "$ref": "#/$defs/scenarioArray"
+                },
+                "valueType": {
+                  "const": "scenario-array"
+                }
+              }
+            },
+            {
+              "properties": {
+                "path": {
+                  "$ref": "#/$defs/presencePath"
+                },
+                "reviewAValue": {
+                  "$ref": "#/$defs/presence"
+                },
+                "reviewBValue": {
+                  "$ref": "#/$defs/presence"
+                },
+                "valueType": {
+                  "const": "presence"
+                }
+              }
+            },
+            {
+              "properties": {
+                "path": {
+                  "$ref": "#/$defs/personStatePath"
+                },
+                "reviewAValue": {
+                  "$ref": "#/$defs/personState"
+                },
+                "reviewBValue": {
+                  "$ref": "#/$defs/personState"
+                },
+                "valueType": {
+                  "const": "person-state"
+                }
+              }
+            },
+            {
+              "properties": {
+                "path": {
+                  "$ref": "#/$defs/occlusionStatePath"
+                },
+                "reviewAValue": {
+                  "$ref": "#/$defs/occlusionState"
+                },
+                "reviewBValue": {
+                  "$ref": "#/$defs/occlusionState"
+                },
+                "valueType": {
+                  "const": "occlusion-state"
+                }
+              }
+            },
+            {
+              "properties": {
+                "path": {
+                  "$ref": "#/$defs/contactStatePath"
+                },
+                "reviewAValue": {
+                  "$ref": "#/$defs/contactState"
+                },
+                "reviewBValue": {
+                  "$ref": "#/$defs/contactState"
+                },
+                "valueType": {
+                  "const": "contact-state"
+                }
+              }
+            },
+            {
+              "properties": {
+                "path": {
+                  "$ref": "#/$defs/handObservabilityStatePath"
+                },
+                "reviewAValue": {
+                  "$ref": "#/$defs/observabilityState"
+                },
+                "reviewBValue": {
+                  "$ref": "#/$defs/observabilityState"
+                },
+                "valueType": {
+                  "const": "hand-observability-state"
+                }
+              }
+            },
+            {
+              "properties": {
+                "path": {
+                  "$ref": "#/$defs/endpointObservabilityStatePath"
+                },
+                "reviewAValue": {
+                  "$ref": "#/$defs/observabilityState"
+                },
+                "reviewBValue": {
+                  "$ref": "#/$defs/observabilityState"
+                },
+                "valueType": {
+                  "const": "endpoint-observability-state"
+                }
+              }
+            },
+            {
+              "properties": {
+                "path": {
+                  "$ref": "#/$defs/subjectStatePath"
+                },
+                "reviewAValue": {
+                  "$ref": "#/$defs/subjectState"
+                },
+                "reviewBValue": {
+                  "$ref": "#/$defs/subjectState"
+                },
+                "valueType": {
+                  "const": "subject-state"
+                }
+              }
+            },
+            {
+              "properties": {
+                "path": {
+                  "$ref": "#/$defs/manualTargetIdPath"
+                },
+                "reviewAValue": {
+                  "$ref": "#/$defs/manualTargetId"
+                },
+                "reviewBValue": {
+                  "$ref": "#/$defs/manualTargetId"
+                },
+                "valueType": {
+                  "const": "manual-target-id"
+                }
+              }
+            },
+            {
+              "properties": {
+                "path": {
+                  "$ref": "#/$defs/anchorPath"
+                },
+                "reviewAValue": {
+                  "$ref": "#/$defs/anchor"
+                },
+                "reviewBValue": {
+                  "$ref": "#/$defs/anchor"
+                },
+                "valueType": {
+                  "const": "anchor"
+                }
+              }
+            },
+            {
+              "properties": {
+                "path": {
+                  "$ref": "#/$defs/windowOrNullPath"
+                },
+                "reviewAValue": {
+                  "$ref": "#/$defs/windowOrNull"
+                },
+                "reviewBValue": {
+                  "$ref": "#/$defs/windowOrNull"
+                },
+                "valueType": {
+                  "const": "window-or-null"
+                }
+              }
+            },
+            {
+              "properties": {
+                "path": {
+                  "$ref": "#/$defs/startFrameIndexPath"
+                },
+                "reviewAValue": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "reviewBValue": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "valueType": {
+                  "const": "source-frame-index"
+                }
+              }
+            },
+            {
+              "properties": {
+                "path": {
+                  "$ref": "#/$defs/endFrameIndexExclusivePath"
+                },
+                "reviewAValue": {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "reviewBValue": {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "valueType": {
+                  "const": "source-frame-index-exclusive"
+                }
+              }
+            },
+            {
+              "properties": {
+                "path": {
+                  "$ref": "#/$defs/purposeArrayPath"
+                },
+                "reviewAValue": {
+                  "$ref": "#/$defs/purposeArray"
+                },
+                "reviewBValue": {
+                  "$ref": "#/$defs/purposeArray"
+                },
+                "valueType": {
+                  "const": "purpose-array"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "disagreementPath": {
+      "oneOf": [
+        {
+          "pattern": "^/clips/[A-Za-z0-9._-]+/segments/(0|[1-9][0-9]*)-([1-9][0-9]*)/(scenarios|presence|personState|occlusion/(body|leftFoot|rightFoot|leftHand|rightHand)|contact/(left|right)|handObservability/(left|right)|endpointObservability/(leftWrist|rightWrist|leftAnkle|rightAnkle|head)|subjectSelection/(state|manualTargetId|anchor))$",
+          "type": "string"
+        },
+        {
+          "pattern": "^/clips/[A-Za-z0-9._-]+/windowsById/[A-Za-z0-9][A-Za-z0-9._-]{0,63}(/(startFrameIndex|endFrameIndexExclusive|purposeTags|scenarioTags))?$",
+          "type": "string"
+        }
+      ]
+    },
+    "endFrameIndexExclusivePath": {
+      "pattern": "^/clips/[A-Za-z0-9._-]+/windowsById/[A-Za-z0-9][A-Za-z0-9._-]{0,63}/endFrameIndexExclusive$",
+      "type": "string"
+    },
+    "endpointObservability": {
+      "additionalProperties": false,
+      "properties": {
+        "head": {
+          "$ref": "#/$defs/observabilityState"
+        },
+        "leftAnkle": {
+          "$ref": "#/$defs/observabilityState"
+        },
+        "leftWrist": {
+          "$ref": "#/$defs/observabilityState"
+        },
+        "rightAnkle": {
+          "$ref": "#/$defs/observabilityState"
+        },
+        "rightWrist": {
+          "$ref": "#/$defs/observabilityState"
+        }
+      },
+      "required": [
+        "leftWrist",
+        "rightWrist",
+        "leftAnkle",
+        "rightAnkle",
+        "head"
+      ],
+      "type": "object"
+    },
+    "endpointObservabilityStatePath": {
+      "pattern": "^/clips/[A-Za-z0-9._-]+/segments/(0|[1-9][0-9]*)-([1-9][0-9]*)/endpointObservability/(leftWrist|rightWrist|leftAnkle|rightAnkle|head)$",
+      "type": "string"
+    },
+    "handObservability": {
+      "additionalProperties": false,
+      "properties": {
+        "left": {
+          "$ref": "#/$defs/observabilityState"
+        },
+        "right": {
+          "$ref": "#/$defs/observabilityState"
+        }
+      },
+      "required": [
+        "left",
+        "right"
+      ],
+      "type": "object"
+    },
+    "handObservabilityStatePath": {
+      "pattern": "^/clips/[A-Za-z0-9._-]+/segments/(0|[1-9][0-9]*)-([1-9][0-9]*)/handObservability/(left|right)$",
+      "type": "string"
+    },
+    "interval": {
+      "additionalProperties": false,
+      "properties": {
+        "endFrameIndexExclusive": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "scenarios": {
+          "$ref": "#/$defs/scenarioArray"
+        },
+        "startFrameIndex": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "state": {
+          "$ref": "#/$defs/manualState"
+        }
+      },
+      "required": [
+        "startFrameIndex",
+        "endFrameIndexExclusive",
+        "scenarios",
+        "state"
+      ],
+      "type": "object"
+    },
+    "manualState": {
+      "additionalProperties": false,
+      "properties": {
+        "contact": {
+          "$ref": "#/$defs/contact"
+        },
+        "endpointObservability": {
+          "$ref": "#/$defs/endpointObservability"
+        },
+        "handObservability": {
+          "$ref": "#/$defs/handObservability"
+        },
+        "occlusion": {
+          "$ref": "#/$defs/occlusion"
+        },
+        "personState": {
+          "$ref": "#/$defs/personState"
+        },
+        "presence": {
+          "$ref": "#/$defs/presence"
+        },
+        "subjectSelection": {
+          "$ref": "#/$defs/subject"
+        }
+      },
+      "required": [
+        "presence",
+        "personState",
+        "occlusion",
+        "contact",
+        "handObservability",
+        "endpointObservability",
+        "subjectSelection"
+      ],
+      "type": "object"
+    },
+    "manualTargetId": {
+      "minLength": 1,
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "manualTargetIdPath": {
+      "pattern": "^/clips/[A-Za-z0-9._-]+/segments/(0|[1-9][0-9]*)-([1-9][0-9]*)/subjectSelection/manualTargetId$",
+      "type": "string"
+    },
+    "observabilityState": {
+      "enum": [
+        "observable",
+        "not_observable"
+      ]
+    },
+    "occlusion": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "$ref": "#/$defs/occlusionState"
+        },
+        "leftFoot": {
+          "$ref": "#/$defs/occlusionState"
+        },
+        "leftHand": {
+          "$ref": "#/$defs/occlusionState"
+        },
+        "rightFoot": {
+          "$ref": "#/$defs/occlusionState"
+        },
+        "rightHand": {
+          "$ref": "#/$defs/occlusionState"
+        }
+      },
+      "required": [
+        "body",
+        "leftFoot",
+        "rightFoot",
+        "leftHand",
+        "rightHand"
+      ],
+      "type": "object"
+    },
+    "occlusionState": {
+      "enum": [
+        "observable",
+        "partial",
+        "occluded",
+        "out_of_frame",
+        "unknown"
+      ]
+    },
+    "occlusionStatePath": {
+      "pattern": "^/clips/[A-Za-z0-9._-]+/segments/(0|[1-9][0-9]*)-([1-9][0-9]*)/occlusion/(body|leftFoot|rightFoot|leftHand|rightHand)$",
+      "type": "string"
+    },
+    "personState": {
+      "enum": [
+        "single_target",
+        "multiple_people",
+        "absent",
+        "unknown"
+      ]
+    },
+    "personStatePath": {
+      "pattern": "^/clips/[A-Za-z0-9._-]+/segments/(0|[1-9][0-9]*)-([1-9][0-9]*)/personState$",
+      "type": "string"
+    },
+    "positiveRational": {
+      "additionalProperties": false,
+      "properties": {
+        "denominator": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "numerator": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "numerator",
+        "denominator"
+      ],
+      "type": "object"
+    },
+    "presence": {
+      "enum": [
+        "present",
+        "absent",
+        "unknown"
+      ]
+    },
+    "presencePath": {
+      "pattern": "^/clips/[A-Za-z0-9._-]+/segments/(0|[1-9][0-9]*)-([1-9][0-9]*)/presence$",
+      "type": "string"
+    },
+    "purpose": {
+      "enum": [
+        "full_clip_denominator",
+        "absence_reacquire",
+        "self_occlusion",
+        "fast_motion",
+        "contact_transition",
+        "multi_person",
+        "crop_out_of_frame",
+        "duplicate_detection",
+        "turning",
+        "hand_observability"
+      ]
+    },
+    "purposeArray": {
+      "items": {
+        "$ref": "#/$defs/purpose"
+      },
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "purposeArrayPath": {
+      "pattern": "^/clips/[A-Za-z0-9._-]+/windowsById/[A-Za-z0-9][A-Za-z0-9._-]{0,63}/purposeTags$",
+      "type": "string"
+    },
+    "review": {
+      "additionalProperties": false,
+      "properties": {
+        "artifactType": {
+          "const": "sam-goal-manual-review-v3"
+        },
+        "clips": {
+          "items": {
+            "$ref": "#/$defs/clipReview"
+          },
+          "maxItems": 7,
+          "minItems": 7,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "expectedCanonicalHash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "origin": {
+          "const": "manual_video"
+        },
+        "reviewed": {
+          "const": true
+        },
+        "reviewerPseudonymSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "role": {
+          "enum": [
+            "first",
+            "second"
+          ]
+        },
+        "schemaVersion": {
+          "const": 3
+        },
+        "sourceBinding": {
+          "$ref": "#/$defs/sourceBinding"
+        },
+        "windows": {
+          "items": {
+            "$ref": "#/$defs/window"
+          },
+          "minItems": 7,
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "artifactType",
+        "schemaVersion",
+        "role",
+        "reviewerPseudonymSha256",
+        "origin",
+        "reviewed",
+        "sourceBinding",
+        "windows",
+        "clips",
+        "expectedCanonicalHash"
+      ],
+      "type": "object"
+    },
+    "scenario": {
+      "enum": [
+        "neutral",
+        "entry_exit",
+        "reacquire",
+        "arms_crossed",
+        "self_occlusion",
+        "side_view",
+        "back_view",
+        "fast_motion",
+        "jump",
+        "footwork",
+        "turn",
+        "leg_extension",
+        "distance_change",
+        "partial_body_crop",
+        "multi_person_background",
+        "duplicate_detection_challenge",
+        "hand_closeup",
+        "full_body_dance",
+        "upper_body_only"
+      ]
+    },
+    "scenarioArray": {
+      "items": {
+        "$ref": "#/$defs/scenario"
+      },
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "scenarioArrayPath": {
+      "oneOf": [
+        {
+          "pattern": "^/clips/[A-Za-z0-9._-]+/segments/(0|[1-9][0-9]*)-([1-9][0-9]*)/scenarios$",
+          "type": "string"
+        },
+        {
+          "pattern": "^/clips/[A-Za-z0-9._-]+/windowsById/[A-Za-z0-9][A-Za-z0-9._-]{0,63}/scenarioTags$",
+          "type": "string"
+        }
+      ]
+    },
+    "sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "sourceBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "authoringSchemaCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "decoderByteSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "decoderCanonicalRowsSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "decoderRowCount": {
+          "const": 6711
+        },
+        "evaluationContractCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "labelSchemaCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "p0AnchorSchemaCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "p1AnchorSchemaCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "sourceContractCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "sourceInventoryCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "sourceSchemaCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "sources": {
+          "items": {
+            "$ref": "#/$defs/sourceIdentity"
+          },
+          "maxItems": 7,
+          "minItems": 7,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "teacherInputInventoryCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "teacherPolicyCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "teacherSchemaCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "required": [
+        "evaluationContractCanonicalSha256",
+        "labelSchemaCanonicalSha256",
+        "authoringSchemaCanonicalSha256",
+        "teacherInputInventoryCanonicalSha256",
+        "teacherPolicyCanonicalSha256",
+        "teacherSchemaCanonicalSha256",
+        "p0AnchorSchemaCanonicalSha256",
+        "p1AnchorSchemaCanonicalSha256",
+        "sourceContractCanonicalSha256",
+        "sourceSchemaCanonicalSha256",
+        "sourceInventoryCanonicalSha256",
+        "decoderByteSha256",
+        "decoderCanonicalRowsSha256",
+        "decoderRowCount",
+        "sources"
+      ],
+      "type": "object"
+    },
+    "sourceIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "bytes": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "clipId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "path": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "required": [
+        "clipId",
+        "path",
+        "bytes",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    "startFrameIndexPath": {
+      "pattern": "^/clips/[A-Za-z0-9._-]+/windowsById/[A-Za-z0-9][A-Za-z0-9._-]{0,63}/startFrameIndex$",
+      "type": "string"
+    },
+    "subject": {
+      "additionalProperties": false,
+      "properties": {
+        "anchor": {
+          "$ref": "#/$defs/anchor"
+        },
+        "manualTargetId": {
+          "$ref": "#/$defs/manualTargetId"
+        },
+        "state": {
+          "$ref": "#/$defs/subjectState"
+        }
+      },
+      "required": [
+        "state",
+        "manualTargetId",
+        "anchor"
+      ],
+      "type": "object"
+    },
+    "subjectState": {
+      "enum": [
+        "selected",
+        "absent",
+        "ambiguous",
+        "unknown"
+      ]
+    },
+    "subjectStatePath": {
+      "pattern": "^/clips/[A-Za-z0-9._-]+/segments/(0|[1-9][0-9]*)-([1-9][0-9]*)/subjectSelection/state$",
+      "type": "string"
+    },
+    "ticks": {
+      "pattern": "^(0|[1-9][0-9]*)$",
+      "type": "string"
+    },
+    "valueType": {
+      "enum": [
+        "scenario-array",
+        "presence",
+        "person-state",
+        "occlusion-state",
+        "contact-state",
+        "hand-observability-state",
+        "endpoint-observability-state",
+        "subject-state",
+        "manual-target-id",
+        "anchor",
+        "window-or-null",
+        "source-frame-index",
+        "source-frame-index-exclusive",
+        "purpose-array"
+      ]
+    },
+    "window": {
+      "additionalProperties": false,
+      "properties": {
+        "clipId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "endFrameIndexExclusive": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "purposeTags": {
+          "$ref": "#/$defs/purposeArray"
+        },
+        "scenarioTags": {
+          "$ref": "#/$defs/scenarioArray"
+        },
+        "startFrameIndex": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "windowId": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "windowId",
+        "clipId",
+        "startFrameIndex",
+        "endFrameIndexExclusive",
+        "purposeTags",
+        "scenarioTags"
+      ],
+      "type": "object"
+    },
+    "windowOrNull": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/window"
+        }
+      ]
+    },
+    "windowOrNullPath": {
+      "pattern": "^/clips/[A-Za-z0-9._-]+/windowsById/[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+      "type": "string"
+    }
+  },
+  "$id": "https://action-tracker.local/schemas/sam-goal-manual-authoring-v3.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/review"
+    },
+    {
+      "$ref": "#/$defs/adjudication"
+    }
+  ],
+  "title": "SAM goal independent manual review authoring v3"
+}

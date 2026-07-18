@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://action-tracker.local/schemas/sam-goal-v3-synthetic-authoring-fixture.json",
+  "title": "Synthetic-only authoring fixture; not valid for real P0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["fixtureOnly"],
+  "properties": {
+    "fixtureOnly": { "const": true }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifactType", "schemaVersion", "role", "reviewerPseudonymSha256", "fixtureNonce", "expectedCanonicalHash"],
+      "properties": {
+        "artifactType": { "const": "sam-goal-manual-review-v3" },
+        "schemaVersion": { "const": 3 },
+        "role": { "enum": ["first", "second"] },
+        "reviewerPseudonymSha256": { "$ref": "#/$defs/sha256" },
+        "fixtureNonce": { "type": "integer", "minimum": 1 },
+        "expectedCanonicalHash": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "adjudication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifactType", "schemaVersion", "role", "adjudicatorPseudonymSha256", "fixtureNonce", "expectedCanonicalHash"],
+      "properties": {
+        "artifactType": { "const": "sam-goal-manual-adjudication-v3" },
+        "schemaVersion": { "const": 3 },
+        "role": { "const": "adjudication" },
+        "adjudicatorPseudonymSha256": { "$ref": "#/$defs/sha256" },
+        "fixtureNonce": { "type": "integer", "minimum": 1 },
+        "expectedCanonicalHash": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  }
+}

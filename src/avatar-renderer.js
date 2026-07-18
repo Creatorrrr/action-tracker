@@ -3,11 +3,18 @@ import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import {
+  AVATAR_APPLIED_STATE_VERSION,
+  cloneAppliedAvatarStateSnapshot,
+} from './avatar-applied-state.js';
+import {
   createVrmHumanoidMapping,
   parseVrmHumanoid,
   serializeVrmHumanoidMapping,
 } from './vrm-humanoid-mapping.js';
-import { solvePoseTargetsFromPoints } from './solver/pose-solver.js';
+import {
+  ARM_MAX_ANGULAR_VELOCITY_DEG_PER_SEC,
+  solvePoseTargetsFromPoints,
+} from './solver/pose-solver.js?v=20260715-causal-arm-local-rate-1';
 import {
   DEPTH_CALIBRATION_CLAMP_WARNING_RATIO,
   DEPTH_CALIBRATION_LENGTH_ERROR_THRESHOLD,
@@ -28,10 +35,11 @@ import {
   normalizeDepthCalibrationReferenceProfile,
   resolveDepthCalibrationMinSegments,
   segmentLengthRatio,
+  solveCalibratedSegmentVector,
   solveDistalDepth,
   summarizeLengthConsistency,
   distance3D,
-} from './depth-calibration.js';
+} from './depth-calibration.js?v=20260715-raw-distal-depth-sign-1';
 import {
   applyVrmExpressionScores,
   mapMediaPipeBlendShapesToVrmPresets,
@@ -51,8 +59,9 @@ import {
   DEFAULT_AVATAR_YAW_SIGN,
   DEFAULT_PALM_NORMAL_SIGNS,
   resolveAvatarYawDeg,
-  resolveHandPalmNormal,
-} from './retarget-orientation.js?v=20260708-thumb-segments-1';
+  resolveHandOrientationBasis,
+  resolvePoseHandOrientationBasis,
+} from './retarget-orientation.js?v=20260715-palm-local-fingers-1';
 import {
   RETARGET_MODE_LEGACY,
   RETARGET_MODE_STRICT,
@@ -61,15 +70,57 @@ import {
   normalizeAvatarRetargetMode,
 } from './retarget/skeleton-fk-retarget.js';
 import {
+  resolveCausalSecondaryActivation,
+  stabilizeCausalSecondaryAxis,
+} from './retarget/causal-secondary-axis.js';
+import {
+  createCausalQuaternionTargetState,
+  resetCausalQuaternionTargetState,
+  transportCausalQuaternionTargetState,
+  transportCausalQuaternionTargetStateByDelta,
+  updateCausalQuaternionTarget,
+} from './retarget/causal-quaternion-target.js?v=20260715-palm-local-fingers-1';
+import {
+  evaluatePoseHandInnovation,
+} from './retarget/pose-hand-innovation-gate.js?v=20260715-pose-hand-confidence-gate-1';
+import {
+  createCausalFingerFlexState,
+  createCausalFingerRootState,
+  predictCausalFingerFlexGap,
+  resetCausalFingerFlexState,
+  resetCausalFingerRootState,
+  updateCausalFingerFlex,
+  updateCausalFingerRootDirection,
+} from './retarget/causal-finger-flex.js?v=20260715-causal-thumb-root-1';
+import {
+  deriveRigSecondaryAxisLocal,
+  limitCausalRigLocalRotation,
+  resolveBasisTransportRotation,
+  solveRigHingeLocalRotation,
+  solveRigLocalRotation,
+} from './retarget/rig-local-rotation.js?v=20260715-causal-arm-local-rate-1';
+import {
+  DEFAULT_CONTACT_OPTIONS,
+  createPlantedFootContactState,
+  releasePlantedFootContact,
+  resetPlantedFootContactState,
+  resolveBoundedTwoBoneRootCorrection,
+  solveSignedPoleTwoBone,
+  updatePlantedFootContact,
+} from './retarget/planted-foot-ik.js?v=20260717-planted-root-reach-correction-1';
+import {
+  composeBodyHeadWithFaceDelta,
   computeFaceHeadDelta,
   createFaceHeadPoseTrackerState,
   readFaceTransformQuaternion,
+  removeFaceDeltaFromComposedHead,
   resetFaceHeadPoseTrackerState,
   updateFaceHeadPoseTracker,
-} from './face-head-pose.js';
+} from './face-head-pose.js?v=20260717-face-gap-release-1';
 
 const DEFAULT_MODEL_URL = './assets/models/Xbot.glb';
 const DEFAULT_XBOT_MODEL_YAW_RAD = 0;
+const NON_VRM_FRONT_AXIS_FLIP_THRESHOLD = -0.5;
 const BONE_PREFIX = 'mixamorig:';
 const MAX_DEVICE_PIXEL_RATIO = 2;
 const DEFAULT_LANDMARK_DEPTH_SCALE = 0.45;
@@ -89,6 +140,8 @@ const ROOT_ORIENTATION_SIDE_ORDER_EPSILON = 0.025;
 const ROOT_ORIENTATION_SWITCH_FRAMES = 6;
 const ROOT_ORIENTATION_SMOOTHING_MS = 45;
 const ROOT_ORIENTATION_MAX_YAW_RATE_DEG_PER_SEC = 540;
+const UNMIRRORED_HYBRID_FACING_YAW_OFFSET_DEG = 180;
+const MIRRORED_HYBRID_FACING_YAW_OFFSET_DEG = 0;
 const ROOT_ORIENTATION_RECOVERY_SMOOTHING_MS = 18;
 const ROOT_ORIENTATION_RECOVERY_MAX_YAW_RATE_DEG_PER_SEC = 1080;
 const ROOT_ORIENTATION_SIDE_WIDTH_RATIO = 0.72;
@@ -102,6 +155,12 @@ const RETARGET_OCCLUSION_DECAY_MS = 420;
 const RETARGET_LOST_TRACKING_HOLD_MS = 80;
 const RETARGET_LOST_TRACKING_DECAY_MS = 360;
 const RETARGET_REACQUIRE_BLEND_MS = 180;
+const FOOT_CONTACT_OPTIONS = Object.freeze({
+  ...DEFAULT_CONTACT_OPTIONS,
+  releaseBlendMs: 60,
+});
+const FOOT_IK_MAX_REACH_ERROR_HEIGHT_RATIO = 0.0002;
+const FOOT_IK_MAX_BEND_DEG = 155;
 const FACE_HEAD_POSE_SMOOTHING_MS = 118;
 const FACE_HEAD_POSE_MAX_ANGLE = 0.85;
 const FACE_NECK_POSE_MAX_ANGLE = 0.48;
@@ -110,6 +169,7 @@ const FACE_NECK_POSE_STRENGTH = 0.24;
 const FACE_HEAD_TRACKING_GRACE_MS = 400;
 const FACE_HEAD_REACQUIRE_BLEND_MS = 260;
 const FACE_HEAD_JUMP_THRESHOLD_DEG_PER_SEC = 600;
+const POSE_HAND_TRACKING_GRACE_MS = 180;
 const HEAD_CROWN_NOSE_OFFSET_BLEND = 0.72;
 const HEAD_CROWN_MAX_NOSE_OFFSET_SCALE = 0.9;
 const SPINE_WAVE_MAX_OFFSET_RATIO = 0.08;
@@ -198,6 +258,7 @@ const RETARGET_SMOOTHING_MS = {
   foot: 48,
   hand: 36,
   fingerBase: 44,
+  predictedFingerBase: 80,
   finger: 34,
   relax: 76,
 };
@@ -216,6 +277,25 @@ const FINGER_AIM_CONSTRAINTS_DEG = Object.freeze({
 const FIST_CURL_BIAS_BY_SEGMENT = Object.freeze({
   Thumb: Object.freeze([0.35, 0.58, 0.66]),
   Default: Object.freeze([0.52, 0.82, 0.92]),
+});
+const FINGER_FLEX_SOURCE_PROFILES = Object.freeze({
+  canonicalMhr70: Object.freeze({ 1: 1, 2: 1 }),
+  mediaPipeHand21: Object.freeze({ 1: 0.55, 2: 0.3 }),
+});
+const FINGER_ROOT_SOURCE_PROFILES = Object.freeze({
+  canonicalMhr70: Object.freeze({}),
+  mediaPipeHand21: Object.freeze({
+    Thumb: Object.freeze({ flexScale: 0.1, flexOffsetDeg: -15, spreadScale: 0.85, spreadOffsetDeg: 1.4 }),
+    Index: Object.freeze({ flexScale: 0.15, flexOffsetDeg: -7, spreadScale: 0.5, spreadOffsetDeg: -1.4 }),
+    Middle: Object.freeze({ flexScale: 0.25, flexOffsetDeg: -14, spreadScale: 0.4, spreadOffsetDeg: -0.2 }),
+    Ring: Object.freeze({ flexScale: 0.15, flexOffsetDeg: -15, spreadScale: 0.45, spreadOffsetDeg: -0.4 }),
+    Pinky: Object.freeze({ flexScale: 0.15, flexOffsetDeg: -11, spreadScale: 0.4, spreadOffsetDeg: -0.9 }),
+  }),
+});
+const STRICT_FINGER_GAP_OPTIONS = Object.freeze({
+  missingGraceSec: 0.32,
+  resetAfterSec: 1.25,
+  missingDecayDegPerSec: 60,
 });
 const AVATAR_SMOOTHING_MODE_OFF = 'off';
 const AVATAR_SMOOTHING_MODE_RETARGET = 'retarget';
@@ -319,6 +399,12 @@ const POSE = {
   rightElbow: 14,
   leftWrist: 15,
   rightWrist: 16,
+  leftPinky: 17,
+  rightPinky: 18,
+  leftIndex: 19,
+  rightIndex: 20,
+  leftThumb: 21,
+  rightThumb: 22,
   leftHip: 23,
   rightHip: 24,
   leftKnee: 25,
@@ -386,6 +472,54 @@ const BODY_RETARGETS = [
   { bone: 'RightFoot', from: 'rightAnkle', to: 'rightFootIndex', secondaryFrom: 'rightHeel', secondaryTo: 'rightFootIndex', strength: 0.7, maxAngle: 1.15, maxTwist: 0.28, smoothing: 'foot' },
 ];
 
+const BODY_RETARGET_BY_BONE = new Map(BODY_RETARGETS.map((target) => [target.bone, target]));
+const STRICT_LOWER_BODY_BONES = new Set([
+  'LeftUpLeg',
+  'LeftLeg',
+  'LeftFoot',
+  'RightUpLeg',
+  'RightLeg',
+  'RightFoot',
+]);
+// Strict retargeting intentionally leaves the large articulated chains free of
+// legacy rest-pose caps. Feet are the exception: their declared range is an
+// ankle safety boundary and is consumed after contact/IK ownership resolves.
+const STRICT_REST_ANGLE_LIMIT_BONES = new Set([
+  'LeftFoot',
+  'RightFoot',
+]);
+const LOWER_BODY_CHAINS = Object.freeze({
+  Left: Object.freeze({
+    upperBone: 'LeftUpLeg',
+    lowerBone: 'LeftLeg',
+    footBone: 'LeftFoot',
+  }),
+  Right: Object.freeze({
+    upperBone: 'RightUpLeg',
+    lowerBone: 'RightLeg',
+    footBone: 'RightFoot',
+  }),
+});
+
+const STRICT_CAUSAL_SECONDARY_BONES = new Set([
+  'LeftArm',
+  'RightArm',
+]);
+
+const STRICT_RIG_LOCAL_ARM_BONES = new Set([
+  'LeftArm',
+  'LeftForeArm',
+  'RightArm',
+  'RightForeArm',
+]);
+
+const RIG_AVATAR_UP_SECONDARY_BONES = new Set([
+  'LeftArm',
+  'LeftForeArm',
+  'RightArm',
+  'RightForeArm',
+]);
+
 const BODY_VALIDATION_SEGMENTS = [
   { name: 'torso', group: 'torso', bone: 'Spine2', from: 'hipMid', to: 'shoulderMid' },
   { name: 'hips', group: 'torso', bone: 'Hips', from: 'hipMid', to: 'spineBase' },
@@ -419,6 +553,14 @@ const BODY_VISUAL_JOINTS = [
   { name: 'leftAnkle', group: 'legs', source: 'leftAnkle', avatarBone: 'LeftFoot' },
   { name: 'rightAnkle', group: 'legs', source: 'rightAnkle', avatarBone: 'RightFoot' },
 ];
+
+const APPLIED_AVATAR_FK_ENDPOINTS = Object.freeze([
+  Object.freeze({ bone: 'LeftHand', joint: 'leftWrist' }),
+  Object.freeze({ bone: 'RightHand', joint: 'rightWrist' }),
+  Object.freeze({ bone: 'LeftFoot', joint: 'leftAnkle' }),
+  Object.freeze({ bone: 'RightFoot', joint: 'rightAnkle' }),
+  Object.freeze({ bone: 'Head', joint: 'head' }),
+]);
 
 const SOURCE_PROPORTION_NORMALIZATION_SEGMENTS = Object.freeze([
   Object.freeze({ name: 'leftUpperArm', from: 'leftShoulder', to: 'leftElbow', avatarFrom: 'leftShoulder', avatarTo: 'leftElbow' }),
@@ -513,6 +655,7 @@ const tmpQuaternionE = new THREE.Quaternion();
 const tmpQuaternionF = new THREE.Quaternion();
 const tmpQuaternionG = new THREE.Quaternion();
 const tmpQuaternionH = new THREE.Quaternion();
+const tmpQuaternionI = new THREE.Quaternion();
 const tmpMatrixA = new THREE.Matrix4();
 const tmpMatrixB = new THREE.Matrix4();
 const tmpMatrixC = new THREE.Matrix4();
@@ -538,7 +681,7 @@ export function createAvatarRenderer(options = {}) {
   let disposed = false;
   let ready = false;
   let failed = false;
-  let lastUpdateTime = 0;
+  let lastUpdateTime = null;
   let lastVrmRenderUpdateTime = 0;
   let skeletonVisible = Boolean(options.showSkeleton);
   let landmarkDepthScale = normalizeDepthScale(options.depthScale ?? DEFAULT_LANDMARK_DEPTH_SCALE);
@@ -574,6 +717,42 @@ export function createAvatarRenderer(options = {}) {
     Right: new Map(),
   };
   const handOrientation = {
+    Left: null,
+    Right: null,
+  };
+  const strictFingerSourcePtsSec = {
+    Left: null,
+    Right: null,
+  };
+  const strictFingerLastObservationPtsSec = {
+    Left: null,
+    Right: null,
+  };
+  const strictFingerFlexTracking = {
+    Left: createStrictFingerFlexTrackingSide(),
+    Right: createStrictFingerFlexTrackingSide(),
+  };
+  const strictFingerRootTracking = {
+    Left: createStrictFingerRootTrackingSide(),
+    Right: createStrictFingerRootTrackingSide(),
+  };
+  const strictPoseHandTracking = {
+    Left: createCausalQuaternionTargetState(),
+    Right: createCausalQuaternionTargetState(),
+  };
+  const strictPoseHandLocalHold = {
+    Left: null,
+    Right: null,
+  };
+  const strictPoseHandParentWorld = {
+    Left: null,
+    Right: null,
+  };
+  let footContactState = {
+    Left: createPlantedFootContactState('Left'),
+    Right: createPlantedFootContactState('Right'),
+  };
+  const footContactRigFloorY = {
     Left: null,
     Right: null,
   };
@@ -632,20 +811,22 @@ export function createAvatarRenderer(options = {}) {
     maxOffset: new THREE.Vector2(0, 0),
   };
   const poseSolverState = {
-    facing: 'front',
+    facing: undefined,
     mode: 'lost',
   };
   const strictPoseSolverState = {
-    facing: 'front',
+    facing: undefined,
     mode: 'lost',
   };
   let strictRetargetState = {};
   let lastStrictRetargetFrame = null;
   let lastSourceAvatarDivergence = null;
+  const strictLimbSecondaryState = new Map();
+  let lastAppliedAvatarState = null;
   const trackingRecovery = {
     lost: false,
-    lastLostAt: 0,
-    reacquiredAt: 0,
+    lastLostAt: null,
+    reacquiredAt: null,
     blend: 1,
   };
   const poseSolverMetrics = {
@@ -681,6 +862,10 @@ export function createAvatarRenderer(options = {}) {
     lastJumpReason: null,
     jumpCount: 0,
     lastBoneQuaternion: null,
+  };
+  const faceHeadComposition = {
+    Neck: createFaceHeadCompositionState(),
+    Head: createFaceHeadCompositionState(),
   };
   const performanceStats = {
     updateMs: [],
@@ -742,6 +927,7 @@ export function createAvatarRenderer(options = {}) {
       if (disposed) {
         return api;
       }
+      normalizeNonVrmRigFrontAxis();
       validateRequiredBones();
       cacheRestPose();
       buildRetargetMaps();
@@ -778,28 +964,83 @@ export function createAvatarRenderer(options = {}) {
     try {
       const frame = isMotionFramePayload(motionFrame) ? motionFrame : null;
       const frameTimestamp = frame?.timestamp ?? timestamp;
+      const sourcePtsSec = numberOrNull(
+        frame?.sourceMeta?.sourcePtsSec ?? frame?.sourceMeta?.videoTime,
+      );
+      const causalFrameTimestampMs = resolveCausalSourceTimestampMs(
+        frame?.sourceMeta,
+        frameTimestamp,
+      );
       const frameMirrored = frame?.mirrored ?? mirrored;
-      const delta = updateDelta(frameTimestamp);
+      const delta = updateDelta(causalFrameTimestampMs);
       const relaxAlpha = smoothingAlpha(delta, RETARGET_SMOOTHING_MS.relax);
       const poseLandmarks = frame?.poseLandmarks ?? extractPoseLandmarks(poseResults);
       const worldLandmarks = frame?.poseWorldLandmarks ?? extractWorldPoseLandmarks(poseResults);
       const hands = frame ? extractMotionFrameHands(frame) : extractHands(handResults, frameMirrored);
 
+      removeAppliedFaceHeadPoseDeltas();
+
       if (poseLandmarks) {
-        applyPose(poseLandmarks, frameMirrored, delta, worldLandmarks, frameTimestamp);
+        applyPose(
+          poseLandmarks,
+          frameMirrored,
+          delta,
+          worldLandmarks,
+          causalFrameTimestampMs,
+        );
       } else {
+        resetFootContactState('pose-missing');
         relaxBody(relaxAlpha * 0.45);
       }
 
-      applyFaceHeadPose(frame?.face ?? null, frameMirrored, delta, frameTimestamp);
-      applyHands(hands, frameMirrored, delta);
+      applyFaceHeadPose(frame?.face ?? null, frameMirrored, delta, causalFrameTimestampMs);
+      const poseOwnedHandSides = applyPoseOwnedHandOrientations(
+        worldLandmarks,
+        frameMirrored,
+        causalFrameTimestampMs,
+      );
+      applyHands(hands, frameMirrored, delta, poseOwnedHandSides, {
+        frameSourcePtsSec: sourcePtsSec,
+        sourceMeta: frame?.sourceMeta ?? null,
+      });
       applyFaceExpressions(frame?.face ?? null, delta);
+      const appliedAtMonotonicMs = nowMs();
+      lastAppliedAvatarState = captureAppliedAvatarState({
+        sourceTimestampMs: frameTimestamp,
+        sourcePtsSec,
+        applyStartedAtMonotonicMs: startedAt,
+        appliedAtMonotonicMs,
+      });
     } catch (error) {
       // Bad detector payloads should not break the camera loop.
+      lastAppliedAvatarState = null;
       console.warn('Avatar update skipped', error);
     } finally {
       recordPerformanceSample(performanceStats.updateMs, nowMs() - startedAt);
     }
+  }
+
+  function resolveCausalSourceTimestampMs(sourceMeta, fallbackTimestampMs) {
+    const sourcePtsSec = numberOrNull(
+      sourceMeta?.sourcePtsSec ?? sourceMeta?.videoTime,
+    );
+    const sourcePtsSource = String(sourceMeta?.sourcePtsSource ?? '');
+    const usesVideoClock = sourceMeta?.inputKind === 'video' || sourcePtsSource.includes('rvfc');
+
+    if (usesVideoClock && Number.isFinite(sourcePtsSec)) {
+      return sourcePtsSec * 1000;
+    }
+
+    const callbackMonotonicMs = numberOrNull(sourceMeta?.callbackMonotonicMs);
+
+    if (Number.isFinite(callbackMonotonicMs) && callbackMonotonicMs >= 0) {
+      return callbackMonotonicMs;
+    }
+
+    const fallback = numberOrNull(fallbackTimestampMs);
+    return Number.isFinite(fallback) && fallback > 0
+      ? fallback
+      : nowMs();
   }
 
   function getBodyValidationSnapshot(options = {}) {
@@ -820,6 +1061,10 @@ export function createAvatarRenderer(options = {}) {
   } = {}) {
     const frame = isMotionFramePayload(motionFrame) ? motionFrame : null;
     const frameTimestamp = frame?.timestamp ?? timestamp;
+    const causalFrameTimestampMs = resolveCausalSourceTimestampMs(
+      frame?.sourceMeta,
+      frameTimestamp,
+    );
     const frameMirrored = frame?.mirrored ?? mirrored;
 
     if (!ready || failed || disposed) {
@@ -848,7 +1093,7 @@ export function createAvatarRenderer(options = {}) {
       poseLandmarks,
       frameMirrored,
       worldLandmarks,
-      frameTimestamp,
+      causalFrameTimestampMs,
       FIRST_UPDATE_DELTA_MS,
     );
     const segments = BODY_VALIDATION_SEGMENTS
@@ -957,6 +1202,10 @@ export function createAvatarRenderer(options = {}) {
   } = {}) {
     const frame = isMotionFramePayload(motionFrame) ? motionFrame : null;
     const frameTimestamp = frame?.timestamp ?? timestamp;
+    const causalFrameTimestampMs = resolveCausalSourceTimestampMs(
+      frame?.sourceMeta,
+      frameTimestamp,
+    );
     const frameMirrored = frame?.mirrored ?? mirrored;
 
     if (!ready || failed || disposed) {
@@ -987,7 +1236,7 @@ export function createAvatarRenderer(options = {}) {
       poseLandmarks,
       frameMirrored,
       worldLandmarks,
-      frameTimestamp,
+      causalFrameTimestampMs,
       FIRST_UPDATE_DELTA_MS,
     );
     const referencePoints = isDynamicDepthCalibrationActive()
@@ -1037,7 +1286,10 @@ export function createAvatarRenderer(options = {}) {
     strictRetargetState = {};
     lastStrictRetargetFrame = null;
     lastSourceAvatarDivergence = null;
-    lastUpdateTime = 0;
+    resetStrictLimbSecondaryState();
+    resetFootContactState('pose-reset');
+    lastAppliedAvatarState = null;
+    lastUpdateTime = null;
     resetTrackingRecoveryState();
     resetBodyOcclusionState();
     resetFaceExpressions();
@@ -1050,7 +1302,7 @@ export function createAvatarRenderer(options = {}) {
   }
 
   function resetPoseSolverState(targetState) {
-    targetState.facing = 'front';
+    targetState.facing = undefined;
     targetState.mode = 'lost';
     targetState.targetMemory = {};
   }
@@ -1157,6 +1409,7 @@ export function createAvatarRenderer(options = {}) {
         targetYawOffset: rootMotion.targetYawOffset,
         orientationMetrics: rootMotion.orientationMetrics,
       },
+      footContact: getFootContactSnapshot(),
       handOrientation: { ...handOrientation },
       strictRetarget: lastStrictRetargetFrame,
       sourceAvatarDivergence: getSourceAvatarDivergenceSnapshot(),
@@ -1165,6 +1418,128 @@ export function createAvatarRenderer(options = {}) {
       poseSolverMetrics: getPoseSolverMetricsSnapshot(),
       occlusion: getOcclusionSnapshot(),
       trackingRecovery: getTrackingRecoverySnapshot(),
+    };
+  }
+
+  function captureAppliedAvatarState({
+    sourceTimestampMs = null,
+    sourcePtsSec = null,
+    applyStartedAtMonotonicMs = null,
+    appliedAtMonotonicMs = null,
+  } = {}) {
+    if (!model) {
+      return null;
+    }
+
+    model.updateWorldMatrix(true, true);
+    const modelWorldInverse = new THREE.Matrix4().copy(model.matrixWorld).invert();
+    const capturedBones = {};
+    const missingCanonicalBones = [];
+
+    for (const name of KNOWN_AVATAR_BONE_NAMES) {
+      const bone = getBone(name);
+
+      if (!bone) {
+        missingCanonicalBones.push(name);
+        continue;
+      }
+
+      capturedBones[name] = {
+        localQuaternion: quaternionToArray(bone.quaternion),
+      };
+    }
+
+    const missingRequiredBones = REQUIRED_BONES.filter((name) => !capturedBones[name]);
+    const fkEndpoints = {};
+    const missingFkEndpoints = [];
+
+    for (const endpoint of APPLIED_AVATAR_FK_ENDPOINTS) {
+      const bone = getBone(endpoint.bone);
+
+      if (!bone) {
+        missingFkEndpoints.push(endpoint.bone);
+        continue;
+      }
+
+      const worldPosition = bone.getWorldPosition(new THREE.Vector3());
+      fkEndpoints[endpoint.bone] = {
+        joint: endpoint.joint,
+        modelLocalPosition: vectorToArray(worldPosition.clone().applyMatrix4(modelWorldInverse)),
+        worldPosition: vectorToArray(worldPosition),
+      };
+    }
+
+    const hips = getBone('Hips');
+    const snapshotCapturedAtMonotonicMs = nowMs();
+
+    return {
+      version: AVATAR_APPLIED_STATE_VERSION,
+      timing: {
+        sourceTimestampMs: numberOrNull(sourceTimestampMs),
+        sourcePtsSec: numberOrNull(sourcePtsSec),
+        applyStartedAtMonotonicMs: numberOrNull(applyStartedAtMonotonicMs),
+        appliedAtMonotonicMs: numberOrNull(appliedAtMonotonicMs),
+        snapshotCapturedAtMonotonicMs,
+        applyDurationMs: Number.isFinite(appliedAtMonotonicMs) && Number.isFinite(applyStartedAtMonotonicMs)
+          ? Math.max(0, appliedAtMonotonicMs - applyStartedAtMonotonicMs)
+          : null,
+      },
+      modelHeight,
+      root: {
+        model: captureLocalTransform(model),
+        hips: hips ? captureLocalAndWorldTransform(hips) : null,
+      },
+      bones: capturedBones,
+      fkEndpoints,
+      coverage: {
+        canonicalBones: buildAppliedStateCoverage(
+          KNOWN_AVATAR_BONE_NAMES.size,
+          Object.keys(capturedBones).length,
+          missingCanonicalBones,
+        ),
+        requiredBones: buildAppliedStateCoverage(
+          REQUIRED_BONES.length,
+          REQUIRED_BONES.length - missingRequiredBones.length,
+          missingRequiredBones,
+        ),
+        fkEndpoints: buildAppliedStateCoverage(
+          APPLIED_AVATAR_FK_ENDPOINTS.length,
+          Object.keys(fkEndpoints).length,
+          missingFkEndpoints,
+        ),
+      },
+    };
+  }
+
+  function getAppliedAvatarStateSnapshot() {
+    return cloneAppliedAvatarStateSnapshot(lastAppliedAvatarState);
+  }
+
+  function captureLocalTransform(object) {
+    return {
+      position: vectorToArray(object.position),
+      quaternion: quaternionToArray(object.quaternion),
+      scale: vectorToArray(object.scale),
+    };
+  }
+
+  function captureLocalAndWorldTransform(object) {
+    return {
+      local: captureLocalTransform(object),
+      world: {
+        position: vectorToArray(object.getWorldPosition(new THREE.Vector3())),
+        quaternion: quaternionToArray(object.getWorldQuaternion(new THREE.Quaternion())),
+        scale: vectorToArray(object.getWorldScale(new THREE.Vector3())),
+      },
+    };
+  }
+
+  function buildAppliedStateCoverage(expectedCount, capturedCount, missing) {
+    return {
+      expectedCount,
+      capturedCount,
+      ratio: expectedCount > 0 ? capturedCount / expectedCount : 0,
+      missing: missing.slice(),
     };
   }
 
@@ -1189,6 +1564,7 @@ export function createAvatarRenderer(options = {}) {
         modelRotationY: model?.rotation?.y ?? null,
         orientationMetrics: rootMotion.orientationMetrics,
       },
+      footContact: getFootContactSnapshot(),
       handOrientation: { ...handOrientation },
       strictRetarget: lastStrictRetargetFrame,
       sourceAvatarDivergence: getSourceAvatarDivergenceSnapshot(),
@@ -1197,6 +1573,7 @@ export function createAvatarRenderer(options = {}) {
       poseSolverMetrics: getPoseSolverMetricsSnapshot(),
       occlusion: getOcclusionSnapshot(),
       trackingRecovery: getTrackingRecoverySnapshot(),
+      appliedAvatarState: getAppliedAvatarStateSnapshot(),
     };
   }
 
@@ -1216,13 +1593,16 @@ export function createAvatarRenderer(options = {}) {
 
     if (nextMode !== activeRetargetMode) {
       activeRetargetMode = nextMode;
-      strictPoseSolverState.facing = 'front';
+      strictPoseSolverState.facing = undefined;
       strictPoseSolverState.mode = 'lost';
       strictPoseSolverState.targetMemory = {};
       strictRetargetState = {};
       lastStrictRetargetFrame = null;
       lastSourceAvatarDivergence = null;
+      lastAppliedAvatarState = null;
+      resetStrictLimbSecondaryState();
       resetBodyOcclusionState();
+      resetFootContactState('retarget-mode-change');
     }
 
     return activeRetargetMode;
@@ -1264,6 +1644,7 @@ export function createAvatarRenderer(options = {}) {
       },
       unresolvedNodeMappings: modelDiagnostics.unresolvedNodeMappings.slice(),
       renderCompatibility: modelDiagnostics.renderCompatibility,
+      frontAxisNormalization: modelDiagnostics.frontAxisNormalization ?? null,
       requiredBones: {
         missing: requiredMissing,
         present: REQUIRED_BONES.filter((name) => getBone(name)),
@@ -1411,6 +1792,10 @@ export function createAvatarRenderer(options = {}) {
     restPose.clear();
     restPoseByBone.clear();
     bodyBoneNames.clear();
+    resetStrictLimbSecondaryState();
+    resetFootContactState('renderer-disposed');
+    footContactRigFloorY.Left = null;
+    footContactRigFloorY.Right = null;
     fingerChains.Left.clear();
     fingerChains.Right.clear();
     resetProportionCalibration({ preserveReference: false });
@@ -1426,6 +1811,7 @@ export function createAvatarRenderer(options = {}) {
     vrmHumanoidMapping = null;
     modelDiagnostics.unresolvedNodeMappings = [];
     modelDiagnostics.renderCompatibility = null;
+    lastAppliedAvatarState = null;
   }
 
   function getValidationSegment(segment, points) {
@@ -1589,6 +1975,7 @@ export function createAvatarRenderer(options = {}) {
   }
 
   async function loadModel() {
+    resetStrictLimbSecondaryState();
     const loader = new GLTFLoader();
     loader.register((parser) => new VRMLoaderPlugin(parser));
     const gltf = await loader.loadAsync(modelUrl);
@@ -1719,6 +2106,64 @@ export function createAvatarRenderer(options = {}) {
     }
   }
 
+  function normalizeNonVrmRigFrontAxis() {
+    const diagnostics = {
+      mode: 'rest-side-axis',
+      applied: false,
+      correctionYawRad: 0,
+      beforeAlignment: null,
+      afterAlignment: null,
+      threshold: NON_VRM_FRONT_AXIS_FLIP_THRESHOLD,
+      reason: 'not-evaluated',
+    };
+    modelDiagnostics.frontAxisNormalization = diagnostics;
+
+    if (activeVrm || vrmHumanoid?.version) {
+      diagnostics.mode = 'vrm-metadata';
+      diagnostics.reason = 'managed-by-vrm-runtime';
+      return;
+    }
+
+    const left = getBone('LeftArm') ?? getBone('LeftShoulder');
+    const right = getBone('RightArm') ?? getBone('RightShoulder');
+
+    if (!model || !left || !right) {
+      diagnostics.reason = 'missing-rig-side-bones';
+      return;
+    }
+
+    model.updateWorldMatrix(true, true);
+    const sideAxis = left
+      .getWorldPosition(new THREE.Vector3())
+      .sub(right.getWorldPosition(new THREE.Vector3()));
+    sideAxis.y = 0;
+
+    if (sideAxis.lengthSq() < 0.000001) {
+      diagnostics.reason = 'degenerate-rig-side-axis';
+      return;
+    }
+
+    diagnostics.beforeAlignment = sideAxis.normalize().x;
+
+    if (diagnostics.beforeAlignment < NON_VRM_FRONT_AXIS_FLIP_THRESHOLD) {
+      model.rotation.y += Math.PI;
+      model.updateWorldMatrix(true, true);
+      diagnostics.applied = true;
+      diagnostics.correctionYawRad = Math.PI;
+    }
+
+    const normalizedSideAxis = left
+      .getWorldPosition(new THREE.Vector3())
+      .sub(right.getWorldPosition(new THREE.Vector3()));
+    normalizedSideAxis.y = 0;
+    diagnostics.afterAlignment = normalizedSideAxis.lengthSq() > 0.000001
+      ? normalizedSideAxis.normalize().x
+      : null;
+    diagnostics.reason = diagnostics.applied
+      ? 'canonical-left-axis-flipped'
+      : 'canonical-left-axis-aligned';
+  }
+
   function validateRequiredBones() {
     const missing = REQUIRED_BONES.filter((name) => !getBone(name));
 
@@ -1740,6 +2185,10 @@ export function createAvatarRenderer(options = {}) {
   function cacheRestPose() {
     restPose.clear();
     restPoseByBone.clear();
+    resetStrictLimbSecondaryState();
+    resetFootContactState('renderer-failed');
+    footContactRigFloorY.Left = null;
+    footContactRigFloorY.Right = null;
     model.updateWorldMatrix(true, true);
 
     for (const [name, bone] of bones) {
@@ -1748,11 +2197,34 @@ export function createAvatarRenderer(options = {}) {
 
       if (!rest) {
         const axisLocal = inferBoneAxisLocal(bone, baseName, hasBoneAlias);
+        const restLocalRotation = bone.quaternion.clone();
+        const secondaryAxisLocal = inferRestSecondaryAxisLocal(bone, baseName, axisLocal);
+        const restWorldRotation = bone.getWorldQuaternion(new THREE.Quaternion());
+        const hingeAxisLocal = new THREE.Vector3()
+          .crossVectors(axisLocal, secondaryAxisLocal)
+          .normalize();
         rest = {
-          quaternion: bone.quaternion.clone(),
+          quaternion: restLocalRotation,
           position: bone.position.clone(),
           axisLocal,
-          secondaryAxisLocal: inferRestSecondaryAxisLocal(bone, baseName, axisLocal),
+          secondaryAxisLocal,
+          rigProfile: {
+            restLocalRotation: restLocalRotation.clone(),
+            primaryAxisLocal: axisLocal.clone(),
+            secondaryAxisLocal: secondaryAxisLocal?.clone() ?? null,
+            hingeAxisLocal,
+            secondarySource: isHandBoneName(baseName) && hasRigHandPalmRoots(baseName)
+              ? 'rig-rest-palm'
+              : RIG_AVATAR_UP_SECONDARY_BONES.has(baseName)
+                ? 'avatar-rest-up'
+                : 'generic-perpendicular',
+            restPrimaryWorld: axisLocal.clone().applyQuaternion(restWorldRotation).normalize(),
+            restSecondaryWorld: secondaryAxisLocal
+              ?.clone()
+              .applyQuaternion(restWorldRotation)
+              .normalize() ?? null,
+            restLengthModel: measureRigBoneRestLengthModel(bone, baseName),
+          },
         };
         restPoseByBone.set(bone, rest);
         restPose.set(bone.name, rest);
@@ -1764,6 +2236,38 @@ export function createAvatarRenderer(options = {}) {
 
   function inferRestSecondaryAxisLocal(bone, baseName, axisLocal) {
     const resolvedBaseName = baseName || avatarBoneBaseName(bone.name);
+
+    if (isHandBoneName(resolvedBaseName) && axisLocal) {
+      const palmSecondary = inferRigHandPalmSecondaryAxisLocal(
+        bone,
+        resolvedBaseName.startsWith('Left') ? 'Left' : 'Right',
+        axisLocal,
+      );
+
+      if (palmSecondary) {
+        return palmSecondary;
+      }
+    }
+
+    if (RIG_AVATAR_UP_SECONDARY_BONES.has(resolvedBaseName) && model && axisLocal) {
+      const modelUpWorld = tmpVectorA
+        .set(0, 1, 0)
+        .applyQuaternion(model.getWorldQuaternion(tmpQuaternionA))
+        .normalize();
+      const derived = deriveRigSecondaryAxisLocal({
+        primaryAxisLocal: axisLocal,
+        boneRestWorldRotation: bone.getWorldQuaternion(tmpQuaternionB),
+        semanticSecondaryWorld: modelUpWorld,
+      });
+
+      if (derived.valid) {
+        return new THREE.Vector3(
+          derived.secondaryAxisLocal.x,
+          derived.secondaryAxisLocal.y,
+          derived.secondaryAxisLocal.z,
+        );
+      }
+    }
 
     if ((resolvedBaseName === 'Head' || resolvedBaseName === 'Neck') && model && axisLocal) {
       const modelForwardWorld = tmpVectorA
@@ -1787,6 +2291,83 @@ export function createAvatarRenderer(options = {}) {
     }
 
     return inferSecondaryAxisLocal(axisLocal);
+  }
+
+  function inferRigHandPalmSecondaryAxisLocal(bone, side, primaryAxisLocal) {
+    const indexRoot = getBone(`${side}HandIndex1`);
+    const pinkyRoot = getBone(`${side}HandPinky1`);
+
+    if (!bone || !indexRoot || !pinkyRoot) {
+      return null;
+    }
+
+    model?.updateWorldMatrix(true, true);
+    const wristWorld = bone.getWorldPosition(new THREE.Vector3());
+    const indexDirection = indexRoot
+      .getWorldPosition(new THREE.Vector3())
+      .sub(wristWorld);
+    const pinkyDirection = pinkyRoot
+      .getWorldPosition(new THREE.Vector3())
+      .sub(wristWorld);
+    const palmNormalWorld = new THREE.Vector3()
+      .crossVectors(indexDirection, pinkyDirection)
+      .multiplyScalar(DEFAULT_PALM_NORMAL_SIGNS[side] ?? -1);
+
+    if (palmNormalWorld.lengthSq() < 0.000001) {
+      return null;
+    }
+
+    const palmNormalLocal = palmNormalWorld
+      .normalize()
+      .applyQuaternion(bone.getWorldQuaternion(new THREE.Quaternion()).invert());
+    palmNormalLocal.addScaledVector(
+      primaryAxisLocal,
+      -palmNormalLocal.dot(primaryAxisLocal),
+    );
+
+    return palmNormalLocal.lengthSq() > 0.000001
+      ? palmNormalLocal.normalize()
+      : null;
+  }
+
+  function isHandBoneName(baseName) {
+    return baseName === 'LeftHand' || baseName === 'RightHand';
+  }
+
+  function hasRigHandPalmRoots(baseName) {
+    const side = baseName?.startsWith('Left') ? 'Left' : 'Right';
+    return Boolean(getBone(`${side}HandIndex1`) && getBone(`${side}HandPinky1`));
+  }
+
+  function measureRigBoneRestLengthModel(bone, baseName) {
+    if (!model || !bone) {
+      return null;
+    }
+
+    const primaryChildName = PRIMARY_BONE_CHILD.get(baseName);
+    const child = primaryChildName
+      ? bone.children.find((candidate) => (
+          isSupportedBoneObject(candidate) &&
+          (
+            hasBoneAlias(candidate, primaryChildName) ||
+            avatarBoneBaseName(candidate.name) === primaryChildName
+          )
+        ))
+      : bone.children.find((candidate) => isSupportedBoneObject(candidate));
+
+    if (!child) {
+      return null;
+    }
+
+    const modelWorldInverse = tmpMatrixA.copy(model.matrixWorld).invert();
+    const boneModelPosition = bone
+      .getWorldPosition(tmpVectorA)
+      .applyMatrix4(modelWorldInverse);
+    const childModelPosition = child
+      .getWorldPosition(tmpVectorB)
+      .applyMatrix4(modelWorldInverse);
+
+    return boneModelPosition.distanceTo(childModelPosition);
   }
 
   function buildRetargetMaps() {
@@ -1954,6 +2535,7 @@ export function createAvatarRenderer(options = {}) {
     rootMotion.baseModelRotationY = model.rotation.y;
     rootMotion.maxOffset.set(height * ROOT_MOTION_MAX_X_RATIO, height * ROOT_MOTION_MAX_Y_RATIO);
     resetRootMotion(false);
+    cacheFootContactRigFloor();
     configureOrbitCamera(
       target,
       defaultRadius,
@@ -1965,12 +2547,6 @@ export function createAvatarRenderer(options = {}) {
   }
 
   function getDefaultViewYaw() {
-    const label = String(modelLabel ?? '').toLowerCase();
-
-    if (label.includes('soldier')) {
-      return Math.PI;
-    }
-
     return 0;
   }
 
@@ -2168,12 +2744,11 @@ export function createAvatarRenderer(options = {}) {
       worldLandmarks,
     });
     const points = clonePosePoints(rawPoints);
-
     if (isDynamicDepthCalibrationActive()) {
       updateDepthCalibrationReferences(rawPoints, worldLandmarks);
 
       if (depthCalibration.frozen) {
-        refineDepthFromSegmentLengths(points, rawPoints, delta);
+        refineDepthFromSegmentLengths(points, rawPoints, worldLandmarks, delta);
       } else {
         depthCalibration.lastSolveDetails = new Map();
       }
@@ -2274,24 +2849,45 @@ export function createAvatarRenderer(options = {}) {
     depthCalibration.referenceSamples.clear();
   }
 
-  function refineDepthFromSegmentLengths(points, rawPoints, delta) {
+  function refineDepthFromSegmentLengths(points, rawPoints, worldLandmarks, delta) {
     const scale = bodyScale2D(rawPoints);
     const alpha = 1;
     const solveDetails = new Map();
+    const calibratedArmVectorSolutions = solveCalibratedArmVectorChains({
+      points,
+      rawPoints,
+      worldLandmarks,
+      referenceRatios: depthCalibration.referenceRatios,
+      scale,
+    });
 
     for (const step of DEPTH_CALIBRATION_SOLVE_STEPS) {
       const ratio = depthCalibration.referenceRatios[step.segmentName];
       const parent = points[step.parent];
       const child = points[step.child];
       const rawChild = rawPoints[step.child];
+      const useRawPairSign = step.segmentName === 'leftForeArm'
+        || step.segmentName === 'rightForeArm';
 
       if (!Number.isFinite(ratio) || !parent || !child || !rawChild) {
+        continue;
+      }
+
+      const calibratedArmVector = calibratedArmVectorSolutions.get(step.segmentName);
+
+      if (calibratedArmVector) {
+        child.x = calibratedArmVector.x;
+        child.y = calibratedArmVector.y;
+        child.z = calibratedArmVector.z;
+        depthCalibration.previousSegmentDz.set(step.segmentName, calibratedArmVector.dz);
+        solveDetails.set(step.segmentName, calibratedArmVector);
         continue;
       }
 
       const solved = solveDistalDepth({
         parent,
         child,
+        ...(useRawPairSign ? { rawParent: rawPoints[step.parent] } : {}),
         rawChild,
         targetLength: ratio * scale,
         previousDz: depthCalibration.previousSegmentDz.get(step.segmentName) ?? 0,
@@ -2406,19 +3002,36 @@ export function createAvatarRenderer(options = {}) {
   }
 
   function applyPose(landmarks, mirrored, delta, worldLandmarks = null, timestamp = 0) {
-    const { points: sourcePoints } = getPoseFramePoints(landmarks, mirrored, worldLandmarks, timestamp, delta);
+    const strictModeActive = activeRetargetMode === RETARGET_MODE_STRICT;
+    const { points: sourcePoints } = getPoseFramePoints(
+      landmarks,
+      mirrored,
+      worldLandmarks,
+      timestamp,
+      delta,
+    );
     const points = normalizePosePointsToAvatarProportions(sourcePoints);
     const limbPlaneNormals = computeLimbPlaneNormals(points);
+    const facingOptions = {
+      facingYawOffsetDeg: mirrored
+        ? MIRRORED_HYBRID_FACING_YAW_OFFSET_DEG
+        : UNMIRRORED_HYBRID_FACING_YAW_OFFSET_DEG,
+      lockFacingYawConvention: true,
+      maxFacingYawRateDegPerSec: ROOT_ORIENTATION_MAX_YAW_RATE_DEG_PER_SEC,
+    };
     const solverStartedAt = nowMs();
-    const solvedPose = solvePoseTargetsFromPoints(points, poseSolverState, { timestamp });
+    const solvedPose = solvePoseTargetsFromPoints(points, poseSolverState, {
+      timestamp,
+      ...facingOptions,
+    });
     recordPerformanceSample(performanceStats.poseSolverMs, nowMs() - solverStartedAt);
     Object.assign(poseSolverState, solvedPose.state);
     recordPoseSolverMetrics(solvedPose);
-    const strictModeActive = activeRetargetMode === RETARGET_MODE_STRICT;
     const retargetSolvedPose = strictModeActive
       ? solvePoseTargetsFromPoints(points, strictPoseSolverState, {
           timestamp,
           targetStabilization: false,
+          ...facingOptions,
         })
       : solvedPose;
 
@@ -2441,6 +3054,7 @@ export function createAvatarRenderer(options = {}) {
     const reacquireBlend = updateTrackingRecoveryState(retargetSolvedPose.meta.mode, timestamp);
 
     if (retargetSolvedPose.meta.mode === 'lost') {
+      resetFootContactState('tracking-lost');
       applyLostTrackingBodyPose(timestamp, delta);
       updateSourceAvatarDivergence(points);
       lastPoseSolverSnapshot = {
@@ -2462,6 +3076,10 @@ export function createAvatarRenderer(options = {}) {
 
     for (const target of BODY_RETARGETS) {
       const solvedTarget = solvedTargetsByBone.get(target.bone);
+
+      if (strictModeActive && STRICT_LOWER_BODY_BONES.has(target.bone)) {
+        continue;
+      }
 
       if (!solvedTarget) {
         applyOccludedBodyBone(target.bone, timestamp, delta);
@@ -2499,7 +3117,7 @@ export function createAvatarRenderer(options = {}) {
       const secondaryWorld = strictModeActive
         ? profile
           ? resolveBodySecondaryAxis(target, points)
-          : null
+          : resolveStrictCausalSecondaryAxis(target.bone, direction)
         : resolveBodySecondaryAxis(target, points) ?? limbPlaneNormals[target.bone] ?? null;
       const { maxAngle, maxTwist } = resolveBodyRetargetLimits(target, profile, strictModeActive);
 
@@ -2514,6 +3132,49 @@ export function createAvatarRenderer(options = {}) {
           ? alpha * reacquireBlend * target.strength * (profile.strengthScale ?? 1) * confidence
           : 1
         : alpha * reacquireBlend * target.strength * (profile?.strengthScale ?? 1) * confidence;
+
+      if (strictModeActive && !profile && STRICT_RIG_LOCAL_ARM_BONES.has(target.bone)) {
+        const previousAppliedLocalRotation =
+          lastAppliedAvatarState?.bones?.[target.bone]?.localQuaternion ?? null;
+        const rigLocalSolve = solveStrictRigLocalRotation(
+          target.bone,
+          direction,
+          secondaryWorld,
+        );
+
+        if (rigLocalSolve.valid) {
+          const causalLocalRotation = limitCausalRigLocalRotation({
+            previousLocalRotation: previousAppliedLocalRotation,
+            currentLocalRotation: rigLocalSolve.localRotation,
+            deltaMs: delta,
+            maxAngularVelocityDegPerSec: ARM_MAX_ANGULAR_VELOCITY_DEG_PER_SEC,
+          });
+
+          if (causalLocalRotation.valid) {
+            applyLocalQuaternionToBone(
+              target.bone,
+              causalLocalRotation.localRotation,
+              1,
+              maxAngle,
+              { maxTwist },
+            );
+            recordStrictRigLocalApplication(
+              target.bone,
+              {
+                ...rigLocalSolve,
+                causalLocalRotation,
+              },
+              'strict-rig-local',
+            );
+            continue;
+          }
+
+          recordStrictRigLocalFallback(target.bone, causalLocalRotation.reason);
+        } else {
+          recordStrictRigLocalFallback(target.bone, rigLocalSolve.reason);
+        }
+      }
+
       applyAimToBone(target.bone, direction, targetAlpha, maxAngle, {
         maxTwist,
         secondaryWorld,
@@ -2523,6 +3184,20 @@ export function createAvatarRenderer(options = {}) {
     }
 
     applyRootMotion(landmarks, mirrored, delta);
+
+    if (strictModeActive) {
+      applyStrictLowerBodyRetarget({
+        points,
+        solvedTargetsByBone,
+        solvedPose: retargetSolvedPose,
+        timestamp,
+        delta,
+        reacquireBlend,
+      });
+    } else {
+      resetFootContactState('strict-contact-disabled');
+    }
+
     updateSourceAvatarDivergence(points);
     lastPoseSolverSnapshot = {
       ...solverSnapshot,
@@ -2534,10 +3209,385 @@ export function createAvatarRenderer(options = {}) {
     };
   }
 
+  function applyStrictLowerBodyRetarget({
+    points,
+    solvedTargetsByBone,
+    solvedPose,
+    timestamp,
+    delta,
+    reacquireBlend,
+  }) {
+    const applications = new Map();
+
+    for (const boneNameKey of STRICT_LOWER_BODY_BONES) {
+      const target = BODY_RETARGET_BY_BONE.get(boneNameKey);
+      const solvedTarget = solvedTargetsByBone.get(boneNameKey);
+      applications.set(
+        boneNameKey,
+        prepareStrictLowerBodyApplication({
+          target,
+          solvedTarget,
+          points,
+          solvedPose,
+          timestamp,
+          delta,
+          reacquireBlend,
+        }),
+      );
+    }
+
+    model?.updateWorldMatrix(true, true);
+    let predictions = Object.fromEntries(
+      Object.keys(LOWER_BODY_CHAINS).map((side) => [
+        side,
+        buildStrictLowerBodyPrediction(side, applications),
+      ]),
+    );
+    const predictedFloorValues = Object.values(predictions)
+      .map((prediction) => prediction?.rawAnkle?.y)
+      .filter(Number.isFinite);
+    const predictedFloorY = predictedFloorValues.length > 0
+      ? Math.min(...predictedFloorValues)
+      : null;
+    const contactReady = solvedPose?.meta?.mode === 'full-body' &&
+      solvedPose?.meta?.anatomyLowerBodyReliable !== false &&
+      rootMotion.frozen;
+    const disabledReason = solvedPose?.meta?.mode !== 'full-body'
+      ? `tracking-${solvedPose?.meta?.mode ?? 'unknown'}`
+      : solvedPose?.meta?.anatomyLowerBodyReliable === false
+        ? 'lower-body-unreliable'
+        : !rootMotion.frozen
+          ? 'root-calibrating'
+          : null;
+
+    for (const side of Object.keys(LOWER_BODY_CHAINS)) {
+      const prediction = predictions[side];
+      const rigFloorY = footContactRigFloorY[side];
+
+      if (
+        !prediction ||
+        !Number.isFinite(predictedFloorY) ||
+        !Number.isFinite(rigFloorY)
+      ) {
+        footContactState[side] = resetPlantedFootContactState(
+          footContactState[side],
+          'lower-chain-unavailable',
+        );
+        continue;
+      }
+
+      if (!contactReady) {
+        footContactState[side] = resetPlantedFootContactState(
+          footContactState[side],
+          disabledReason ?? 'contact-disabled',
+        );
+        continue;
+      }
+
+      footContactState[side] = updatePlantedFootContact(
+        footContactState[side],
+        {
+          side,
+          timestampMs: timestamp,
+          rawWorld: prediction.rawAnkle,
+          floorY: predictedFloorY,
+          rigFloorY,
+          avatarHeight: modelHeight,
+          confidence: prediction.confidence,
+          enabled: true,
+        },
+        FOOT_CONTACT_OPTIONS,
+      );
+    }
+
+    predictions = applyStrictPlantedRootReachCorrection(applications, predictions);
+
+    for (const side of Object.keys(LOWER_BODY_CHAINS)) {
+      applyStrictLowerBodyChain(side, applications, predictions[side], timestamp);
+    }
+
+  }
+
+  function prepareStrictLowerBodyApplication({
+    target,
+    solvedTarget,
+    points,
+    solvedPose,
+    timestamp,
+    delta,
+    reacquireBlend,
+  }) {
+    if (!target || !solvedTarget) {
+      if (target) {
+        applyOccludedBodyBone(target.bone, timestamp, delta);
+      }
+      return null;
+    }
+
+    if (
+      anatomyConstraintsEnabled &&
+      solvedTarget.anatomy?.neutralHold &&
+      (solvedTarget.group === 'legs' || solvedTarget.group === 'feet')
+    ) {
+      applyOccludedBodyBone(target.bone, timestamp, delta, {
+        holdMs: RETARGET_OCCLUSION_HOLD_MS,
+        decayMs: RETARGET_OCCLUSION_DECAY_MS,
+      });
+      return null;
+    }
+
+    if (solvedPose?.meta?.mode === 'upper-body') {
+      applyOccludedBodyBone(target.bone, timestamp, delta, {
+        holdMs: 0,
+        decayMs: RETARGET_LOST_TRACKING_DECAY_MS,
+      });
+      return null;
+    }
+
+    const direction = resolveStrictTargetDirection(solvedTarget).clone();
+    const profile = target.profileKey ? activeModelProfile[target.profileKey] : null;
+    const smoothingMs = (RETARGET_SMOOTHING_MS[target.smoothing] ?? RETARGET_SMOOTHING_MS.foreArm)
+      * (target.profileKey ? activeModelProfile.smoothingScale : 1);
+    const alpha = smoothingAlpha(delta, smoothingMs);
+    const confidence = solvedTarget.confidence;
+    const secondaryWorld = profile
+      ? resolveBodySecondaryAxis(target, points)?.clone() ?? null
+      : resolveStrictCausalSecondaryAxis(target.bone, direction)?.clone() ?? null;
+    const { maxAngle, maxTwist } = resolveBodyRetargetLimits(target, profile, true);
+
+    if (direction.lengthSq() < 0.000001 || !Number.isFinite(confidence)) {
+      applyOccludedBodyBone(target.bone, timestamp, delta);
+      return null;
+    }
+
+    clearBodyOcclusionState(target.bone);
+    return {
+      target,
+      solvedTarget,
+      direction,
+      confidence,
+      secondaryWorld,
+      maxAngle,
+      maxTwist,
+      targetAlpha: profile
+        ? alpha * reacquireBlend * target.strength * (profile.strengthScale ?? 1) * confidence
+        : 1,
+    };
+  }
+
+  function buildStrictLowerBodyPrediction(side, applications) {
+    const chain = LOWER_BODY_CHAINS[side];
+    const upperApplication = applications.get(chain.upperBone);
+    const lowerApplication = applications.get(chain.lowerBone);
+    const hipBone = getBone(chain.upperBone);
+    const kneeBone = getBone(chain.lowerBone);
+    const ankleBone = getBone(chain.footBone);
+
+    if (!upperApplication || !lowerApplication || !hipBone || !kneeBone || !ankleBone) {
+      return null;
+    }
+
+    const hip = hipBone.getWorldPosition(new THREE.Vector3());
+    const currentKnee = kneeBone.getWorldPosition(new THREE.Vector3());
+    const currentAnkle = ankleBone.getWorldPosition(new THREE.Vector3());
+    const upperLength = hip.distanceTo(currentKnee);
+    const lowerLength = currentKnee.distanceTo(currentAnkle);
+
+    if (upperLength < 0.000001 || lowerLength < 0.000001) {
+      return null;
+    }
+
+    const upperDirection = upperApplication.direction.clone().normalize();
+    const lowerDirection = lowerApplication.direction.clone().normalize();
+    const fallbackPole = currentKnee.clone().sub(hip);
+    const rawKnee = hip.clone().addScaledVector(upperDirection, upperLength);
+    const rawAnkle = rawKnee.clone().addScaledVector(lowerDirection, lowerLength);
+
+    return {
+      side,
+      hip: plainVector(hip),
+      currentKnee: plainVector(currentKnee),
+      currentAnkle: plainVector(currentAnkle),
+      fallbackPole: plainVector(fallbackPole),
+      rawKnee: plainVector(rawKnee),
+      rawAnkle: plainVector(rawAnkle),
+      upperLength,
+      lowerLength,
+      confidence: Math.min(upperApplication.confidence, lowerApplication.confidence),
+    };
+  }
+
+  function applyStrictPlantedRootReachCorrection(applications, initialPredictions) {
+    let predictions = initialPredictions;
+    const maxCumulativeCorrection = Math.max(
+      0,
+      modelHeight * FOOT_CONTACT_OPTIONS.maxGroundPlaneAnchorDriftHeightRatio,
+    );
+    let cumulativeCorrectionDistance = 0;
+
+    for (const side of ['Left', 'Right']) {
+      const state = footContactState[side];
+      const prediction = predictions[side];
+      const preflightSolution = solveStrictLowerBodyIk(side, prediction, state);
+      const remainingCorrection = Math.max(
+        0,
+        maxCumulativeCorrection - cumulativeCorrectionDistance,
+      );
+      const correction = resolveBoundedTwoBoneRootCorrection({
+        solution: preflightSolution,
+        anchorWorld: state?.anchorWorld,
+        maxCorrection: remainingCorrection,
+      });
+
+      if (!correction) {
+        continue;
+      }
+
+      const correctionVector = vectorFromPlain(correction);
+      const correctionDistance = correctionVector.length();
+
+      model.position.add(correctionVector);
+      rootMotion.offset.add(correctionVector);
+      cumulativeCorrectionDistance += correctionDistance;
+      model.updateWorldMatrix(true, true);
+      predictions = Object.fromEntries(
+        Object.keys(LOWER_BODY_CHAINS).map((predictionSide) => [
+          predictionSide,
+          buildStrictLowerBodyPrediction(predictionSide, applications),
+        ]),
+      );
+    }
+
+    return predictions;
+  }
+
+  function solveStrictLowerBodyIk(side, prediction, state = footContactState[side]) {
+    if (state?.phase !== 'planted' || !prediction || !state.anchorWorld) {
+      return null;
+    }
+
+    return solveSignedPoleTwoBone({
+      root: prediction.hip,
+      mid: prediction.rawKnee,
+      end: prediction.rawAnkle,
+      target: state.anchorWorld,
+      previousPole: state.poleWorld,
+      fallbackPole: prediction.fallbackPole,
+      maxBendDeg: FOOT_IK_MAX_BEND_DEG,
+      minBendDeg: 1,
+      maxReachError: modelHeight * FOOT_IK_MAX_REACH_ERROR_HEIGHT_RATIO,
+    });
+  }
+
+  function applyStrictLowerBodyChain(side, applications, prediction, timestamp) {
+    const chain = LOWER_BODY_CHAINS[side];
+    const upperApplication = applications.get(chain.upperBone);
+    const lowerApplication = applications.get(chain.lowerBone);
+    const footApplication = applications.get(chain.footBone);
+    let state = footContactState[side];
+    let ikSolution = null;
+
+    if (state.phase === 'planted' && prediction && state.anchorWorld) {
+      ikSolution = solveStrictLowerBodyIk(side, prediction, state);
+
+      if (!ikSolution.valid || !ikSolution.reachable) {
+        state = releasePlantedFootContact(
+          state,
+          ikSolution.valid ? 'ik-unreachable' : `ik-${ikSolution.reason}`,
+          timestamp,
+          { rawWorld: prediction.rawAnkle },
+        );
+        footContactState[side] = state;
+        ikSolution = null;
+      }
+    }
+
+    if (ikSolution) {
+      applyAimToBone(
+        chain.upperBone,
+        vectorFromPlain(ikSolution.upperDirection),
+        1,
+        undefined,
+      );
+      recordStrictLowerBodyOwner(chain.upperBone, 'planted-foot-ik');
+
+      const actualKnee = getBoneWorldPoint(chain.lowerBone);
+      const ankleTarget = vectorFromPlain(ikSolution.ankleTarget);
+      const lowerDirection = actualKnee
+        ? ankleTarget.sub(actualKnee)
+        : vectorFromPlain(ikSolution.lowerDirection);
+      applyAimToBone(chain.lowerBone, lowerDirection, 1, undefined);
+      recordStrictLowerBodyOwner(chain.lowerBone, 'planted-foot-ik');
+    } else {
+      const directionBlend = Number.isFinite(state?.directionBlend) ? state.directionBlend : 1;
+      applyResolvedLowerBodyDirection(upperApplication, directionBlend, 'direction');
+      applyResolvedLowerBodyDirection(lowerApplication, directionBlend, 'direction');
+    }
+
+    applyResolvedLowerBodyDirection(footApplication, 1, 'direction-foot');
+
+    const appliedAnkle = getBoneWorldPoint(chain.footBone);
+    const appliedWorld = appliedAnkle ? plainVector(appliedAnkle) : null;
+    const endpointResidualRatio = ikSolution && appliedAnkle
+      ? appliedAnkle.distanceTo(vectorFromPlain(ikSolution.ankleTarget)) / Math.max(modelHeight, 0.000001)
+      : null;
+
+    footContactState[side] = {
+      ...footContactState[side],
+      poleWorld: ikSolution?.poleDirection ?? footContactState[side]?.poleWorld ?? null,
+      owner: ikSolution ? 'planted-foot-ik' : 'direction',
+      ikApplied: Boolean(ikSolution),
+      ikReachable: ikSolution ? true : null,
+      endpointResidualRatio,
+      reachErrorRatio: ikSolution
+        ? ikSolution.reachError / Math.max(modelHeight, 0.000001)
+        : null,
+      bendDeg: ikSolution?.bendDeg ?? null,
+      poleSource: ikSolution?.poleSource ?? null,
+      lastAppliedWorld: appliedWorld,
+    };
+  }
+
+  function applyResolvedLowerBodyDirection(application, alphaScale = 1, owner = 'direction') {
+    if (!application) {
+      return;
+    }
+
+    applyAimToBone(
+      application.target.bone,
+      application.direction,
+      application.targetAlpha * clamp01(alphaScale),
+      application.maxAngle,
+      {
+        maxTwist: application.maxTwist,
+        secondaryWorld: application.secondaryWorld,
+      },
+    );
+    recordStrictLowerBodyOwner(application.target.bone, owner);
+  }
+
+  function recordStrictLowerBodyOwner(boneNameKey, owner) {
+    const frameBone = lastStrictRetargetFrame?.bones?.[boneNameKey];
+    const bone = getBone(boneNameKey);
+
+    if (!frameBone) {
+      return;
+    }
+
+    frameBone.localRotationOwner = owner;
+    frameBone.localRotationDeferred = false;
+    frameBone.localRotationDeferredReason = null;
+    frameBone.appliedLocalRotation = bone ? quaternionToArray(bone.quaternion) : null;
+  }
+
   function resolveBodyRetargetLimits(target, profile, strictModeActive) {
     if (strictModeActive && !profile) {
       return {
-        maxAngle: undefined,
+        maxAngle:
+          STRICT_REST_ANGLE_LIMIT_BONES.has(target.bone) &&
+          Number.isFinite(target.maxAngle)
+            ? target.maxAngle
+            : undefined,
         maxTwist: undefined,
       };
     }
@@ -2748,8 +3798,8 @@ export function createAvatarRenderer(options = {}) {
 
   function resetTrackingRecoveryState() {
     trackingRecovery.lost = false;
-    trackingRecovery.lastLostAt = 0;
-    trackingRecovery.reacquiredAt = 0;
+    trackingRecovery.lastLostAt = null;
+    trackingRecovery.reacquiredAt = null;
     trackingRecovery.blend = 1;
   }
 
@@ -2759,7 +3809,7 @@ export function createAvatarRenderer(options = {}) {
     if (mode === 'lost') {
       trackingRecovery.lost = true;
       trackingRecovery.lastLostAt = now;
-      trackingRecovery.reacquiredAt = 0;
+      trackingRecovery.reacquiredAt = null;
       trackingRecovery.blend = 0;
       return trackingRecovery.blend;
     }
@@ -2771,12 +3821,12 @@ export function createAvatarRenderer(options = {}) {
       return trackingRecovery.blend;
     }
 
-    if (trackingRecovery.reacquiredAt > 0) {
+    if (Number.isFinite(trackingRecovery.reacquiredAt)) {
       const elapsed = Math.max(0, now - trackingRecovery.reacquiredAt);
       trackingRecovery.blend = clamp01(elapsed / RETARGET_REACQUIRE_BLEND_MS);
 
       if (trackingRecovery.blend >= 1) {
-        trackingRecovery.reacquiredAt = 0;
+        trackingRecovery.reacquiredAt = null;
         trackingRecovery.blend = 1;
       }
 
@@ -2887,6 +3937,7 @@ export function createAvatarRenderer(options = {}) {
   }
 
   function applyOccludedBodyBone(boneNameKey, timestamp, delta, options = {}) {
+    strictLimbSecondaryState.delete(boneNameKey);
     const bone = getBone(boneNameKey);
     const rest = getBoneRest(bone);
 
@@ -2947,6 +3998,228 @@ export function createAvatarRenderer(options = {}) {
     }
 
     return null;
+  }
+
+  function resolveStrictCausalSecondaryAxis(boneNameKey, primaryWorld) {
+    if (!STRICT_CAUSAL_SECONDARY_BONES.has(boneNameKey)) {
+      return null;
+    }
+
+    const bone = getBone(boneNameKey);
+    const rest = getBoneRest(bone);
+
+    if (!bone || !rest?.secondaryAxisLocal) {
+      return null;
+    }
+
+    const previousState = strictLimbSecondaryState.get(boneNameKey) ?? null;
+    const activation = resolveCausalSecondaryActivation({
+      primary: primaryWorld,
+      restPrimary: getRestPrimaryWorldAxis(bone, rest),
+      previousActive: Boolean(previousState?.active),
+    });
+
+    if (!activation.valid || !activation.active) {
+      strictLimbSecondaryState.delete(boneNameKey);
+      return null;
+    }
+
+    const stabilized = stabilizeCausalSecondaryAxis({
+      primary: primaryWorld,
+      seedSecondary: previousState ? null : getRestSecondaryWorldAxis(bone, rest),
+      previousState,
+    });
+
+    if (!stabilized.valid) {
+      strictLimbSecondaryState.delete(boneNameKey);
+      return null;
+    }
+
+    strictLimbSecondaryState.set(boneNameKey, {
+      ...stabilized.state,
+      active: true,
+    });
+    return new THREE.Vector3(
+      stabilized.secondary.x,
+      stabilized.secondary.y,
+      stabilized.secondary.z,
+    );
+  }
+
+  function solveStrictRigLocalRotation(boneNameKey, primaryWorld, secondaryWorld) {
+    const bone = getBone(boneNameKey);
+    const rest = getBoneRest(bone);
+    const rigProfile = rest?.rigProfile;
+
+    if (!bone || !rigProfile) {
+      return {
+        valid: false,
+        mode: 'unavailable',
+        reason: 'missing-rig-profile',
+        localRotation: null,
+      };
+    }
+
+    bone.parent?.updateWorldMatrix(true, false);
+    const parentWorldRotation = bone.parent
+      ? bone.parent.getWorldQuaternion(tmpQuaternionH)
+      : tmpQuaternionH.identity();
+
+    const solveOptions = {
+      parentWorldRotation,
+      restLocalRotation: rigProfile.restLocalRotation,
+      restPrimaryAxisLocal: rigProfile.primaryAxisLocal,
+      restSecondaryAxisLocal: rigProfile.secondaryAxisLocal,
+      targetPrimaryWorld: primaryWorld,
+      targetSecondaryWorld: secondaryWorld,
+      previousLocalRotation: bone.quaternion,
+    };
+
+    return solveRigLocalRotation(solveOptions);
+  }
+
+  function strictLocalRotationToWorld(boneNameKey, localRotation) {
+    const bone = getBone(boneNameKey);
+
+    if (!bone || !localRotation) {
+      return null;
+    }
+
+    bone.parent?.updateWorldMatrix(true, false);
+    const parentWorldRotation = bone.parent
+      ? bone.parent.getWorldQuaternion(new THREE.Quaternion())
+      : new THREE.Quaternion();
+    const local = new THREE.Quaternion(
+      Number(localRotation.x ?? localRotation[0] ?? 0),
+      Number(localRotation.y ?? localRotation[1] ?? 0),
+      Number(localRotation.z ?? localRotation[2] ?? 0),
+      Number(localRotation.w ?? localRotation[3] ?? 1),
+    ).normalize();
+
+    return parentWorldRotation.multiply(local).normalize();
+  }
+
+  function strictWorldRotationToLocal(boneNameKey, worldRotation) {
+    const bone = getBone(boneNameKey);
+
+    if (!bone || !worldRotation) {
+      return null;
+    }
+
+    bone.parent?.updateWorldMatrix(true, false);
+    const inverseParentWorld = bone.parent
+      ? bone.parent.getWorldQuaternion(new THREE.Quaternion()).invert()
+      : new THREE.Quaternion();
+    const world = new THREE.Quaternion(
+      Number(worldRotation.x ?? worldRotation[0] ?? 0),
+      Number(worldRotation.y ?? worldRotation[1] ?? 0),
+      Number(worldRotation.z ?? worldRotation[2] ?? 0),
+      Number(worldRotation.w ?? worldRotation[3] ?? 1),
+    ).normalize();
+
+    return inverseParentWorld.multiply(world).normalize();
+  }
+
+  function recordStrictRigLocalApplication(boneNameKey, solved, owner = 'strict-rig-local') {
+    const frameBone = lastStrictRetargetFrame?.bones?.[boneNameKey];
+    const bone = getBone(boneNameKey);
+
+    if (!frameBone) {
+      return;
+    }
+
+    frameBone.localRotation = quaternionToArray(solved.localRotation);
+    frameBone.boundedLocalRotation = quaternionToArray(
+      solved.causalLocalRotation?.localRotation ?? solved.localRotation,
+    );
+    frameBone.localRotationRawDeltaDeg = numberOrNull(
+      solved.causalLocalRotation?.rawDeltaDeg,
+    );
+    frameBone.localRotationMaximumStepDeg = numberOrNull(
+      solved.causalLocalRotation?.maximumStepDeg,
+    );
+    frameBone.localRotationAppliedDeltaDeg = numberOrNull(
+      solved.causalLocalRotation?.appliedDeltaDeg,
+    );
+    frameBone.localRotationRateLimited = solved.causalLocalRotation?.rateLimited === true;
+    frameBone.localRotationDeferred = false;
+    frameBone.localRotationDeferredReason = null;
+    frameBone.localRotationMode = solved.mode;
+    frameBone.localRotationOwner = owner;
+    frameBone.appliedLocalRotation = bone ? quaternionToArray(bone.quaternion) : null;
+    frameBone.hingeWeight = Number.isFinite(solved.hingeWeight)
+      ? solved.hingeWeight
+      : null;
+    frameBone.hingeFlexReliability = Number.isFinite(solved.hingeFlexReliability)
+      ? solved.hingeFlexReliability
+      : null;
+    frameBone.hingeDirectionErrorDeg = Number.isFinite(solved.hingeDirectionErrorDeg)
+      ? solved.hingeDirectionErrorDeg
+      : null;
+    frameBone.appliedPrimaryErrorDeg = Number.isFinite(solved.appliedPrimaryErrorDeg)
+      ? solved.appliedPrimaryErrorDeg
+      : null;
+    frameBone.hingeCorrectionDeg = Number.isFinite(solved.hingeCorrectionDeg)
+      ? solved.hingeCorrectionDeg
+      : null;
+  }
+
+  function recordStrictRigLocalFallback(boneNameKey, reason) {
+    const frameBone = lastStrictRetargetFrame?.bones?.[boneNameKey];
+
+    if (!frameBone) {
+      return;
+    }
+
+    frameBone.localRotationOwner = 'renderer-aim-fallback';
+    frameBone.localRotationDeferredReason = reason ?? 'rig-local-solve-failed';
+  }
+
+  function getRestSecondaryWorldAxis(bone, rest) {
+    bone.parent?.updateWorldMatrix(true, false);
+    const parentWorldQuaternion = bone.parent
+      ? bone.parent.getWorldQuaternion(new THREE.Quaternion())
+      : new THREE.Quaternion();
+
+    const secondaryAxisLocal = rest.rigProfile?.secondaryAxisLocal ?? rest.secondaryAxisLocal;
+
+    return secondaryAxisLocal
+      .clone()
+      .applyQuaternion(rest.quaternion)
+      .applyQuaternion(parentWorldQuaternion)
+      .normalize();
+  }
+
+  function getRestPrimaryWorldAxis(bone, rest) {
+    bone.parent?.updateWorldMatrix(true, false);
+    const parentWorldQuaternion = bone.parent
+      ? bone.parent.getWorldQuaternion(new THREE.Quaternion())
+      : new THREE.Quaternion();
+    const primaryAxisLocal = rest.rigProfile?.primaryAxisLocal ?? rest.axisLocal;
+
+    return primaryAxisLocal
+      .clone()
+      .applyQuaternion(rest.quaternion)
+      .applyQuaternion(parentWorldQuaternion)
+      .normalize();
+  }
+
+  function resetStrictLimbSecondaryState() {
+    strictLimbSecondaryState.clear();
+    strictFingerSourcePtsSec.Left = null;
+    strictFingerSourcePtsSec.Right = null;
+    strictFingerLastObservationPtsSec.Left = null;
+    strictFingerLastObservationPtsSec.Right = null;
+    resetStrictFingerFlexTrackingSide('Left');
+    resetStrictFingerFlexTrackingSide('Right');
+    resetStrictFingerRootTrackingSide('Left');
+    resetStrictFingerRootTrackingSide('Right');
+    resetCausalQuaternionTargetState(strictPoseHandTracking.Left);
+    resetCausalQuaternionTargetState(strictPoseHandTracking.Right);
+    strictPoseHandLocalHold.Left = null;
+    strictPoseHandLocalHold.Right = null;
+    strictPoseHandParentWorld.Left = null;
+    strictPoseHandParentWorld.Right = null;
   }
 
   function retargetConfidence(...points) {
@@ -3502,8 +4775,295 @@ export function createAvatarRenderer(options = {}) {
     }
   }
 
-  function applyHands(hands, mirrored, delta) {
+  function cacheFootContactRigFloor() {
+    model?.updateWorldMatrix(true, true);
+
+    for (const [side, chain] of Object.entries(LOWER_BODY_CHAINS)) {
+      const ankle = getBoneWorldPoint(chain.footBone);
+      footContactRigFloorY[side] = Number.isFinite(ankle?.y) ? ankle.y : null;
+    }
+  }
+
+  function resetFootContactState(reason = 'reset') {
+    footContactState = {
+      Left: resetPlantedFootContactState(footContactState.Left, reason),
+      Right: resetPlantedFootContactState(footContactState.Right, reason),
+    };
+  }
+
+  function getFootContactSnapshot() {
+    return {
+      mode: activeRetargetMode === RETARGET_MODE_STRICT ? 'strict-causal-ik' : 'disabled',
+      options: { ...FOOT_CONTACT_OPTIONS },
+      maxReachErrorHeightRatio: FOOT_IK_MAX_REACH_ERROR_HEIGHT_RATIO,
+      maxBendDeg: FOOT_IK_MAX_BEND_DEG,
+      sides: Object.fromEntries(
+        Object.entries(footContactState).map(([side, state]) => [
+          side,
+          serializeFootContactState(state, footContactRigFloorY[side]),
+        ]),
+      ),
+    };
+  }
+
+  function serializeFootContactState(state, rigFloorY) {
+    return {
+      side: state?.side ?? null,
+      phase: state?.phase ?? 'moving',
+      candidateSinceMs: numberOrNull(state?.candidateSinceMs),
+      candidateSamples: Math.max(0, Math.trunc(Number(state?.candidateSamples) || 0)),
+      plantedAtMs: numberOrNull(state?.plantedAtMs),
+      anchorWorld: plainVectorToArray(state?.anchorWorld),
+      rawWorld: plainVectorToArray(state?.previousRawWorld),
+      appliedWorld: plainVectorToArray(state?.lastAppliedWorld),
+      poleWorld: plainVectorToArray(state?.poleWorld),
+      rigFloorY: numberOrNull(rigFloorY),
+      instantaneousSpeedHeightPerSec: numberOrNull(state?.instantaneousSpeedHeightPerSec),
+      verticalSpeedHeightPerSec: numberOrNull(state?.verticalSpeedHeightPerSec),
+      smoothedSpeedHeightPerSec: numberOrNull(state?.smoothedSpeedHeightPerSec),
+      heightAboveFloorRatio: numberOrNull(state?.heightAboveFloorRatio),
+      rigFloorHeightRatio: numberOrNull(state?.rigFloorHeightRatio),
+      groundPlaneAnchorDriftHeightRatio: numberOrNull(
+        state?.groundPlaneAnchorDriftHeightRatio,
+      ),
+      confidence: numberOrNull(state?.confidence),
+      releasedAtMs: numberOrNull(state?.releasedAtMs),
+      releaseReason: state?.releaseReason ?? null,
+      directionBlend: numberOrNull(state?.directionBlend),
+      owner: state?.owner ?? 'direction',
+      ikApplied: Boolean(state?.ikApplied),
+      ikReachable: state?.ikReachable ?? null,
+      endpointResidualRatio: numberOrNull(state?.endpointResidualRatio),
+      reachErrorRatio: numberOrNull(state?.reachErrorRatio),
+      bendDeg: numberOrNull(state?.bendDeg),
+      poleSource: state?.poleSource ?? null,
+    };
+  }
+
+  function plainVector(value) {
+    if (!value) {
+      return null;
+    }
+
+    const x = Number(value.x ?? value[0]);
+    const y = Number(value.y ?? value[1]);
+    const z = Number(value.z ?? value[2]);
+
+    return Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)
+      ? { x, y, z }
+      : null;
+  }
+
+  function plainVectorToArray(value) {
+    const vector = plainVector(value);
+    return vector ? [vector.x, vector.y, vector.z] : null;
+  }
+
+  function vectorFromPlain(value) {
+    const vector = plainVector(value);
+    return vector
+      ? new THREE.Vector3(vector.x, vector.y, vector.z)
+      : new THREE.Vector3();
+  }
+
+  function applyPoseOwnedHandOrientations(
+    worldLandmarks,
+    mirrored,
+    timestamp,
+  ) {
+    const appliedSides = new Set();
+
+    if (activeRetargetMode !== RETARGET_MODE_STRICT) {
+      return appliedSides;
+    }
+
+    const now = Number.isFinite(timestamp) ? timestamp : nowMs();
+
+    for (const side of ['Left', 'Right']) {
+      const boneNameKey = `${side}Hand`;
+      const tracking = strictPoseHandTracking[side];
+      transportPoseHandCausalStateWithParent(side, boneNameKey, tracking);
+      const basis = buildPoseWorldHandBasis(worldLandmarks, side, mirrored);
+      const solved = basis.valid
+        ? solveStrictRigLocalRotation(
+            boneNameKey,
+            plainVectorToThree(basis.primary, tmpVectorC),
+            plainVectorToThree(basis.normal, tmpVectorD),
+          )
+        : { valid: false, localRotation: null, mode: null, reason: 'pose-basis-unavailable' };
+      const solvedWorldRotation = solved.valid
+        ? strictLocalRotationToWorld(boneNameKey, solved.localRotation)
+        : null;
+      const innovation = evaluatePoseHandInnovation({
+        previousRotation: tracking.lastRotation,
+        candidateRotation: solvedWorldRotation,
+        previousTimestampMs: tracking.lastFrameAt,
+        timestampMs: now,
+        confidence: basis.confidence,
+      });
+      const causal = updateCausalQuaternionTarget(
+        tracking,
+        innovation.hold ? null : solvedWorldRotation,
+        now,
+        { trackingGraceMs: POSE_HAND_TRACKING_GRACE_MS },
+      );
+      if (causal.apply) {
+        const useTransportedLocalHold = !solved.valid || causal.status === 'jump-hold';
+        const localRotation = useTransportedLocalHold
+          ? strictPoseHandLocalHold[side]?.clone() ?? getBone(boneNameKey)?.quaternion?.clone?.() ?? null
+          : strictWorldRotationToLocal(boneNameKey, causal.rotation);
+
+        if (localRotation) {
+          applyLocalQuaternionToBone(
+            boneNameKey,
+            localRotation,
+            1,
+            undefined,
+            { maxTwist: undefined },
+          );
+          appliedSides.add(side);
+
+          if (!useTransportedLocalHold) {
+            strictPoseHandLocalHold[side] = localRotation.clone();
+          } else {
+            strictPoseHandLocalHold[side] = localRotation.clone();
+            transportCausalQuaternionTargetState(
+              tracking,
+              strictLocalRotationToWorld(boneNameKey, localRotation),
+              now,
+              { preservePending: causal.status === 'jump-hold' },
+            );
+          }
+        }
+      } else {
+        const bone = getBone(boneNameKey);
+        const currentLocal = bone?.quaternion?.clone?.() ?? null;
+
+        if (currentLocal) {
+          strictPoseHandLocalHold[side] = currentLocal;
+          transportCausalQuaternionTargetState(
+            tracking,
+            strictLocalRotationToWorld(boneNameKey, currentLocal),
+            now,
+          );
+        }
+      }
+
+      const orientationSnapshot = basis.valid
+        ? buildHandOrientationSnapshot({
+            side,
+            mirrored,
+            source: basis.source,
+            orientation: basis,
+            actualPalmNormal: getBoneWorldSecondaryAxis(boneNameKey),
+          })
+        : handOrientation[side] ?? { side };
+      handOrientation[side] = {
+        ...orientationSnapshot,
+        side,
+        tracked: causal.tracked,
+        source: resolvePoseHandCausalSource(basis, causal, innovation),
+        owner: 'pose-world-causal',
+        solveMode: solved.mode,
+        solveReason: solved.valid ? null : solved.reason,
+        causalStatus: innovation.hold
+          ? 'low-confidence-rate-hold'
+          : causal.status,
+        causalSpace: 'hand-world',
+        withinGrace: causal.withinGrace,
+        gapMs: numberOrNull(causal.gapMs),
+        rawDeltaDeg: numberOrNull(causal.rawDeltaDeg),
+        appliedDeltaDeg: numberOrNull(causal.appliedDeltaDeg),
+        pendingCount: causal.pendingCount,
+        basisConfidence: numberOrNull(basis.confidence),
+        innovationHeld: innovation.hold,
+        innovationReason: innovation.reason,
+        innovationDeg: numberOrNull(innovation.innovationDeg),
+        innovationRateDegPerSec: numberOrNull(
+          innovation.innovationRateDegPerSec,
+        ),
+        fingerTracked: false,
+      };
+    }
+
+    return appliedSides;
+  }
+
+  function transportPoseHandCausalStateWithParent(side, boneNameKey, tracking) {
+    const bone = getBone(boneNameKey);
+
+    if (!bone) {
+      strictPoseHandParentWorld[side] = null;
+      return;
+    }
+
+    bone.parent?.updateWorldMatrix(true, false);
+    const currentParentWorld = bone.parent
+      ? bone.parent.getWorldQuaternion(new THREE.Quaternion())
+      : new THREE.Quaternion();
+    const previousParentWorld = strictPoseHandParentWorld[side];
+
+    if (previousParentWorld) {
+      const parentDelta = currentParentWorld
+        .clone()
+        .multiply(previousParentWorld.clone().invert())
+        .normalize();
+      transportCausalQuaternionTargetStateByDelta(tracking, parentDelta);
+    }
+
+    strictPoseHandParentWorld[side] = currentParentWorld.clone();
+  }
+
+  function resolvePoseHandCausalSource(basis, causal, innovation = null) {
+    if (innovation?.hold) {
+      return 'pose-world-low-confidence-rate-hold';
+    }
+    if (causal.status === 'jump-hold') {
+      return 'pose-world-jump-hold';
+    }
+    if (causal.status === 'missing-hold') {
+      return 'pose-world-hold';
+    }
+    if (!causal.apply) {
+      return 'pose-world-unavailable';
+    }
+    return basis.valid ? basis.source : 'pose-world-hold';
+  }
+
+  function buildPoseWorldHandBasis(worldLandmarks, side, mirrored) {
+    const prefix = side === 'Left' ? 'left' : 'right';
+    const wristLandmark = worldLandmarks?.[POSE[`${prefix}Wrist`]];
+    const indexLandmark = worldLandmarks?.[POSE[`${prefix}Index`]];
+    const pinkyLandmark = worldLandmarks?.[POSE[`${prefix}Pinky`]];
+    const basis = resolvePoseHandOrientationBasis({
+      wrist: poseWorldHandPoint(wristLandmark, mirrored),
+      indexBase: poseWorldHandPoint(indexLandmark, mirrored),
+      pinkyBase: poseWorldHandPoint(pinkyLandmark, mirrored),
+      side,
+      reflectionParity: mirrored ? -1 : 1,
+    });
+
+    return {
+      ...basis,
+      confidence: minimumPoseLandmarkConfidence([
+        wristLandmark,
+        indexLandmark,
+        pinkyLandmark,
+      ]),
+    };
+  }
+
+
+  function applyHands(
+    hands,
+    mirrored,
+    delta,
+    poseOwnedHandSides = new Set(),
+    frameContext = {},
+  ) {
     const usedSides = new Set();
+    const detectorTrackedSides = new Set();
+    const predictedSides = new Set();
     const relaxAlpha = smoothingAlpha(delta, RETARGET_SMOOTHING_MS.relax);
 
     for (const hand of hands) {
@@ -3514,11 +5074,86 @@ export function createAvatarRenderer(options = {}) {
       }
 
       usedSides.add(side);
-      applyHand(side, hand, mirrored, delta);
+      const observationState = resolveStrictHandObservationState(side, frameContext);
+      const predicted = observationState === 'pose-guided-prediction';
+      if (predicted) {
+        predictedSides.add(side);
+      } else {
+        detectorTrackedSides.add(side);
+      }
+      const fingerSourcePtsSec = resolveStrictFingerSourcePtsSec(side, frameContext);
+      const fingerSourcePtsUs = exactSourcePtsUsFromSec(fingerSourcePtsSec);
+      const previousFingerSourcePtsUs = exactSourcePtsUsFromSec(
+        strictFingerSourcePtsSec[side],
+      );
+      const updateFingerPose = !predicted && (
+        activeRetargetMode !== RETARGET_MODE_STRICT ||
+        fingerSourcePtsUs === null ||
+        previousFingerSourcePtsUs === null ||
+        fingerSourcePtsUs !== previousFingerSourcePtsUs
+      );
+      const applied = applyHand(side, hand, mirrored, delta, {
+        fingerSourcePtsSec,
+        updateFingerPose,
+        updateFingerRoots: predicted || updateFingerPose,
+        fingerObservationPredicted: predicted,
+        fingerFlexSourceProfile: resolveFingerFlexSourceProfile(frameContext),
+      });
+
+      if (
+        applied &&
+        predicted &&
+        activeRetargetMode === RETARGET_MODE_STRICT
+      ) {
+        const gapPose = applyMissingStrictFingerPose(
+          side,
+          frameContext?.frameSourcePtsSec,
+          relaxAlpha,
+          { preserveFingerRoots: true },
+        );
+        handOrientation[side] = {
+          ...(handOrientation[side] ?? { side, tracked: false, source: 'none' }),
+          fingerFallbackStatus: gapPose.status,
+          fingerFallbackGapSec: gapPose.gapSec,
+          fingerPredicted: true,
+        };
+      }
+
+      if (
+        applied &&
+        activeRetargetMode === RETARGET_MODE_STRICT &&
+        !predicted &&
+        updateFingerPose &&
+        Number.isFinite(fingerSourcePtsSec)
+      ) {
+        strictFingerSourcePtsSec[side] = fingerSourcePtsSec;
+        strictFingerLastObservationPtsSec[side] = fingerSourcePtsSec;
+      }
     }
 
     for (const side of ['Left', 'Right']) {
-      if (!usedSides.has(side)) {
+      if (activeRetargetMode === RETARGET_MODE_STRICT) {
+        if (!poseOwnedHandSides.has(side)) {
+          relaxBone(`${side}Hand`, relaxAlpha * 0.18);
+        }
+        if (!usedSides.has(side)) {
+          const gapPose = applyMissingStrictFingerPose(
+            side,
+            frameContext?.frameSourcePtsSec,
+            relaxAlpha,
+          );
+          handOrientation[side] = {
+            ...(handOrientation[side] ?? { side, tracked: false, source: 'none' }),
+            fingerFallbackStatus: gapPose.status,
+            fingerFallbackGapSec: gapPose.gapSec,
+          };
+        }
+        handOrientation[side] = {
+          ...(handOrientation[side] ?? { side, tracked: false, source: 'none' }),
+          fingerTracked: detectorTrackedSides.has(side),
+          fingerPredicted: predictedSides.has(side),
+        };
+      } else if (!usedSides.has(side)) {
         relaxHand(side, relaxAlpha * 0.4);
         handOrientation[side] = {
           side,
@@ -3527,6 +5162,141 @@ export function createAvatarRenderer(options = {}) {
         };
       }
     }
+  }
+
+  function resolveStrictFingerSourcePtsSec(side, frameContext) {
+    const sourceMeta = frameContext?.sourceMeta;
+    const predicted = resolveStrictHandObservationState(side, frameContext) ===
+      'pose-guided-prediction';
+    const sideValue = side === 'Left'
+      ? predicted
+        ? sourceMeta?.handLeftObservedSourcePtsSec
+        : sourceMeta?.handLeftSourcePtsSec
+      : predicted
+        ? sourceMeta?.handRightObservedSourcePtsSec
+        : sourceMeta?.handRightSourcePtsSec;
+
+    return numberOrNull(
+      sideValue ?? sourceMeta?.handSourcePtsSec ?? frameContext?.frameSourcePtsSec,
+    );
+  }
+
+  function exactSourcePtsUsFromSec(sourcePtsSec) {
+    const seconds = numberOrNull(sourcePtsSec);
+    if (seconds === null) {
+      return null;
+    }
+
+    const sourcePtsUs = Math.round(seconds * 1e6);
+    return Number.isSafeInteger(sourcePtsUs) ? sourcePtsUs : null;
+  }
+
+  function resolveStrictHandObservationState(side, frameContext) {
+    return side === 'Left'
+      ? frameContext?.sourceMeta?.handLeftObservationState ?? null
+      : frameContext?.sourceMeta?.handRightObservationState ?? null;
+  }
+
+  function applyMissingStrictFingerPose(
+    side,
+    sourcePtsSec,
+    relaxAlpha,
+    options = {},
+  ) {
+    const preserveFingerRoots = Boolean(options.preserveFingerRoots);
+    const now = numberOrNull(sourcePtsSec);
+    const lastObservationPtsSec = numberOrNull(
+      strictFingerLastObservationPtsSec[side],
+    );
+    const gapSec = now === null || lastObservationPtsSec === null
+      ? null
+      : Math.max(0, now - lastObservationPtsSec);
+
+    if (now === null || lastObservationPtsSec === null) {
+      if (preserveFingerRoots) {
+        relaxFingerDistalSegments(side, relaxAlpha * 0.4);
+      } else {
+        relaxHandFingers(side, relaxAlpha * 0.4);
+      }
+      return { status: 'uninitialized-relax', gapSec };
+    }
+
+    // MCP spread/abduction is not observable without current landmarks. Let
+    // only the base segments return toward rest while the distal causal hinge
+    // state remains available through a short detector gap.
+    if (!preserveFingerRoots) {
+      relaxFingerBaseSegments(side, relaxAlpha * 0.4);
+    }
+
+    let appliedCount = 0;
+    let latestStatus = 'missing-gap-reset';
+    for (const fingerName of Object.keys(HAND_FINGERS)) {
+      const chain = fingerChains[side].get(fingerName) ?? [];
+      for (
+        let segmentIndex = 1;
+        segmentIndex < Math.min(chain.length, 3);
+        segmentIndex += 1
+      ) {
+        const state = strictFingerFlexTracking[side]
+          .get(fingerName)?.[segmentIndex] ?? null;
+        const gapResult = predictCausalFingerFlexGap(
+          state,
+          { sourcePtsSec: now },
+          STRICT_FINGER_GAP_OPTIONS,
+        );
+        latestStatus = gapResult.status ?? latestStatus;
+        if (!gapResult.useHinge || !Number.isFinite(gapResult.flexDeg)) {
+          continue;
+        }
+
+        const bone = chain[segmentIndex];
+        const rest = getBoneRest(bone);
+        const hingeSolve = solveRigHingeLocalRotation({
+          restLocalRotation: rest?.rigProfile?.restLocalRotation ?? rest?.quaternion,
+          restPrimaryAxisLocal: rest?.rigProfile?.primaryAxisLocal ?? rest?.axisLocal,
+          restSecondaryAxisLocal:
+            rest?.rigProfile?.secondaryAxisLocal ?? rest?.secondaryAxisLocal,
+          flexDeg: gapResult.flexDeg,
+          previousLocalRotation: bone?.quaternion,
+        });
+        if (!hingeSolve.valid) {
+          continue;
+        }
+
+        const constraint = getFingerAimConstraint(fingerName, segmentIndex);
+        applyLocalQuaternionToBone(
+          bone,
+          hingeSolve.localRotation,
+          1,
+          constraint.maxAngle,
+          { maxTwist: constraint.maxTwist },
+        );
+        appliedCount += 1;
+      }
+    }
+
+    if (appliedCount > 0) {
+      return { status: latestStatus, gapSec };
+    }
+
+    if (preserveFingerRoots) {
+      relaxFingerDistalSegments(side, relaxAlpha * 0.4);
+    } else {
+      relaxHandFingers(side, relaxAlpha * 0.4);
+    }
+    if (gapSec >= STRICT_FINGER_GAP_OPTIONS.resetAfterSec) {
+      strictFingerSourcePtsSec[side] = null;
+      strictFingerLastObservationPtsSec[side] = null;
+      resetStrictFingerFlexTrackingSide(side);
+      resetStrictFingerRootTrackingSide(side);
+    }
+    return { status: 'missing-gap-reset', gapSec };
+  }
+
+  function resolveFingerFlexSourceProfile(frameContext) {
+    return frameContext?.sourceMeta?.hands === 'mhr70-to-mediapipe21'
+      ? 'canonicalMhr70'
+      : 'mediaPipeHand21';
   }
 
   function applyFaceExpressions(face, delta) {
@@ -3584,6 +5354,15 @@ export function createAvatarRenderer(options = {}) {
     }
 
     if (!tracker.apply) {
+      if (tracker.releaseToIdentity) {
+        const releaseAlpha = smoothingAlpha(delta, FACE_HEAD_POSE_SMOOTHING_MS);
+        releaseBodyRelativeFaceHeadDelta('Neck', releaseAlpha);
+        releaseBodyRelativeFaceHeadDelta('Head', releaseAlpha);
+        recordFaceHeadPoseTelemetry(null, delta, tracker, releaseAlpha);
+        return;
+      }
+
+      resetFaceHeadComposition();
       recordFaceHeadPoseTelemetry(null, delta, tracker, 0);
       return;
     }
@@ -3600,11 +5379,23 @@ export function createAvatarRenderer(options = {}) {
       return;
     }
 
-    const deltaQuaternion = plainQuaternionToThree(poseDelta.quaternion, tmpQuaternionF);
+    const deltaQuaternion = plainQuaternionToThree(poseDelta.quaternion, tmpQuaternionC);
     const alpha = smoothingAlpha(delta, FACE_HEAD_POSE_SMOOTHING_MS) * tracker.reacquireBlend;
 
-    applyLocalPoseDeltaToBone('Neck', deltaQuaternion, alpha * FACE_NECK_POSE_STRENGTH, FACE_NECK_POSE_MAX_ANGLE);
-    applyLocalPoseDeltaToBone('Head', deltaQuaternion, alpha * FACE_HEAD_POSE_STRENGTH, FACE_HEAD_POSE_MAX_ANGLE);
+    applyBodyRelativeFaceHeadDelta(
+      'Neck',
+      deltaQuaternion,
+      alpha,
+      FACE_NECK_POSE_STRENGTH,
+      FACE_NECK_POSE_MAX_ANGLE,
+    );
+    applyBodyRelativeFaceHeadDelta(
+      'Head',
+      deltaQuaternion,
+      alpha,
+      FACE_HEAD_POSE_STRENGTH,
+      FACE_HEAD_POSE_MAX_ANGLE,
+    );
     recordFaceHeadPoseTelemetry(poseDelta.eulerRad, delta, tracker, alpha);
   }
 
@@ -3701,19 +5492,105 @@ export function createAvatarRenderer(options = {}) {
     return eulerRadToDeg(tmpEulerA);
   }
 
-  function applyLocalPoseDeltaToBone(boneName, deltaQuaternion, alpha, maxAngle) {
+  function applyBodyRelativeFaceHeadDelta(
+    boneName,
+    deltaQuaternion,
+    smoothingWeight,
+    strength,
+    maxAngle,
+  ) {
     const bone = getBone(boneName);
-    const rest = getBoneRest(bone);
+    const state = faceHeadComposition[boneName];
 
-    if (!bone || !rest) {
+    if (!bone || !state) {
       return;
     }
 
-    const targetQuaternion = tmpQuaternionE.copy(rest.quaternion).multiply(deltaQuaternion).normalize();
-    const limitedTarget = limitFromRest(rest.quaternion, targetQuaternion, maxAngle);
+    const limitedDelta = limitFromRest(
+      tmpQuaternionD.identity(),
+      tmpQuaternionE.copy(deltaQuaternion),
+      maxAngle,
+    );
+    const weightedTarget = tmpQuaternionF
+      .identity()
+      .slerp(limitedDelta, clamp01(strength));
+    state.delta.slerp(weightedTarget, clamp01(smoothingWeight)).normalize();
+    const composed = composeBodyHeadWithFaceDelta({
+      bodyQuaternion: bone.quaternion,
+      faceDeltaQuaternion: state.delta,
+    });
 
-    bone.quaternion.slerp(limitedTarget, clamp01(alpha));
+    if (!composed.valid) {
+      state.delta.identity();
+      state.applied = false;
+      return;
+    }
+
+    plainQuaternionToThree(composed.quaternion, bone.quaternion);
+    state.applied = true;
     bone.updateMatrixWorld(true);
+  }
+
+  function releaseBodyRelativeFaceHeadDelta(boneName, smoothingWeight) {
+    const bone = getBone(boneName);
+    const state = faceHeadComposition[boneName];
+
+    if (!bone || !state) {
+      return;
+    }
+
+    state.delta
+      .slerp(tmpQuaternionD.identity(), clamp01(smoothingWeight))
+      .normalize();
+    const composed = composeBodyHeadWithFaceDelta({
+      bodyQuaternion: bone.quaternion,
+      faceDeltaQuaternion: state.delta,
+    });
+
+    if (!composed.valid) {
+      state.delta.identity();
+      state.applied = false;
+      return;
+    }
+
+    plainQuaternionToThree(composed.quaternion, bone.quaternion);
+    state.applied = true;
+    bone.updateMatrixWorld(true);
+  }
+
+  function removeAppliedFaceHeadPoseDeltas() {
+    for (const [boneName, state] of Object.entries(faceHeadComposition)) {
+      if (!state.applied) {
+        continue;
+      }
+
+      const bone = getBone(boneName);
+      const bodyPose = removeFaceDeltaFromComposedHead({
+        composedQuaternion: bone?.quaternion,
+        faceDeltaQuaternion: state.delta,
+      });
+
+      if (bone && bodyPose.valid) {
+        plainQuaternionToThree(bodyPose.quaternion, bone.quaternion);
+        bone.updateMatrixWorld(true);
+      }
+
+      state.applied = false;
+    }
+  }
+
+  function createFaceHeadCompositionState() {
+    return {
+      delta: new THREE.Quaternion(),
+      applied: false,
+    };
+  }
+
+  function resetFaceHeadComposition() {
+    for (const state of Object.values(faceHeadComposition)) {
+      state.delta.identity();
+      state.applied = false;
+    }
   }
 
   function resetFaceExpressions() {
@@ -3727,6 +5604,7 @@ export function createAvatarRenderer(options = {}) {
 
   function resetFaceHeadPose() {
     resetFaceHeadPoseTrackerState(faceHeadPose);
+    resetFaceHeadComposition();
     faceHeadPose.lastStatus = 'reset';
     faceHeadPose.lastTracked = false;
     faceHeadPose.lastWithinGrace = false;
@@ -3743,70 +5621,138 @@ export function createAvatarRenderer(options = {}) {
     return Boolean(vrmExpressionMapping?.presets?.[preset]);
   }
 
-  function applyHand(side, hand, mirrored, delta) {
+  function applyHand(side, hand, mirrored, delta, options = {}) {
     const landmarks = hand?.landmarks;
     const worldLandmarks = hand?.worldLandmarks;
 
     if (!isLandmarkList(landmarks)) {
-      return;
+      return false;
     }
 
     const points = landmarks.map((landmark) => landmarkToVector(landmark, mirrored));
     const worldPoints = isLandmarkList(worldLandmarks)
       ? worldLandmarks.map((landmark) => handWorldLandmarkToVector(landmark, mirrored))
       : null;
-    const wrist = points[0];
-    const indexBase = points[5];
-    const middleBase = points[9];
-    const pinkyBase = points[17];
-    const worldPalmOrientation = worldPoints
-      ? resolveHandPalmNormal({
-          wrist: worldPoints[0],
-          indexBase: worldPoints[5],
-          pinkyBase: worldPoints[17],
-          side,
-          normalSigns: DEFAULT_PALM_NORMAL_SIGNS,
-        })
-      : null;
-    const imagePalmOrientation = resolveHandPalmNormal({
-      wrist,
-      indexBase,
-      pinkyBase,
+    const handBasis = resolveHandOrientationBasis({
+      imagePoints: points,
+      worldPoints,
       side,
       normalSigns: DEFAULT_PALM_NORMAL_SIGNS,
+      reflectionParity: mirrored ? -1 : 1,
     });
-    const palmOrientation = worldPalmOrientation?.valid ? worldPalmOrientation : imagePalmOrientation;
+    const strictMode = activeRetargetMode === RETARGET_MODE_STRICT;
+    const articulationPoints = strictMode && handBasis.source === 'world-basis'
+      ? worldPoints
+      : points;
     const handAlpha = smoothingAlpha(delta, RETARGET_SMOOTHING_MS.hand);
     const fingerAlpha = smoothingAlpha(delta, RETARGET_SMOOTHING_MS.finger);
-    const strictHandAlpha = activeRetargetMode === RETARGET_MODE_STRICT ? 1 : null;
-    const palmNormal = palmOrientation?.normal
-      ? plainVectorToThree(palmOrientation.normal, tmpVectorD)
+    const strictHandAlpha = strictMode ? 1 : null;
+    const strictFingerRootAlpha = strictMode && options.fingerObservationPredicted
+      ? smoothingAlpha(delta, RETARGET_SMOOTHING_MS.predictedFingerBase) *
+        clamp01(hand?.score ?? 0)
+      : strictHandAlpha;
+    const palmNormal = handBasis.normal
+      ? plainVectorToThree(handBasis.normal, tmpVectorD)
       : null;
-    const fistCurlTarget = estimateHandPalmCenter(points);
+    const fistCurlTarget = estimateHandPalmCenter(articulationPoints);
+    const strictFingerTransport = strictMode && (
+      options.updateFingerPose !== false || options.updateFingerRoots === true
+    )
+      ? resolveStrictFingerBasisTransport(side, handBasis)
+      : null;
+    const fingerFlexTelemetry = {
+      sourceProfile: options.fingerFlexSourceProfile ?? 'mediaPipeHand21',
+      evaluated: 0,
+      hingeCorrected: 0,
+      rateLimited: 0,
+      maxCorrectionWeight: 0,
+      maxRawFlexDeg: 0,
+    };
+    const fingerRootTelemetry = {
+      sourceProfile: options.fingerFlexSourceProfile ?? 'mediaPipeHand21',
+      evaluated: 0,
+      applied: 0,
+      direct: 0,
+      held: 0,
+      confirmed: 0,
+      rateLimited: 0,
+      predicted: 0,
+      repeated: 0,
+      stale: 0,
+      maxTargetDeltaDeg: 0,
+      maxAppliedDeltaDeg: 0,
+      maxConfirmationCount: 0,
+    };
+    const fingerSourcePtsUs = exactSourcePtsUsFromSec(options.fingerSourcePtsSec);
+    const fingerTransportRotation = strictFingerTransport?.valid
+      ? new THREE.Quaternion(
+          strictFingerTransport.rotation.x,
+          strictFingerTransport.rotation.y,
+          strictFingerTransport.rotation.z,
+          strictFingerTransport.rotation.w,
+        ).normalize()
+      : null;
 
-    if (wrist && middleBase) {
-      tmpVectorC.subVectors(middleBase, wrist);
-      applyAimToBone(`${side}Hand`, tmpVectorC, strictHandAlpha ?? handAlpha * 0.65, activeRetargetMode === RETARGET_MODE_STRICT ? undefined : 1.05, {
-        maxTwist: activeRetargetMode === RETARGET_MODE_STRICT ? undefined : 0.62,
+    if (handBasis.primary && activeRetargetMode !== RETARGET_MODE_STRICT) {
+      plainVectorToThree(handBasis.primary, tmpVectorC);
+      applyAimToBone(`${side}Hand`, tmpVectorC, handAlpha * 0.65, 1.05, {
+        maxTwist: 0.62,
         secondaryWorld: palmNormal,
       });
     }
 
-    handOrientation[side] = buildHandOrientationSnapshot({
-      side,
-      mirrored,
-      source: worldPalmOrientation?.valid ? 'worldLandmarks' : imagePalmOrientation.valid ? 'imageLandmarks' : 'none',
-      orientation: palmOrientation,
-      actualPalmNormal: getBoneWorldSecondaryAxis(`${side}Hand`),
-    });
+    if (strictMode) {
+      handOrientation[side] = {
+        ...(handOrientation[side] ?? {
+          side,
+          tracked: false,
+          source: 'pose-world-unavailable',
+          owner: 'pose-world',
+        }),
+        detectorBasisSource: handBasis.source,
+        detectorBasisValid: handBasis.valid,
+        fingerTracked: options.fingerObservationPredicted !== true,
+        fingerPredicted: options.fingerObservationPredicted === true,
+        fingerSourcePtsSec: numberOrNull(options.fingerSourcePtsSec),
+        fingerObservationReused: options.updateFingerPose === false,
+        ...(strictFingerTransport
+          ? {
+              fingerTransportValid: strictFingerTransport.valid,
+              fingerTransportReason: strictFingerTransport.reason,
+              fingerTransportSource: handBasis.source,
+            }
+          : {}),
+      };
+    } else {
+      handOrientation[side] = buildHandOrientationSnapshot({
+        side,
+        mirrored,
+        source: handBasis.source,
+        orientation: handBasis,
+        actualPalmNormal: getBoneWorldSecondaryAxis(`${side}Hand`),
+      });
+    }
+
+    if (
+      strictMode &&
+      options.updateFingerPose === false &&
+      options.updateFingerRoots !== true
+    ) {
+      return true;
+    }
+
+    if (strictMode && !fingerTransportRotation) {
+      return true;
+    }
 
     for (const fingerName of Object.keys(HAND_FINGERS)) {
       const chain = fingerChains[side].get(fingerName) ?? [];
       const segmentCount = getFingerSegmentCount(fingerName);
-      const fingerCurlStrength = estimateFingerCurlStrength(points, fingerName);
+      const fingerCurlStrength = estimateFingerCurlStrength(articulationPoints, fingerName);
+      let proximalFlexDeg = null;
 
       for (let i = 0; i < Math.min(chain.length, segmentCount); i += 1) {
-        const segmentPoints = resolveFingerSegmentPoints(points, fingerName, i);
+        const segmentPoints = resolveFingerSegmentPoints(articulationPoints, fingerName, i);
 
         if (!segmentPoints) {
           continue;
@@ -3818,13 +5764,221 @@ export function createAvatarRenderer(options = {}) {
           ? smoothingAlpha(delta, RETARGET_SMOOTHING_MS.fingerBase)
           : fingerAlpha;
         tmpVectorC.subVectors(to, from);
-        applyFingerFistCurlBias(tmpVectorC, from, fistCurlTarget, fingerName, i, fingerCurlStrength);
+        if (i === 0 && strictMode) {
+          if (options.updateFingerRoots === false) {
+            continue;
+          }
+
+          const rootProfile = resolveFingerRootProfile(
+            options.fingerFlexSourceProfile,
+            fingerName,
+          );
+          const rootState = strictFingerRootTracking[side].get(fingerName) ?? null;
+          const rootResult = updateCausalFingerRootDirection(
+            rootState,
+            {
+              points: articulationPoints,
+              fingerName,
+              palmPrimary: handBasis.primary,
+              palmNormal: handBasis.normal,
+              sourcePtsUs: fingerSourcePtsUs,
+              confidence: hand?.score ?? 1,
+              provenance: options.fingerObservationPredicted
+                ? 'predicted'
+                : 'detected',
+            },
+            rootProfile,
+          );
+
+          fingerRootTelemetry.evaluated += 1;
+          fingerRootTelemetry.applied += rootResult.apply ? 1 : 0;
+          fingerRootTelemetry.direct += rootResult.direct ? 1 : 0;
+          fingerRootTelemetry.held += rootResult.held ? 1 : 0;
+          fingerRootTelemetry.confirmed += rootResult.confirmed ? 1 : 0;
+          fingerRootTelemetry.rateLimited += rootResult.rateLimited ? 1 : 0;
+          fingerRootTelemetry.predicted += rootResult.predicted ? 1 : 0;
+          fingerRootTelemetry.repeated += rootResult.repeated ? 1 : 0;
+          fingerRootTelemetry.stale += rootResult.stale ? 1 : 0;
+          fingerRootTelemetry.maxTargetDeltaDeg = Math.max(
+            fingerRootTelemetry.maxTargetDeltaDeg,
+            clamp(Number(rootResult.targetDeltaDeg) || 0, 0, 180),
+          );
+          fingerRootTelemetry.maxAppliedDeltaDeg = Math.max(
+            fingerRootTelemetry.maxAppliedDeltaDeg,
+            clamp(Number(rootResult.appliedDeltaDeg) || 0, 0, 180),
+          );
+          fingerRootTelemetry.maxConfirmationCount = Math.max(
+            fingerRootTelemetry.maxConfirmationCount,
+            clamp(Math.trunc(Number(rootResult.confirmationCount) || 0), 0, 2),
+          );
+
+          if (!rootResult.apply || !rootResult.direction) {
+            continue;
+          }
+          plainVectorToThree(rootResult.direction, tmpVectorC);
+        }
+        if (i === 0 && !strictMode) {
+          applyFingerFistCurlBias(
+            tmpVectorC,
+            from,
+            fistCurlTarget,
+            fingerName,
+            i,
+            fingerCurlStrength,
+          );
+        }
+        if (fingerTransportRotation) {
+          tmpVectorC.applyQuaternion(fingerTransportRotation);
+        }
         const fingerConstraint = getFingerAimConstraint(fingerName, i);
-        applyAimToBone(chain[i], tmpVectorC, strictHandAlpha ?? segmentAlpha * spreadStrength, fingerConstraint.maxAngle, {
+        const appliedAlpha = i === 0
+          ? strictFingerRootAlpha ?? segmentAlpha * spreadStrength
+          : strictHandAlpha ?? segmentAlpha * spreadStrength;
+
+        if (!strictMode || i === 0) {
+          applyAimToBone(chain[i], tmpVectorC, appliedAlpha, fingerConstraint.maxAngle, {
+            maxTwist: fingerConstraint.maxTwist,
+          });
+          continue;
+        }
+
+        if (options.updateFingerPose === false) {
+          continue;
+        }
+
+        const bone = chain[i];
+        const previousLocalRotation = bone.quaternion.clone();
+        applyAimToBone(bone, tmpVectorC, 1, fingerConstraint.maxAngle, {
           maxTwist: fingerConstraint.maxTwist,
         });
+        const legacyLocalRotation = bone.quaternion.clone();
+        const legacyLocalDeltaDeg = THREE.MathUtils.radToDeg(
+          previousLocalRotation.angleTo(legacyLocalRotation),
+        );
+        const flexState = strictFingerFlexTracking[side]
+          .get(fingerName)?.[i] ?? null;
+        const flexResult = updateCausalFingerFlex(
+          flexState,
+          {
+            points: articulationPoints,
+            fingerName,
+            segmentIndex: i,
+            sourcePtsSec: options.fingerSourcePtsSec,
+            proximalFlexDeg,
+            confidence: hand?.score ?? 1,
+            legacyLocalDeltaDeg,
+          },
+          {
+            flexScale: resolveFingerFlexScale(
+              options.fingerFlexSourceProfile,
+              i,
+            ),
+          },
+        );
+
+        if (i === 1 && Number.isFinite(flexResult.flexDeg)) {
+          proximalFlexDeg = flexResult.flexDeg;
+        }
+
+        fingerFlexTelemetry.evaluated += 1;
+        fingerFlexTelemetry.rateLimited += flexResult.rateLimited ? 1 : 0;
+        fingerFlexTelemetry.maxCorrectionWeight = Math.max(
+          fingerFlexTelemetry.maxCorrectionWeight,
+          Number(flexResult.correctionWeight) || 0,
+        );
+        fingerFlexTelemetry.maxRawFlexDeg = Math.max(
+          fingerFlexTelemetry.maxRawFlexDeg,
+          Number(flexResult.rawFlexDeg) || 0,
+        );
+
+        if (!flexResult.useHinge || !Number.isFinite(flexResult.flexDeg)) {
+          continue;
+        }
+
+        const rest = getBoneRest(bone);
+        const hingeSolve = solveRigHingeLocalRotation({
+          restLocalRotation: rest?.rigProfile?.restLocalRotation ?? rest?.quaternion,
+          restPrimaryAxisLocal: rest?.rigProfile?.primaryAxisLocal ?? rest?.axisLocal,
+          restSecondaryAxisLocal:
+            rest?.rigProfile?.secondaryAxisLocal ?? rest?.secondaryAxisLocal,
+          flexDeg: flexResult.flexDeg,
+          previousLocalRotation,
+        });
+
+        if (!hingeSolve.valid) {
+          continue;
+        }
+
+        const correctedLocalRotation = legacyLocalRotation
+          .clone()
+          .slerp(
+            plainQuaternionToThree(hingeSolve.localRotation, tmpQuaternionH),
+            clamp01(flexResult.correctionWeight),
+          );
+        applyLocalQuaternionToBone(
+          bone,
+          correctedLocalRotation,
+          1,
+          fingerConstraint.maxAngle,
+          { maxTwist: fingerConstraint.maxTwist },
+        );
+        fingerFlexTelemetry.hingeCorrected += 1;
       }
     }
+
+    if (strictMode) {
+      handOrientation[side] = {
+        ...handOrientation[side],
+        fingerRoot: fingerRootTelemetry,
+        fingerFlex: fingerFlexTelemetry,
+      };
+    }
+
+    return true;
+  }
+
+  function createStrictFingerFlexTrackingSide() {
+    return new Map(
+      Object.keys(HAND_FINGERS).map((fingerName) => [
+        fingerName,
+        [null, createCausalFingerFlexState(), createCausalFingerFlexState()],
+      ]),
+    );
+  }
+
+  function createStrictFingerRootTrackingSide() {
+    return new Map(
+      Object.keys(HAND_FINGERS)
+        .map((fingerName) => [fingerName, createCausalFingerRootState()]),
+    );
+  }
+
+  function resetStrictFingerFlexTrackingSide(side) {
+    for (const states of strictFingerFlexTracking[side]?.values?.() ?? []) {
+      for (const state of states) {
+        resetCausalFingerFlexState(state);
+      }
+    }
+  }
+
+  function resetStrictFingerRootTrackingSide(side) {
+    for (const state of strictFingerRootTracking[side]?.values?.() ?? []) {
+      resetCausalFingerRootState(state);
+    }
+  }
+
+  function resolveFingerFlexScale(sourceProfile, segmentIndex) {
+    const profile = FINGER_FLEX_SOURCE_PROFILES[sourceProfile]
+      ?? FINGER_FLEX_SOURCE_PROFILES.mediaPipeHand21;
+
+    return profile[segmentIndex] ?? 1;
+  }
+
+  function resolveFingerRootProfile(sourceProfile, fingerName) {
+    const profile = FINGER_ROOT_SOURCE_PROFILES[sourceProfile]
+      ?? FINGER_ROOT_SOURCE_PROFILES.mediaPipeHand21;
+
+    return profile[fingerName] ?? {};
   }
 
   function getFingerAimConstraint(fingerName, segmentIndex) {
@@ -3917,29 +6071,60 @@ export function createAvatarRenderer(options = {}) {
   }
 
   function buildHandOrientationSnapshot({ side, mirrored, source, orientation, actualPalmNormal = null }) {
-    const targetPalmNormal = orientation?.normal ? vectorToArray(orientation.normal) : null;
+    const orientationValid = Boolean(orientation?.valid);
+    const targetPalmNormal = orientationValid && orientation.normal ? vectorToArray(orientation.normal) : null;
 
     return {
       side,
-      tracked: Boolean(orientation?.valid),
+      tracked: orientationValid,
       source,
       mirrored,
       palmNormalSign: orientation?.sign ?? DEFAULT_PALM_NORMAL_SIGNS[side] ?? -1,
-      rawPalmNormal: orientation?.rawNormal ? vectorToArray(orientation.rawNormal) : null,
+      rawPalmNormal: orientationValid && orientation.rawNormal ? vectorToArray(orientation.rawNormal) : null,
       targetPalmNormal,
-      avatarPalmNormal: actualPalmNormal ? vectorToArray(actualPalmNormal) : targetPalmNormal,
+      avatarPalmNormal: orientationValid && actualPalmNormal ? vectorToArray(actualPalmNormal) : targetPalmNormal,
     };
+  }
+
+  function resolveStrictFingerBasisTransport(side, detectorBasis) {
+    const handBoneName = `${side}Hand`;
+    const targetPrimary = getBoneWorldPrimaryAxis(handBoneName);
+    const targetSecondary = getBoneWorldSecondaryAxis(handBoneName);
+
+    return resolveBasisTransportRotation({
+      sourcePrimary: detectorBasis?.primary,
+      sourceSecondary: detectorBasis?.normal,
+      targetPrimary,
+      targetSecondary,
+    });
+  }
+
+  function getBoneWorldPrimaryAxis(boneNameKey) {
+    const bone = getBone(boneNameKey);
+    const rest = getBoneRest(bone);
+    const primaryAxisLocal = rest?.rigProfile?.primaryAxisLocal ?? rest?.axisLocal;
+
+    if (!bone || !primaryAxisLocal) {
+      return null;
+    }
+
+    return primaryAxisLocal
+      .clone()
+      .normalize()
+      .applyQuaternion(bone.getWorldQuaternion(new THREE.Quaternion()))
+      .normalize();
   }
 
   function getBoneWorldSecondaryAxis(boneNameKey) {
     const bone = getBone(boneNameKey);
     const rest = getBoneRest(bone);
+    const secondaryAxisLocal = rest?.rigProfile?.secondaryAxisLocal ?? rest?.secondaryAxisLocal;
 
-    if (!bone || !rest?.secondaryAxisLocal) {
+    if (!bone || !secondaryAxisLocal) {
       return null;
     }
 
-    return rest.secondaryAxisLocal
+    return secondaryAxisLocal
       .clone()
       .normalize()
       .applyQuaternion(bone.getWorldQuaternion(new THREE.Quaternion()))
@@ -3972,6 +6157,29 @@ export function createAvatarRenderer(options = {}) {
         tmpQuaternionC.setFromUnitVectors(restDirectionLocal, targetDirectionLocal),
         rest.quaternion,
       );
+
+    applyLocalQuaternionTarget(bone, rest, targetQuaternion, alpha, maxAngle, options);
+  }
+
+  function applyLocalQuaternionToBone(boneOrName, localRotation, alpha, maxAngle, options = {}) {
+    const bone = typeof boneOrName === 'string' ? getBone(boneOrName) : boneOrName;
+    const rest = getBoneRest(bone);
+
+    if (!bone || !rest || !localRotation) {
+      return;
+    }
+
+    const targetQuaternion = tmpQuaternionD.set(
+      Number(localRotation.x ?? localRotation[0] ?? 0),
+      Number(localRotation.y ?? localRotation[1] ?? 0),
+      Number(localRotation.z ?? localRotation[2] ?? 0),
+      Number(localRotation.w ?? localRotation[3] ?? 1),
+    ).normalize();
+
+    applyLocalQuaternionTarget(bone, rest, targetQuaternion, alpha, maxAngle, options);
+  }
+
+  function applyLocalQuaternionTarget(bone, rest, targetQuaternion, alpha, maxAngle, options = {}) {
     const angleLimitedTarget = limitFromRest(rest.quaternion, targetQuaternion, maxAngle);
     const limitedTarget = limitTwistFromRest(
       rest.quaternion,
@@ -4047,12 +6255,16 @@ export function createAvatarRenderer(options = {}) {
       return targetQuaternion;
     }
 
-    const delta = tmpQuaternionC.copy(targetQuaternion).multiply(tmpQuaternionD.copy(restQuaternion).invert());
+    // `targetQuaternion` is commonly tmpQuaternionD. Keep a dedicated copy
+    // before tmpQuaternionD is reused for the inverse-rest scratch value, or
+    // the in-range path silently returns rest^-1 instead of the target.
+    const stableTarget = tmpQuaternionI.copy(targetQuaternion);
+    const delta = tmpQuaternionC.copy(stableTarget).multiply(tmpQuaternionD.copy(restQuaternion).invert());
     const twist = extractTwist(delta, axisLocal, tmpQuaternionE);
     const twistAngle = signedQuaternionAngle(twist);
 
     if (Math.abs(twistAngle) <= maxTwist) {
-      return targetQuaternion;
+      return stableTarget;
     }
 
     const clampedTwist = tmpQuaternionF.setFromAxisAngle(
@@ -4061,7 +6273,7 @@ export function createAvatarRenderer(options = {}) {
     );
     const swing = tmpQuaternionC.copy(delta).multiply(twist.invert());
 
-    return targetQuaternion.copy(swing.multiply(clampedTwist).multiply(restQuaternion));
+    return stableTarget.copy(swing.multiply(clampedTwist).multiply(restQuaternion));
   }
 
   function extractTwist(quaternion, axisLocal, target) {
@@ -4097,10 +6309,29 @@ export function createAvatarRenderer(options = {}) {
 
   function relaxHand(side, alpha) {
     relaxBone(`${side}Hand`, alpha);
+    relaxHandFingers(side, alpha);
+  }
 
+  function relaxHandFingers(side, alpha) {
     for (const chain of fingerChains[side].values()) {
       for (const bone of chain) {
         relaxBone(bone, alpha);
+      }
+    }
+  }
+
+  function relaxFingerBaseSegments(side, alpha) {
+    for (const chain of fingerChains[side].values()) {
+      if (chain[0]) {
+        relaxBone(chain[0], alpha);
+      }
+    }
+  }
+
+  function relaxFingerDistalSegments(side, alpha) {
+    for (const chain of fingerChains[side].values()) {
+      for (let index = 1; index < chain.length; index += 1) {
+        relaxBone(chain[index], alpha);
       }
     }
   }
@@ -4333,6 +6564,7 @@ export function createAvatarRenderer(options = {}) {
     boneAliasesByBone.clear();
     restPose.clear();
     restPoseByBone.clear();
+    resetStrictLimbSecondaryState();
     resetProportionCalibration({ preserveReference: false });
     resetDepthCalibration();
     loadedGltf = null;
@@ -4344,6 +6576,7 @@ export function createAvatarRenderer(options = {}) {
     vrmHumanoidMapping = null;
     modelDiagnostics.unresolvedNodeMappings = [];
     modelDiagnostics.renderCompatibility = null;
+    lastAppliedAvatarState = null;
   }
 
   function disposeSkeletonHelper() {
@@ -4402,10 +6635,10 @@ export function createAvatarRenderer(options = {}) {
   }
 
   function updateDelta(timestamp) {
-    const now = Number.isFinite(timestamp) && timestamp > 0
+    const now = Number.isFinite(timestamp) && timestamp >= 0
       ? timestamp
       : globalThis.performance?.now?.() ?? Date.now();
-    const delta = lastUpdateTime > 0
+    const delta = Number.isFinite(lastUpdateTime)
       ? Math.max(1, Math.min(100, now - lastUpdateTime))
       : FIRST_UPDATE_DELTA_MS;
     lastUpdateTime = now;
@@ -4531,6 +6764,7 @@ export function createAvatarRenderer(options = {}) {
     resetDepthCalibration,
     getPerformanceSnapshot,
     getMotionStateSnapshot,
+    getAppliedAvatarStateSnapshot,
     setRetargetMode,
     getRetargetMode,
     clearPerformanceSamples,
@@ -4545,6 +6779,93 @@ export function createAvatarRenderer(options = {}) {
   };
 
   return api;
+}
+
+function solveCalibratedArmVectorChains({
+  points,
+  rawPoints,
+  worldLandmarks,
+  referenceRatios,
+  scale,
+} = {}) {
+  const solutions = new Map();
+  const chains = [
+    {
+      upperSegment: 'leftUpperArm',
+      foreSegment: 'leftForeArm',
+      shoulder: 'leftShoulder',
+      elbow: 'leftElbow',
+      wrist: 'leftWrist',
+      worldIndices: [POSE.leftShoulder, POSE.leftElbow, POSE.leftWrist],
+    },
+    {
+      upperSegment: 'rightUpperArm',
+      foreSegment: 'rightForeArm',
+      shoulder: 'rightShoulder',
+      elbow: 'rightElbow',
+      wrist: 'rightWrist',
+      worldIndices: [POSE.rightShoulder, POSE.rightElbow, POSE.rightWrist],
+    },
+  ];
+
+  if (!isLandmarkList(worldLandmarks) || !Number.isFinite(scale) || scale <= 0) {
+    return solutions;
+  }
+
+  for (const chain of chains) {
+    const parent = points?.[chain.shoulder];
+    const rawShoulder = rawPoints?.[chain.shoulder];
+    const rawElbow = rawPoints?.[chain.elbow];
+    const rawWrist = rawPoints?.[chain.wrist];
+    const rawChainPoints = [rawShoulder, rawElbow, rawWrist];
+    const currentWorldPoints = chain.worldIndices.map((index) => worldLandmarks[index]);
+    const upperTargetLength = referenceRatios?.[chain.upperSegment] * scale;
+    const foreTargetLength = referenceRatios?.[chain.foreSegment] * scale;
+    const gateOpen = isFinitePosePoint3D(parent)
+      && currentWorldPoints.every((point) => isFinitePosePoint3D(point))
+      && rawChainPoints.every((point) => isFinitePosePoint3D(point))
+      && Number.isFinite(upperTargetLength)
+      && upperTargetLength > 0
+      && Number.isFinite(foreTargetLength)
+      && foreTargetLength > 0;
+
+    if (!gateOpen) {
+      continue;
+    }
+
+    const upper = solveCalibratedSegmentVector({
+      parent,
+      rawParent: rawShoulder,
+      rawChild: rawElbow,
+      targetLength: upperTargetLength,
+    });
+    const fore = upper.solved
+      ? solveCalibratedSegmentVector({
+          parent: upper,
+          rawParent: rawElbow,
+          rawChild: rawWrist,
+          targetLength: foreTargetLength,
+        })
+      : null;
+
+    if (!upper.solved || !fore?.solved) {
+      continue;
+    }
+
+    solutions.set(chain.upperSegment, upper);
+    solutions.set(chain.foreSegment, fore);
+  }
+
+  return solutions;
+}
+
+function isFinitePosePoint3D(point) {
+  return Boolean(
+    point
+      && Number.isFinite(point.x)
+      && Number.isFinite(point.y)
+      && Number.isFinite(point.z),
+  );
 }
 
 function buildPosePoints(landmarks, mirrored, depthOptions = {}) {
@@ -4889,7 +7210,7 @@ function extractMotionFrameHands(frame) {
       landmarks: frame.leftHandLandmarks,
       worldLandmarks: isLandmarkList(frame.leftHandWorldLandmarks) ? frame.leftHandWorldLandmarks : null,
       side: 'Left',
-      score: 1,
+      score: motionFrameHandScore(frame, 'Left'),
     });
   }
 
@@ -4898,11 +7219,25 @@ function extractMotionFrameHands(frame) {
       landmarks: frame.rightHandLandmarks,
       worldLandmarks: isLandmarkList(frame.rightHandWorldLandmarks) ? frame.rightHandWorldLandmarks : null,
       side: 'Right',
-      score: 1,
+      score: motionFrameHandScore(frame, 'Right'),
     });
   }
 
   return hands;
+}
+
+function motionFrameHandScore(frame, side) {
+  const sourceMeta = frame?.sourceMeta;
+  const observationState = side === 'Left'
+    ? sourceMeta?.handLeftObservationState
+    : sourceMeta?.handRightObservationState;
+  if (observationState !== 'pose-guided-prediction') {
+    return 1;
+  }
+  const confidence = side === 'Left'
+    ? sourceMeta?.handLeftPredictionConfidence
+    : sourceMeta?.handRightPredictionConfidence;
+  return Number.isFinite(confidence) ? clamp01(confidence) : 0;
 }
 
 function extractHands(results, mirrored) {
@@ -5204,6 +7539,37 @@ function handWorldLandmarkToVector(landmark, mirrored) {
   );
 }
 
+function poseWorldHandPoint(landmark, mirrored, minVisibility = 0.35) {
+  if (
+    !landmark ||
+    !Number.isFinite(landmark.x) ||
+    !Number.isFinite(landmark.y) ||
+    !Number.isFinite(landmark.z) ||
+    (Number.isFinite(landmark.visibility) && landmark.visibility < minVisibility)
+  ) {
+    return null;
+  }
+
+  return new THREE.Vector3(
+    mirrored ? -landmark.x : landmark.x,
+    -landmark.y,
+    -landmark.z,
+  );
+}
+
+function minimumPoseLandmarkConfidence(landmarks) {
+  const confidences = (landmarks ?? []).map((landmark) => {
+    const values = [landmark?.visibility, landmark?.presence]
+      .map(Number)
+      .filter(Number.isFinite)
+      .map(clamp01);
+
+    return values.length > 0 ? Math.min(...values) : 1;
+  });
+
+  return confidences.length > 0 ? Math.min(...confidences) : 1;
+}
+
 function resolveLandmarkDepth(landmark, index, depthOptions) {
   const depthScale = normalizeDepthScale(depthOptions.depthScale ?? DEFAULT_LANDMARK_DEPTH_SCALE);
 
@@ -5453,6 +7819,10 @@ function percentile(sortedValues, fraction) {
 
 function vectorToArray(vector) {
   return [vector.x, vector.y, vector.z];
+}
+
+function quaternionToArray(quaternion) {
+  return [quaternion.x, quaternion.y, quaternion.z, quaternion.w];
 }
 
 function inferBoneAxisLocal(bone, baseName = '', hasBoneAlias = null) {

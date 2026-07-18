@@ -1,0 +1,130 @@
+{
+  "artifactType": "sam-goal-manual-review-operations-acceptance-matrix-v1",
+  "schemaVersion": 1,
+  "rowCount": 6711,
+  "clipProfiles": [
+    {"clipId": "arms-crossed", "rowCount": 386, "firstPtsTicks": "512", "lastPtsTicks": "197632", "timeBase": {"numerator": 1, "denominator": 15360}},
+    {"clipId": "csi-pose", "rowCount": 2849, "firstPtsTicks": "0", "lastPtsTicks": "1458176", "timeBase": {"numerator": 1, "denominator": 15360}},
+    {"clipId": "dance-16x9-padded", "rowCount": 359, "firstPtsTicks": "0", "lastPtsTicks": "644758", "timeBase": {"numerator": 1, "denominator": 43080}},
+    {"clipId": "jujae-regression-0-16_5", "rowCount": 990, "firstPtsTicks": "0", "lastPtsTicks": "989989", "timeBase": {"numerator": 1, "denominator": 60000}},
+    {"clipId": "shorts-keGbIts0CA0-16x9-padded", "rowCount": 1237, "firstPtsTicks": "0", "lastPtsTicks": "316416", "timeBase": {"numerator": 1, "denominator": 15360}},
+    {"clipId": "shorts-new-dance-E9_h_ZW5z0U-16x9-padded", "rowCount": 439, "firstPtsTicks": "0", "lastPtsTicks": "224256", "timeBase": {"numerator": 1, "denominator": 15360}},
+    {"clipId": "shorts-vc0GDveRIp0-16x9-padded", "rowCount": 451, "firstPtsTicks": "0", "lastPtsTicks": "230400", "timeBase": {"numerator": 1, "denominator": 15360}}
+  ],
+  "presentationContract": {
+    "interfaceId": "sam_goal.manual_review_operations",
+    "interfaceVersion": 3,
+    "currentSha256": "c01dbcdce6113c27f5561b9489331fce46b168e43178f187b12b06c8eddcfd66",
+    "selectorAttribute": "data-sam-goal-evidence-target",
+    "targets": {"blind": "blind-exact-source-frame", "reveal": "reveal-exact-source-frame"},
+    "viewModes": ["fit", "one-to-one"],
+    "chromeProduct": "Chrome/150.0.7871.114",
+    "initialAutoLockStablePlaneCount": 4,
+    "realCaptureCount": 176,
+    "syntheticCaptureCount": 48,
+    "negativeControlCount": 32,
+    "transitionCount": 40000,
+    "knownPrefitViewerSha256": {
+      "immutable/viewer/app.js": "26c8136a3daa8315ced0bf58e63ed96858208baee7ede69ce2914a7b7f8a15ef",
+      "immutable/viewer/index.html": "2912dc53b9fec0b2cec7bdf8a8794996692a90d5913cff650f5be52a20bf6459",
+      "immutable/viewer/style.css": "5a46d0624e1a46478c24455b2419276407817a10dbbf93e7b29eaa32d74ffcc6"
+    }
+  },
+  "publicPins": {
+    "evaluationContractCanonicalSha256": "5307a5d4e2c56e652b7a417713e1b0ebff5dabf712e591eefa94737e7318b1bd",
+    "labelSchemaCanonicalSha256": "afe645d7c062e3644db96cea20b2f6724892077f1993de829a28deeb38d138f8",
+    "authoringSchemaCanonicalSha256": "c255cab6b226b0b4ac418ff17c92fec053d34156bf3efaf3af88fc30cdd32962",
+    "sourceInventoryCanonicalSha256": "64ea4c592e4a35f8c7483e33824ef2755cd1c35af77e0f631e9b9ad7f3243d8d",
+    "decoderByteSha256": "d300ac13f9386293f8f1abe746bb64a3ac99f7bd942813286b550375e201cb79",
+    "decoderCanonicalRowsSha256": "dde8d9e02fa82341986e535ccf378d4ad555aefaf88d0a27531187db1afecd4d",
+    "manualPackCompilerByteSha256": "486566190bb148ed0ed7fb8421a1ed57a96228346579e250394fca5000239b44"
+  },
+  "publicBytePins": {
+    "tests/fixtures/sam-goal-v2/evaluation-v3/evaluation-contract.json": "69ddd8256dd32853a60747afcd97521737abf32ab5a6700b54eba8d07b0a8c2c",
+    "tests/fixtures/sam-goal-v2/evaluation-v3/label-schema.json": "cac8d67c833e171dac243df9e2e857a7a432ff6d5ae9ba4c6bc4954c839bd9e5",
+    "tests/fixtures/sam-goal-v2/evaluation-v3/authoring-schema.json": "90a5e27a6cd10bee753d516ec0f21f361ce8a529c42f585a228190e38311c68e",
+    "tests/fixtures/sam-goal-v2/labels/source-inventory.json": "e4289a7e0d3503fe163e315317f4532b0c8565929491d82303456b512b0e2fd7",
+    "tests/fixtures/sam-goal-v2/labels/decoder-manifest.jsonl": "d300ac13f9386293f8f1abe746bb64a3ac99f7bd942813286b550375e201cb79",
+    "scripts/sam-goal-manual-pack-v3.mjs": "486566190bb148ed0ed7fb8421a1ed57a96228346579e250394fca5000239b44"
+  },
+  "processSchemas": [
+    "access-evidence-v1.schema.json",
+    "bundle-manifest-v1.schema.json",
+    "c0-ledger-v1.schema.json",
+    "deviation-evidence-v1.schema.json",
+    "edit-journal-v1.schema.json",
+    "handoff-report-v1.schema.json",
+    "raw-ab-report-v1.schema.json",
+    "reveal-receipt-v1.schema.json",
+    "review-export-receipt-v1.schema.json",
+    "worksheet-v1.schema.json"
+  ],
+  "cliSurface": {
+    "prepare-bundle": ["--mode", "--actor-pseudonym-sha256", "--cycle-id", "--bundle-dir"],
+    "serve": ["--bundle-dir"],
+    "export-review": ["--bundle-dir", "--expected-session-tree-sha256", "--output-dir"],
+    "seal-c0": ["--bundle-dir", "--expected-session-tree-sha256", "--output"],
+    "compare-raw": ["--review-a", "--receipt-a", "--expected-receipt-a-sha256", "--review-b", "--receipt-b", "--expected-receipt-b-sha256", "--c0-ledger", "--expected-c0-byte-sha256", "--output"],
+    "prepare-adjudication": ["--review-a", "--receipt-a", "--expected-receipt-a-sha256", "--review-b", "--receipt-b", "--expected-receipt-b-sha256", "--raw-report", "--expected-raw-report-sha256", "--c0-ledger", "--expected-c0-byte-sha256", "--bundle-dir"],
+    "export-adjudication": ["--bundle-dir", "--expected-session-tree-sha256", "--review-a", "--receipt-a", "--expected-receipt-a-sha256", "--review-b", "--receipt-b", "--expected-receipt-b-sha256", "--raw-report", "--expected-raw-report-sha256", "--c0-ledger", "--expected-c0-byte-sha256", "--reveal-receipt", "--expected-reveal-receipt-sha256", "--output-dir"],
+    "handoff-check": ["--review-a", "--receipt-a", "--expected-receipt-a-sha256", "--review-b", "--receipt-b", "--expected-receipt-b-sha256", "--adjudication", "--raw-report", "--expected-raw-report-sha256", "--c0-ledger", "--expected-c0-byte-sha256", "--reveal-receipt", "--expected-reveal-receipt-sha256", "--deviation-evidence", "--expected-deviation-evidence-sha256"]
+  },
+  "sessionTreeContract": {
+    "expectedHashCommands": ["export-review", "seal-c0", "export-adjudication"],
+    "serveStdoutStatus": "review_session_sealed",
+    "serveStdoutFields": ["status", "cycleId", "mode", "actorPseudonymSha256", "presentationContractSha256", "sessionTreeSha256", "bundleManifestByteSha256", "fixedInputSetSha256", "sessionSeedByteSha256", "sessionFinalStateByteSha256", "editJournalByteSha256", "actorAttestationByteSha256", "accessEvidenceByteSha256"],
+    "blindFixedInputSetSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+    "revealFixedLogicalPaths": ["fixed/access-policy.json", "fixed/c0-ledger.json", "fixed/disagreement-skeleton.json", "fixed/raw-ab-report.json", "fixed/reveal-receipt.json", "fixed/review-a-export-receipt.json", "fixed/review-a.json", "fixed/review-b-export-receipt.json", "fixed/review-b.json"],
+    "serveProtocolFaultCodes": {"startup-hang": "serve_start_timeout", "oversize-ready": "serve_private_output_oversize", "duplicate-key-ready": "duplicate_json_key", "malformed-ready": "json_object_key_required", "extra-ready-line": "serve_protocol_invalid", "crash-after-ready": "serve_child_exit"},
+    "trustedAssetPinFailures": {
+      "immutable/runtime/node": "trusted_runtime_node_pin_mismatch",
+      "immutable/launcher.mjs": "trusted_launcher_pin_mismatch",
+      "immutable/sandbox-preload.cjs": "trusted_sandbox_preload_pin_mismatch",
+      "immutable/viewer/core.mjs": "trusted_viewer_core_pin_mismatch",
+      "immutable/viewer/app.js": "trusted_viewer_app_pin_mismatch",
+      "immutable/decoder/exact-pts-decoder.mjs": "trusted_exact_pts_decoder_pin_mismatch",
+      "immutable/schemas/worksheet-v1.schema.json": "trusted_worksheet_schema_pin_mismatch",
+      "immutable/rulebook.md": "trusted_rulebook_pin_mismatch"
+    },
+    "treeBoundArtifactFields": {
+      "bundle-manifest-v1.schema.json": ["presentationContractSha256"],
+      "access-evidence-v1.schema.json": ["presentationContractSha256", "fixedInputSetSha256", "sessionSeedByteSha256", "sessionFinalStateByteSha256", "editJournalByteSha256", "actorAttestationByteSha256"],
+      "review-export-receipt-v1.schema.json": ["presentationContractSha256", "sessionTreeSha256"],
+      "c0-ledger-v1.schema.json": ["presentationContractSha256", "sessionTreeSha256"],
+      "raw-ab-report-v1.schema.json": ["presentationContractSha256"],
+      "reveal-receipt-v1.schema.json": ["presentationContractSha256"],
+      "deviation-evidence-v1.schema.json": ["presentationContractSha256", "revealSessionTreeSha256"],
+      "handoff-report-v1.schema.json": ["presentationContractSha256", "reviewASessionTreeSha256", "reviewBSessionTreeSha256", "c0SessionTreeSha256", "revealSessionTreeSha256"]
+    }
+  },
+  "openatContract": {
+    "sourceByteSha256": "0b1ec0439f5256bc587276df8992344dda513c73872f12fce064b9390227cbb5",
+    "nodeByteSha256": "0e745e26ec70b7151906fa17d12ec4d385614485398cd032d886b90696b714ea",
+    "builderByteSha256": "b1ebb9985bcfb23c4340cdaad678700228792631df9230628c17929ac2c0acc8"
+  },
+  "valueTypes": ["scenario-array", "presence", "person-state", "occlusion-state", "contact-state", "hand-observability-state", "endpoint-observability-state", "subject-state", "manual-target-id", "anchor", "window-or-null", "source-frame-index", "source-frame-index-exclusive", "purpose-array"],
+  "deviationClasses": ["final_matches_a_only", "final_matches_b_only", "final_matches_neither_raw_review", "final_matches_c0_all_rows", "final_matches_c0_some_rows", "final_matches_c0_no_rows", "c0_differs_from_ab_agreement", "c0_boundary_not_represented_by_ab", "window_final_matches_c0", "window_final_differs_from_c0", "c0_window_missing"],
+  "classDispositions": {
+    "final_matches_a_only": "accept_a_value",
+    "final_matches_b_only": "accept_b_value",
+    "final_matches_neither_raw_review": "accept_novel_source_value",
+    "final_matches_c0_all_rows": "confirm_c0_alignment",
+    "final_matches_c0_some_rows": "accept_partial_c0_divergence",
+    "final_matches_c0_no_rows": "accept_c0_divergence",
+    "c0_differs_from_ab_agreement": "confirm_ab_agreement_over_c0",
+    "c0_boundary_not_represented_by_ab": "confirm_unsplit_ab_coordinate",
+    "window_final_matches_c0": "confirm_window_c0_alignment",
+    "window_final_differs_from_c0": "accept_window_c0_divergence",
+    "c0_window_missing": "accept_window_without_c0"
+  },
+  "forbiddenAuthorityFields": ["expectedCanonicalHash", "candidateP0PackCanonicalSha256", "p0Anchor", "p0Verified", "packDescriptor", "parentAnchor"],
+  "forbiddenAliases": ["palm", "finger", "leftPalm", "rightPalm", "leftFinger", "rightFinger", "leftFootEndpoint", "rightFootEndpoint", "footObservability"],
+  "externalOracleEvidence": {
+    "webCodecsIsoBmffPath": "/tmp/webcodecs-iso-bmff-oracle-raw.json",
+    "webCodecsIsoBmffSha256": "af4c23f4a941d90dd8b0806be4c83c7ce6695cd9f8f83a9ed6c311e87798c85e",
+    "decodedRowCount": 6711,
+    "spotDecodeCount": 42
+  },
+  "thresholds": {"presencePersonStateKappa": 0.99, "contactKappa": 0.9, "observabilityKappa": 0.95},
+  "transitionCount": 10000
+}

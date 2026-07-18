@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://action-tracker.invalid/sam-goal/manual-review-operations/raw-ab-report-v1.schema.json",
+  "title": "SAM Goal raw A/B agreement report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifactType", "schemaVersion", "authorityClass", "compilerInput", "p0Authority", "cycleId", "publicPins", "sourceBinding", "rulebookByteSha256", "presentationContractSha256", "reviewAReceiptByteSha256", "reviewBReceiptByteSha256", "c0LedgerByteSha256", "reviewAFormalByteSha256", "reviewBFormalByteSha256", "reviewAExportValidatorStdoutByteSha256", "reviewBExportValidatorStdoutByteSha256", "reviewAComparisonValidatorExitCode", "reviewBComparisonValidatorExitCode", "reviewAComparisonValidatorStdoutByteSha256", "reviewBComparisonValidatorStdoutByteSha256", "agreementInputRoles", "c0UsedForAgreement", "individualGateEvidence", "agreementCells", "agreementMacros", "supportReacquireEvidence", "disagreementCounts", "gatePass"],
+  "properties": {
+    "artifactType": {"const": "sam-goal-raw-ab-report-v1"}, "schemaVersion": {"const": 1},
+    "authorityClass": {"const": "process-evidence-only"}, "compilerInput": {"const": false}, "p0Authority": {"const": false},
+    "cycleId": {"$ref": "bundle-manifest-v1.schema.json#/$defs/cycleId"},
+    "publicPins": {"$ref": "bundle-manifest-v1.schema.json#/$defs/publicPins"},
+    "sourceBinding": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sourceBinding"},
+    "rulebookByteSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"},
+    "presentationContractSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"},
+    "reviewAReceiptByteSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"}, "reviewBReceiptByteSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"}, "c0LedgerByteSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"},
+    "reviewAFormalByteSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"}, "reviewBFormalByteSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"},
+    "reviewAExportValidatorStdoutByteSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"}, "reviewBExportValidatorStdoutByteSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"},
+    "reviewAComparisonValidatorExitCode": {"const": 0}, "reviewBComparisonValidatorExitCode": {"const": 0},
+    "reviewAComparisonValidatorStdoutByteSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"}, "reviewBComparisonValidatorStdoutByteSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"},
+    "agreementInputRoles": {"const": ["first", "second"]}, "c0UsedForAgreement": {"const": false},
+    "individualGateEvidence": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"$ref": "#/$defs/individualGate"}},
+    "agreementCells": {"type": "array", "minItems": 105, "maxItems": 105, "items": {"$ref": "#/$defs/agreementCell"}},
+    "agreementMacros": {"$ref": "#/$defs/macros"},
+    "supportReacquireEvidence": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"$ref": "#/$defs/support"}},
+    "disagreementCounts": {"type": "array", "items": {"$ref": "#/$defs/disagreementCount"}},
+    "gatePass": {"type": "boolean"}
+  },
+  "$defs": {
+    "individualGate": {"type": "object", "additionalProperties": false, "required": ["role", "rowCount", "truthPass", "supportPass", "reacquirePass", "validatorExitCode", "validatorStdoutByteSha256"], "properties": {"role": {"$ref": "bundle-manifest-v1.schema.json#/$defs/reviewMode"}, "rowCount": {"const": 6711}, "truthPass": {"const": true}, "supportPass": {"type": "boolean"}, "reacquirePass": {"type": "boolean"}, "validatorExitCode": {"const": 0}, "validatorStdoutByteSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"}}},
+    "agreementCell": {"type": "object", "additionalProperties": false, "required": ["family", "clipId", "field", "count", "observedAgreement", "expectedAgreement", "kappa"], "properties": {"family": {"enum": ["presencePersonState", "contact", "observability"]}, "clipId": {"type": "string", "minLength": 1}, "field": {"type": ["string", "null"]}, "count": {"type": "integer", "minimum": 1}, "observedAgreement": {"type": "number", "minimum": 0, "maximum": 1}, "expectedAgreement": {"type": "number", "minimum": 0, "maximum": 1}, "kappa": {"type": "number", "minimum": -1, "maximum": 1}}},
+    "macros": {"type": "object", "additionalProperties": false, "required": ["presencePersonStateKappa", "contactKappa", "observabilityKappa", "thresholds"], "properties": {"presencePersonStateKappa": {"type": "number", "minimum": -1, "maximum": 1}, "contactKappa": {"type": "number", "minimum": -1, "maximum": 1}, "observabilityKappa": {"type": "number", "minimum": -1, "maximum": 1}, "thresholds": {"type": "object", "additionalProperties": false, "required": ["presencePersonStateKappa", "contactKappa", "observabilityKappa"], "properties": {"presencePersonStateKappa": {"const": 0.99}, "contactKappa": {"const": 0.9}, "observabilityKappa": {"const": 0.95}}}}},
+    "support": {"type": "object", "additionalProperties": false, "required": ["role", "contact", "observability", "reacquireEvents", "hardTestReacquireClips", "gatePass"], "properties": {"role": {"$ref": "bundle-manifest-v1.schema.json#/$defs/reviewMode"}, "contact": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"$ref": "#/$defs/countClips"}}, "observability": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"$ref": "#/$defs/countClips"}}, "reacquireEvents": {"type": "array", "items": {"$ref": "#/$defs/reacquire"}}, "hardTestReacquireClips": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}, "gatePass": {"type": "boolean"}}},
+    "countClips": {"type": "object", "additionalProperties": false, "required": ["field", "frames", "clips"], "properties": {"field": {"type": "string", "minLength": 1}, "frames": {"type": "integer", "minimum": 0}, "clips": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}}},
+    "reacquire": {"type": "object", "additionalProperties": false, "required": ["clipId", "startFrameIndex", "endFrameIndexExclusive", "reacquiredFrameIndex"], "properties": {"clipId": {"type": "string", "minLength": 1}, "startFrameIndex": {"type": "integer", "minimum": 0}, "endFrameIndexExclusive": {"type": "integer", "minimum": 1}, "reacquiredFrameIndex": {"type": "integer", "minimum": 1}}},
+    "disagreementCount": {"type": "object", "additionalProperties": false, "required": ["clipId", "pathFamily", "count"], "properties": {"clipId": {"type": "string", "minLength": 1}, "pathFamily": {"type": "string", "minLength": 1}, "count": {"type": "integer", "minimum": 0}}}
+  }
+}

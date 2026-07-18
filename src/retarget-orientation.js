@@ -10,8 +10,115 @@ export {
   DEFAULT_PALM_NORMAL_SIGNS,
   computePlaneNormal,
   resolveAvatarYawDeg,
+  resolveHandOrientationBasis,
   resolveHandPalmNormal,
+  resolvePoseHandOrientationBasis,
 };
+
+function resolvePoseHandOrientationBasis({
+  wrist,
+  indexBase,
+  pinkyBase,
+  side,
+  normalSigns = DEFAULT_PALM_NORMAL_SIGNS,
+  reflectionParity = 1,
+} = {}) {
+  const orientation = resolveHandPalmNormal({
+    wrist,
+    indexBase,
+    pinkyBase,
+    side,
+    normalSigns,
+  });
+  const palmCenter = midpoint(indexBase, pinkyBase);
+  const primary = isPoint(wrist) && palmCenter
+    ? normalize(subtract(palmCenter, wrist))
+    : null;
+  const parity = normalizeNormalSign(reflectionParity, 1);
+  const normal = orientation.normal
+    ? scaleVector(orientation.normal, parity)
+    : null;
+
+  return {
+    ...orientation,
+    normal,
+    primary,
+    primaryValid: Boolean(primary),
+    valid: Boolean(primary && normal),
+    source: primary && normal ? "pose-world-basis" : "none",
+    reflectionParity: parity,
+  };
+}
+
+function resolveHandOrientationBasis({
+  imagePoints,
+  worldPoints,
+  side,
+  normalSigns = DEFAULT_PALM_NORMAL_SIGNS,
+  reflectionParity = 1,
+} = {}) {
+  const parity = normalizeNormalSign(reflectionParity, 1);
+  const worldBasis = buildHandOrientationBasis(
+    worldPoints,
+    side,
+    normalSigns,
+    "world-basis",
+    parity,
+  );
+
+  if (worldBasis.valid) {
+    return worldBasis;
+  }
+
+  const imageBasis = buildHandOrientationBasis(
+    imagePoints,
+    side,
+    normalSigns,
+    "image-basis",
+    parity,
+  );
+
+  if (imageBasis.primaryValid) {
+    return imageBasis;
+  }
+
+  return {
+    ...imageBasis,
+    normal: null,
+    rawNormal: null,
+    valid: false,
+    source: "none",
+  };
+}
+
+function buildHandOrientationBasis(points, side, normalSigns, source, reflectionParity) {
+  const wrist = points?.[0];
+  const middleBase = points?.[9];
+  const orientation = resolveHandPalmNormal({
+    wrist,
+    indexBase: points?.[5],
+    pinkyBase: points?.[17],
+    side,
+    normalSigns,
+  });
+  const primary = isPoint(wrist) && isPoint(middleBase)
+    ? normalize(subtract(middleBase, wrist))
+    : null;
+  const normal = orientation.normal
+    ? scaleVector(orientation.normal, reflectionParity)
+    : null;
+  const primaryValid = Boolean(primary);
+
+  return {
+    ...orientation,
+    normal,
+    primary,
+    primaryValid,
+    valid: primaryValid && Boolean(normal),
+    source,
+    reflectionParity,
+  };
+}
 
 function resolveHandPalmNormal({ wrist, indexBase, pinkyBase, side, normalSigns = DEFAULT_PALM_NORMAL_SIGNS } = {}) {
   const rawNormal = computePlaneNormal(wrist, indexBase, pinkyBase);
@@ -80,6 +187,18 @@ function subtract(a, b) {
     x: Number(a.x) - Number(b.x),
     y: Number(a.y) - Number(b.y),
     z: Number(a.z) - Number(b.z),
+  };
+}
+
+function midpoint(a, b) {
+  if (!isPoint(a) || !isPoint(b)) {
+    return null;
+  }
+
+  return {
+    x: (Number(a.x) + Number(b.x)) * 0.5,
+    y: (Number(a.y) + Number(b.y)) * 0.5,
+    z: (Number(a.z) + Number(b.z)) * 0.5,
   };
 }
 

@@ -1,0 +1,219 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://action-tracker.local/schemas/sam-goal-p0-external-anchor-v2.json",
+  "title": "SAM goal write-once external P0 anchor v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifactType",
+    "schemaVersion",
+    "candidateP0PackCanonicalSha256",
+    "evaluationPack",
+    "compiledArtifacts",
+    "compiledArtifactSetSha256",
+    "dependencies",
+    "sealedInputs",
+    "expectedCanonicalHash"
+  ],
+  "properties": {
+    "artifactType": {
+      "const": "sam-goal-p0-external-anchor"
+    },
+    "schemaVersion": {
+      "const": 2
+    },
+    "candidateP0PackCanonicalSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "evaluationPack": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/canonicalByteDescriptor"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "path": {
+              "const": "evaluation-pack.json"
+            }
+          }
+        }
+      ]
+    },
+    "compiledArtifacts": {
+      "type": "array",
+      "minItems": 9,
+      "maxItems": 9,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/byteDescriptor"
+      }
+    },
+    "compiledArtifactSetSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "dependencies": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evaluationContractCanonicalSha256",
+        "labelSchemaCanonicalSha256",
+        "authoringSchemaCanonicalSha256",
+        "teacherInputInventoryCanonicalSha256",
+        "teacherPolicyCanonicalSha256",
+        "teacherSchemaCanonicalSha256",
+        "p0AnchorSchemaCanonicalSha256",
+        "p1AnchorSchemaCanonicalSha256",
+        "sourceInventoryCanonicalSha256",
+        "decoderByteSha256",
+        "decoderCanonicalRowsSha256",
+        "manualCompilerByteSha256",
+        "labelAuditorByteSha256"
+      ],
+      "properties": {
+        "evaluationContractCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "labelSchemaCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "authoringSchemaCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "teacherInputInventoryCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "teacherPolicyCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "teacherSchemaCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "p0AnchorSchemaCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "p1AnchorSchemaCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "sourceInventoryCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "decoderByteSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "decoderCanonicalRowsSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "manualCompilerByteSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "labelAuditorByteSha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "sealedInputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reviewA",
+        "reviewB",
+        "adjudication"
+      ],
+      "properties": {
+        "reviewA": {
+          "$ref": "#/$defs/sealedReviewA"
+        },
+        "reviewB": {
+          "$ref": "#/$defs/sealedReviewB"
+        },
+        "adjudication": {
+          "$ref": "#/$defs/sealedAdjudication"
+        }
+      }
+    },
+    "expectedCanonicalHash": {
+      "$ref": "#/$defs/sha256"
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*//)[^\\u0000]+$"
+    },
+    "byteDescriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "byteSha256"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "byteSha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "sealedReviewA": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "logicalPath", "actorPseudonymSha256", "byteSha256"],
+      "properties": {
+        "role": { "const": "first" },
+        "logicalPath": { "const": "sealed/review-a.json" },
+        "actorPseudonymSha256": { "$ref": "#/$defs/sha256" },
+        "byteSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "sealedReviewB": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "logicalPath", "actorPseudonymSha256", "byteSha256"],
+      "properties": {
+        "role": { "const": "second" },
+        "logicalPath": { "const": "sealed/review-b.json" },
+        "actorPseudonymSha256": { "$ref": "#/$defs/sha256" },
+        "byteSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "sealedAdjudication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "logicalPath", "actorPseudonymSha256", "byteSha256"],
+      "properties": {
+        "role": { "const": "adjudication" },
+        "logicalPath": { "const": "sealed/adjudication.json" },
+        "actorPseudonymSha256": { "$ref": "#/$defs/sha256" },
+        "byteSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "canonicalByteDescriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "canonicalSha256",
+        "byteSha256"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "canonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "byteSha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    }
+  }
+}

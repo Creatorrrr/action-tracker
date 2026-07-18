@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "artifactType": "sam-goal-source-contract",
+  "sourceSchema": {
+    "path": "tests/fixtures/sam-goal-v2/source-schema.json",
+    "canonicalSha256": "ffc7bd71da31c07781b65e9579ed29e9b47cd3b2229b39c7b4df8e841e6a9244"
+  },
+  "paired": [
+    {
+      "clipId": "arms-crossed",
+      "video": "output/test-videos/arms-crossed.mp4"
+    },
+    {
+      "clipId": "csi-pose",
+      "video": "output/test-videos/csi-pose.mp4"
+    },
+    {
+      "clipId": "dance-16x9-padded",
+      "video": "output/test-videos/dance-16x9-padded.mp4"
+    },
+    {
+      "clipId": "jujae-regression-0-16_5",
+      "video": "output/test-videos/jujae-regression-0-16_5.mp4"
+    },
+    {
+      "clipId": "shorts-keGbIts0CA0-16x9-padded",
+      "video": "output/test-videos/shorts-keGbIts0CA0-16x9-padded.mp4"
+    },
+    {
+      "clipId": "shorts-new-dance-E9_h_ZW5z0U-16x9-padded",
+      "video": "output/test-videos/shorts-new-dance-E9_h_ZW5z0U-16x9-padded.mp4"
+    },
+    {
+      "clipId": "shorts-vc0GDveRIp0-16x9-padded",
+      "video": "output/test-videos/shorts-vc0GDveRIp0-16x9-padded.mp4"
+    }
+  ],
+  "unpaired": [
+    {
+      "clipId": "jujae-full",
+      "video": "output/test-videos/jujae.mp4",
+      "pairedDecoderRows": 0
+    }
+  ],
+  "expectedCanonicalHash": "39b8e1742f9be749dc34e1130b4395bb993a922374ac687b4fdd0f296be09873"
+}

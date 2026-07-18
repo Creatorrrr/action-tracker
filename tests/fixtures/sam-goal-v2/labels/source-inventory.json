@@ -1,0 +1,244 @@
+{
+  "schemaVersion": 1,
+  "artifactType": "sam-goal-source-inventory",
+  "sourceContract": {
+    "path": "tests/fixtures/sam-goal-v2/source-contract.json",
+    "expectedCanonicalHash": "39b8e1742f9be749dc34e1130b4395bb993a922374ac687b4fdd0f296be09873",
+    "canonicalSha256": "39b8e1742f9be749dc34e1130b4395bb993a922374ac687b4fdd0f296be09873"
+  },
+  "sourceSchema": {
+    "path": "tests/fixtures/sam-goal-v2/source-schema.json",
+    "canonicalSha256": "ffc7bd71da31c07781b65e9579ed29e9b47cd3b2229b39c7b4df8e841e6a9244"
+  },
+  "ffprobe": {
+    "version": "ffprobe version 8.0.1 Copyright (c) 2007-2025 the FFmpeg developers",
+    "streamSelector": "v:0",
+    "framePtsField": "frame.best_effort_timestamp",
+    "frameTimeBaseMode": "selected-stream-time_base",
+    "streamCommandProfile": [
+      "-v",
+      "error",
+      "-select_streams",
+      "v:0",
+      "-show_entries",
+      "stream=index,codec_name,width,height,avg_frame_rate,time_base,duration",
+      "-of",
+      "json",
+      "<video>"
+    ],
+    "frameCommandProfile": [
+      "-v",
+      "error",
+      "-select_streams",
+      "v:0",
+      "-show_entries",
+      "frame=stream_index,best_effort_timestamp,time_base",
+      "-of",
+      "compact=p=0:nk=0",
+      "<video>"
+    ]
+  },
+  "serialization": {
+    "json": "sorted-key-compact-json-v1",
+    "lineEnding": "LF",
+    "terminalNewline": true,
+    "canonicalRowOrder": "ffprobe-presentation-order",
+    "arrayOrderSemantic": true
+  },
+  "paired": [
+    {
+      "clipId": "arms-crossed",
+      "video": {
+        "path": "output/test-videos/arms-crossed.mp4",
+        "bytes": 2596500,
+        "sha256": "36e01f9a0c50c9df159776946ab96d583d3ea7d4b06509b339ab2d4d42a5c2f3"
+      },
+      "media": {
+        "streamIndex": 0,
+        "codec": "h264",
+        "width": 720,
+        "height": 1280,
+        "averageFrameRate": "30/1",
+        "timeBase": {
+          "numerator": 1,
+          "denominator": 15360
+        },
+        "duration": "12.866667"
+      },
+      "decoderRowCount": 386,
+      "firstPtsTicks": "512",
+      "lastPtsTicks": "197632"
+    },
+    {
+      "clipId": "csi-pose",
+      "video": {
+        "path": "output/test-videos/csi-pose.mp4",
+        "bytes": 23717172,
+        "sha256": "2e9b58ffb585d0da56950502c67d7874faf992087221bf3a80be27dd20fac9ca"
+      },
+      "media": {
+        "streamIndex": 0,
+        "codec": "h264",
+        "width": 720,
+        "height": 1280,
+        "averageFrameRate": "30/1",
+        "timeBase": {
+          "numerator": 1,
+          "denominator": 15360
+        },
+        "duration": "94.966667"
+      },
+      "decoderRowCount": 2849,
+      "firstPtsTicks": "0",
+      "lastPtsTicks": "1458176"
+    },
+    {
+      "clipId": "dance-16x9-padded",
+      "video": {
+        "path": "output/test-videos/dance-16x9-padded.mp4",
+        "bytes": 9639781,
+        "sha256": "78a43e4ac497243291c23b87d0c57aaeb717b71461f68d313d39fc84e9df36ad"
+      },
+      "media": {
+        "streamIndex": 0,
+        "codec": "h264",
+        "width": 3414,
+        "height": 1920,
+        "averageFrameRate": "43080/1801",
+        "timeBase": {
+          "numerator": 1,
+          "denominator": 43080
+        },
+        "duration": "15.008333"
+      },
+      "decoderRowCount": 359,
+      "firstPtsTicks": "0",
+      "lastPtsTicks": "644758"
+    },
+    {
+      "clipId": "jujae-regression-0-16_5",
+      "video": {
+        "path": "output/test-videos/jujae-regression-0-16_5.mp4",
+        "bytes": 10415035,
+        "sha256": "34f24040252482fb1bbd706b713ff8dc9abe1141a310ec8c7be699fa9ead193b"
+      },
+      "media": {
+        "streamIndex": 0,
+        "codec": "h264",
+        "width": 1080,
+        "height": 1920,
+        "averageFrameRate": "60000/1001",
+        "timeBase": {
+          "numerator": 1,
+          "denominator": 60000
+        },
+        "duration": "16.516500"
+      },
+      "decoderRowCount": 990,
+      "firstPtsTicks": "0",
+      "lastPtsTicks": "989989"
+    },
+    {
+      "clipId": "shorts-keGbIts0CA0-16x9-padded",
+      "video": {
+        "path": "output/test-videos/shorts-keGbIts0CA0-16x9-padded.mp4",
+        "bytes": 67516694,
+        "sha256": "f336f69d4b83dc233c43dff43cde74d5723b919527d871caab00bbd9b14cc26c"
+      },
+      "media": {
+        "streamIndex": 0,
+        "codec": "h264",
+        "width": 3414,
+        "height": 1920,
+        "averageFrameRate": "60/1",
+        "timeBase": {
+          "numerator": 1,
+          "denominator": 15360
+        },
+        "duration": "20.616667"
+      },
+      "decoderRowCount": 1237,
+      "firstPtsTicks": "0",
+      "lastPtsTicks": "316416"
+    },
+    {
+      "clipId": "shorts-new-dance-E9_h_ZW5z0U-16x9-padded",
+      "video": {
+        "path": "output/test-videos/shorts-new-dance-E9_h_ZW5z0U-16x9-padded.mp4",
+        "bytes": 16917403,
+        "sha256": "fff008446c81f1dd741e2f9deb0fe2ead39da56e54f1427e106904e9af7abc98"
+      },
+      "media": {
+        "streamIndex": 0,
+        "codec": "h264",
+        "width": 3414,
+        "height": 1920,
+        "averageFrameRate": "30/1",
+        "timeBase": {
+          "numerator": 1,
+          "denominator": 15360
+        },
+        "duration": "14.633333"
+      },
+      "decoderRowCount": 439,
+      "firstPtsTicks": "0",
+      "lastPtsTicks": "224256"
+    },
+    {
+      "clipId": "shorts-vc0GDveRIp0-16x9-padded",
+      "video": {
+        "path": "output/test-videos/shorts-vc0GDveRIp0-16x9-padded.mp4",
+        "bytes": 6014129,
+        "sha256": "7fd548c9b46235907f78e88b40dc464b05af2867baea0cbab5b6496d1c9c00dd"
+      },
+      "media": {
+        "streamIndex": 0,
+        "codec": "h264",
+        "width": 1920,
+        "height": 1080,
+        "averageFrameRate": "30/1",
+        "timeBase": {
+          "numerator": 1,
+          "denominator": 15360
+        },
+        "duration": "15.033333"
+      },
+      "decoderRowCount": 451,
+      "firstPtsTicks": "0",
+      "lastPtsTicks": "230400"
+    }
+  ],
+  "unpaired": [
+    {
+      "clipId": "jujae-full",
+      "video": {
+        "path": "output/test-videos/jujae.mp4",
+        "bytes": 22340844,
+        "sha256": "c6954e4e9cc231c37c44480d007c76ce82af5901a531466a8f98b2cd9042903e"
+      },
+      "media": {
+        "streamIndex": 0,
+        "codec": "h264",
+        "width": 1080,
+        "height": 1920,
+        "averageFrameRate": "60000/1001",
+        "timeBase": {
+          "numerator": 1,
+          "denominator": 60000
+        },
+        "duration": "36.519817"
+      },
+      "decodedFrameCount": 2189,
+      "firstPtsTicks": "0",
+      "lastPtsTicks": "2190188",
+      "pairedDecoderRows": 0
+    }
+  ],
+  "decoderManifest": {
+    "path": "tests/fixtures/sam-goal-v2/labels/decoder-manifest.jsonl",
+    "rowCount": 6711,
+    "byteSha256": "d300ac13f9386293f8f1abe746bb64a3ac99f7bd942813286b550375e201cb79",
+    "canonicalRowsSha256": "dde8d9e02fa82341986e535ccf378d4ad555aefaf88d0a27531187db1afecd4d"
+  },
+  "expectedCanonicalHash": "64ea4c592e4a35f8c7483e33824ef2755cd1c35af77e0f631e9b9ad7f3243d8d"
+}

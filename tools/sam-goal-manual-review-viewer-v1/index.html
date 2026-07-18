@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Manual Review</title><link rel="stylesheet" href="/style.css"></head>
+<body>
+  <header id="blindHeader"><h1>Source-only exact identity review</h1><p>No model, skeleton, detector, metric, prior label, import, drop, or external URL is available.</p><p><a href="/rulebook.md" target="_blank" rel="noopener">Open the exact bundled rulebook</a></p></header>
+  <main id="blindReview">
+    <section class="viewer"><video id="motion" controls playsinline></video><p id="motionStatus">HTML video is motion context only.</p><div id="blindEvidenceStage" class="evidence-stage" data-sam-goal-view-mode="fit"><canvas id="still" data-sam-goal-evidence-target="blind-exact-source-frame" data-sam-goal-view-mode="fit" aria-label="complete locked full-resolution unmirrored exact still"></canvas></div><div class="view-controls" aria-label="Exact still display controls"><button id="blindFit" type="button">Fit complete frame</button><button id="blindOneToOne" type="button">Open explicit 1:1 inspection</button></div><div id="blindInspectionStage" class="inspection-stage" hidden><canvas id="stillInspection" aria-label="Explicit one-to-one inspection copy; not formal evidence"></canvas></div><p id="anchorCapture">Click the complete fitted locked still to copy intrinsic numeric x/y into the normal anchor edit fields; no marker will be drawn.</p><p id="lock">No exact identity locked.</p></section>
+    <section class="coordinates"><dl><dt>clipId</dt><dd id="clip"></dd><dt>sourceFrameIndex</dt><dd id="frame"></dd><dt>ptsTicks</dt><dd id="ticks"></dd><dt>timeBase</dt><dd id="base"></dd><dt>loopEpoch</dt><dd id="epoch"></dd><dt>decimal context (non-authoritative)</dt><dd id="decimal"></dd><dt>end boundary identity</dt><dd id="endBoundary"></dd></dl><button id="previous">Previous identity</button><button id="next">Next identity</button><label>Exact jump clipId <input id="jumpClip" autocomplete="off"></label><label>Exact jump sourceFrameIndex <input id="jumpFrame" type="number" min="0"></label><button id="jump">Jump and relock exact identity</button><p id="progress"></p><details><summary>Current explicit row and covering windows</summary><pre id="currentValues"></pre></details></section>
+    <section class="editor"><h2>Explicit actor action</h2><label>Action <select id="action"><option value="set">Set</option><option value="undo">Undo to explicit value</option><option value="create-overlay">Create actor overlay with both tag slots UNSET</option></select></label><label>Field path, or new overlay windowId <input id="field" autocomplete="off"></label><label>Value type <select id="valueType"><option>scenario-array</option><option>presence</option><option>person-state</option><option>occlusion-state</option><option>contact-state</option><option>hand-observability-state</option><option>endpoint-observability-state</option><option>subject-state</option><option>manual-target-id</option><option>anchor</option><option>purpose-array</option></select></label><label>Explicit JSON value <textarea id="value"></textarea></label><label>Range start <input id="start" type="number" min="0"></label><label>Range end exclusive <input id="end" type="number" min="1"></label><button id="set">Apply explicit action</button><button id="attest">Attest no outside input</button><button id="endSession">Seal session evidence</button><p id="result"></p></section>
+  </main>
+
+  <header id="revealHeader" hidden>
+    <h1>Adjudication reveal review</h1>
+    <p>Review the two explicit typed records against source and C0 context. This interface does not import files, accept external locations, or make automated suggestions.</p>
+    <p><a href="/rulebook.md" target="_blank" rel="noopener">Open the exact bundled rulebook</a></p>
+    <p class="warning" role="alert">Any decision change resets every disposition and rationale to explicit UNSET. Complete decisions before recording final class dispositions.</p>
+  </header>
+  <main id="revealReview" class="reveal-layout" aria-busy="false" hidden>
+    <section class="reveal-source" aria-labelledby="revealSourceHeading">
+      <h2 id="revealSourceHeading">Exact source and C0 context</h2>
+      <video id="revealMotion" controls playsinline aria-label="Source motion context"></video>
+      <p id="revealMotionStatus">HTML video is motion context only.</p>
+      <div id="revealEvidenceStage" class="evidence-stage" data-sam-goal-view-mode="fit"><canvas id="revealStill" data-sam-goal-evidence-target="reveal-exact-source-frame" data-sam-goal-view-mode="fit" aria-label="Complete full-resolution unmirrored exact source still"></canvas></div>
+      <div class="view-controls" aria-label="Exact reveal still display controls"><button id="revealFit" type="button">Fit complete frame</button><button id="revealOneToOne" type="button">Open explicit 1:1 inspection</button></div>
+      <div id="revealInspectionStage" class="inspection-stage" hidden><canvas id="revealStillInspection" aria-label="Explicit one-to-one reveal inspection copy; not formal evidence"></canvas></div>
+      <p id="revealDecodeStatus" role="status" aria-live="polite">No exact source sample displayed.</p>
+      <dl id="revealIdentity"></dl>
+      <div class="button-row"><button id="revealPrevious" type="button">Previous identity</button><button id="revealNext" type="button">Next identity</button></div>
+      <form id="revealJumpForm" class="jump-form">
+        <label for="revealJumpClip">Exact jump clipId</label>
+        <select id="revealJumpClip" autocomplete="off"></select>
+        <label for="revealJumpFrame">Exact jump sourceFrameIndex</label>
+        <input id="revealJumpFrame" type="number" min="0" inputmode="numeric" required>
+        <button id="revealJump" type="submit">Jump to exact identity</button>
+      </form>
+      <details open><summary>Current source identity, C0 row, and covering C0 windows</summary><pre id="revealCurrentContext"></pre></details>
+    </section>
+
+    <section class="reveal-progress" aria-labelledby="revealProgressHeading">
+      <h2 id="revealProgressHeading">Explicit completion state</h2>
+      <p id="revealDecisionProgress" role="status"></p>
+      <p id="revealDispositionProgress" role="status"></p>
+      <p id="revealOverallProgress" role="status"></p>
+      <p>UNSET is a visible recorded state, never an implicit blank. Editors below contain only the currently recorded values; no A/B value is selected or copied automatically.</p>
+    </section>
+
+    <section class="reveal-decisions" aria-labelledby="revealDecisionsHeading">
+      <h2 id="revealDecisionsHeading">A/B typed disagreements and explicit decisions</h2>
+      <p>Inspect each value type and both JSON values. Enter an explicit JSON decision or clear it to <code>{"status":"UNSET"}</code>.</p>
+      <div id="decisionEditors"></div>
+    </section>
+
+    <section class="reveal-dispositions" aria-labelledby="revealDispositionsHeading">
+      <h2 id="revealDispositionsHeading">Regenerated deviation-class dispositions</h2>
+      <p>Each regenerated class requires both an explicit disposition and an explicit rationale. Clearing a record sets both fields to <code>{"status":"UNSET"}</code>.</p>
+      <div id="dispositionEditors"></div>
+    </section>
+
+    <section class="reveal-session" aria-labelledby="revealSessionHeading">
+      <h2 id="revealSessionHeading">Session evidence</h2>
+      <button id="revealAttest" type="button">Attest no outside input</button>
+      <button id="revealEndSession" type="button">Seal session evidence</button>
+      <p id="revealResult" role="status" aria-live="assertive"></p>
+    </section>
+  </main>
+  <script type="module" src="/app.js"></script>
+</body></html>

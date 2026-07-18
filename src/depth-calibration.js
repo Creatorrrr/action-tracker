@@ -292,18 +292,104 @@ export function estimateCalibrationPoseQuality(points) {
   };
 }
 
+export function solveCalibratedSegmentVector({
+  parent,
+  rawParent,
+  rawChild,
+  targetLength,
+} = {}) {
+  const anchor = finitePoint3D(parent)
+    ? { x: parent.x, y: parent.y, z: parent.z }
+    : { x: 0, y: 0, z: 0 };
+  const finiteTargetLength = Number.isFinite(targetLength) && targetLength > 0
+    ? targetLength
+    : 0;
+  const rawDx = Number.isFinite(rawChild?.x) && Number.isFinite(rawParent?.x)
+    ? rawChild.x - rawParent.x
+    : 0;
+  const rawDy = Number.isFinite(rawChild?.y) && Number.isFinite(rawParent?.y)
+    ? rawChild.y - rawParent.y
+    : 0;
+  const rawDz = Number.isFinite(rawChild?.z) && Number.isFinite(rawParent?.z)
+    ? rawChild.z - rawParent.z
+    : 0;
+  const rawLength = Math.hypot(rawDx, rawDy, rawDz);
+  const failureReason = !finitePoint3D(parent)
+    ? 'invalid-parent'
+    : !finitePoint3D(rawParent)
+      ? 'invalid-raw-parent'
+      : !finitePoint3D(rawChild)
+        ? 'invalid-raw-child'
+        : finiteTargetLength === 0
+          ? 'invalid-target-length'
+          : !Number.isFinite(rawLength) || rawLength <= 0.000001
+            ? 'degenerate-raw-direction'
+            : null;
+
+  if (failureReason) {
+    return {
+      ...anchor,
+      dx: 0,
+      dy: 0,
+      dz: 0,
+      solved: false,
+      source: 'none',
+      fallbackReason: failureReason,
+      rawLength: Number.isFinite(rawLength) ? rawLength : 0,
+      targetLength: finiteTargetLength,
+      clamped: false,
+      smoothnessDelta: 0,
+    };
+  }
+
+  const scale = finiteTargetLength / rawLength;
+  const dx = rawDx * scale;
+  const dy = rawDy * scale;
+  const dz = rawDz * scale;
+
+  return {
+    x: anchor.x + dx,
+    y: anchor.y + dy,
+    z: anchor.z + dz,
+    dx,
+    dy,
+    dz,
+    solved: true,
+    source: 'raw-calibrated-vector',
+    fallbackReason: null,
+    rawLength,
+    targetLength: finiteTargetLength,
+    clamped: false,
+    smoothnessDelta: 0,
+  };
+}
+
 export function solveDistalDepth({
   parent,
   child,
+  rawParent,
   rawChild = child,
   targetLength,
   previousDz = 0,
   smoothingAlpha = 1,
   signEpsilon = 0.01,
 } = {}) {
-  if (!parent || !child || !Number.isFinite(targetLength) || targetLength <= 0) {
+  const fallbackZ = Number.isFinite(child?.z)
+    ? child.z
+    : Number.isFinite(parent?.z)
+      ? parent.z
+      : 0;
+
+  if (
+    !parent
+    || !child
+    || !Number.isFinite(parent.z)
+    || !Number.isFinite(child.z)
+    || !Number.isFinite(targetLength)
+    || targetLength <= 0
+  ) {
     return {
-      z: child?.z ?? 0,
+      z: fallbackZ,
       dz: 0,
       solved: false,
       clamped: false,
@@ -313,8 +399,24 @@ export function solveDistalDepth({
   }
 
   const dxy = distance2D(parent, child);
+
+  if (!Number.isFinite(dxy)) {
+    return {
+      z: fallbackZ,
+      dz: 0,
+      solved: false,
+      clamped: false,
+      smoothnessDelta: 0,
+      signSource: 'none',
+    };
+  }
+
   const effectiveLength = Math.max(targetLength, dxy);
-  const rawDz = Number.isFinite(rawChild?.z) ? rawChild.z - parent.z : child.z - parent.z;
+  const rawDz = Number.isFinite(rawParent?.z) && Number.isFinite(rawChild?.z)
+    ? rawChild.z - rawParent.z
+    : Number.isFinite(rawChild?.z)
+      ? rawChild.z - parent.z
+      : child.z - parent.z;
   const signChoice = chooseDepthSign(rawDz, previousDz, signEpsilon, {
     preferPrevious: dxy >= targetLength * DEPTH_CALIBRATION_AMBIGUOUS_DEPTH_SIGN_DXY_RATIO,
   });
@@ -428,6 +530,15 @@ export function summarizeLengthConsistency(rows) {
     clampedRatio: gatedRows.length > 0 ? clampedRows.length / gatedRows.length : 0,
     segmentCvs: segmentCvRows,
   };
+}
+
+function finitePoint3D(point) {
+  return Boolean(
+    point
+      && Number.isFinite(point.x)
+      && Number.isFinite(point.y)
+      && Number.isFinite(point.z),
+  );
 }
 
 function chooseDepthSign(rawDz, previousDz, epsilon, options = {}) {

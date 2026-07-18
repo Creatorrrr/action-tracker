@@ -77,6 +77,7 @@ The debug API exposes a JSON-only recording and replay loop:
 - `window.motionTrackerDebug.stopMotionRecording()`
 - `window.motionTrackerDebug.getMotionRecording()`
 - `window.motionTrackerDebug.getMotionRecordingJsonl()`
+- `window.motionTrackerDebug.getMotionRecordingJsonlChunk(cursor, maxFrames)`
 - `window.motionTrackerDebug.clearMotionRecording()`
 - `window.motionTrackerDebug.loadMotionRecording(recording)`
 - `window.motionTrackerDebug.loadMotionRecordingJsonl(jsonl)`
@@ -84,9 +85,9 @@ The debug API exposes a JSON-only recording and replay loop:
 - `window.motionTrackerDebug.stopMotionReplay()`
 - `window.motionTrackerDebug.processValidationMotionFrame(frame)` for validation-mode synthetic/debug frame injection
 
-`stopMotionRecording()` returns `{ version: 1, source, frames, createdAt, droppedFrames }`. It records landmark timelines only; raw video files and avatar binaries are never embedded. `loadMotionRecording(recording)` replays the timeline directly into the renderer and validation reports without running MediaPipe again.
+`stopMotionRecording()` returns `{ version: 1, source, frames, createdAt, droppedFrames }`. Live consumers that must keep tracking while exporting can call `stopMotionRecording({ returnRecording: false })`; that O(1) path returns lightweight status with `recordingId` and `frameCount`, then `getMotionRecordingJsonlChunk(cursor, maxFrames)` retrieves the stable recording in ordered chunks of at most 16 frames. It records landmark timelines only; raw video files and avatar binaries are never embedded. `loadMotionRecording(recording)` replays the timeline directly into the renderer and validation reports without running MediaPipe again.
 
-`getMotionRecordingJsonl()` exports the same recording as newline-delimited JSON: the first line is an `action-tracker-motion-recording` header with `source`, `createdAt`, `droppedFrames`, and `frameCount`, followed by one `action-tracker-motion-frame` line per serialized `motionFrame`. `loadMotionRecordingJsonl(jsonl)` parses that format back into the normal replay path. The JSONL format is intended for offline HMR and dataset tooling: keep the original video as an external reference in `source` fields and never embed raw video/model bytes.
+`getMotionRecordingJsonl()` exports the same recording as newline-delimited JSON: the first line is an `action-tracker-motion-recording` header with `source`, `createdAt`, `droppedFrames`, and `frameCount`, followed by one `action-tracker-motion-frame` line per serialized `motionFrame`. Chunk zero contains that same header, later chunks contain only subsequent frame lines, and concatenating every returned `text` value is byte-identical to the eager JSONL. `loadMotionRecordingJsonl(jsonl)` parses that format back into the normal replay path. The JSONL format is intended for offline HMR and dataset tooling: keep the original video as an external reference in `source` fields and never embed raw video/model bytes.
 
 Offline HMR systems such as WHAM, GVHMR, GEM-X, or SAM 3D Body can be connected only as external extractors that produce this same recording JSON or JSONL. Use `source.type: "external-hmr"` or an extractor name such as `gemx`, then write frames with 33 normalized `poseLandmarks`, 33 `poseWorldLandmarks`, optional 21-point hand landmarks, and scalar `sourceMeta` fields describing the source joint count and mapping. `normalizeExternalMotionRecording(recording)` validates that contract before replay. Do not embed raw video bytes, avatar/model binaries, or heavyweight model runtime state in the recording.
 

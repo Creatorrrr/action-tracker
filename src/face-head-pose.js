@@ -42,13 +42,15 @@ export function updateFaceHeadPoseTracker(
 
     const lastSeenAt = Number.isFinite(state.lastSeenAt) ? state.lastSeenAt : null;
     const gapMs = lastSeenAt === null ? Infinity : Math.max(0, now - lastSeenAt);
-    const withinGrace = gapMs <= trackingGraceMs && isQuaternionLike(state.lastQuaternion);
+    const hasPriorObservation = lastSeenAt !== null && isQuaternionLike(state.lastQuaternion);
+    const withinGrace = gapMs <= trackingGraceMs && hasPriorObservation;
 
     return {
       status: withinGrace ? "holding" : "missing",
       apply: withinGrace,
       tracked: false,
       withinGrace,
+      releaseToIdentity: !withinGrace && hasPriorObservation,
       sourceQuaternion: withinGrace ? cloneQuaternion(state.lastQuaternion) : null,
       gapMs,
       reacquireBlend: withinGrace ? 1 : 0,
@@ -69,6 +71,7 @@ export function updateFaceHeadPoseTracker(
       apply: false,
       tracked: true,
       withinGrace: false,
+      releaseToIdentity: false,
       sourceQuaternion: cloneQuaternion(normalizedSource),
       gapMs: 0,
       reacquireBlend: 0,
@@ -103,6 +106,7 @@ export function updateFaceHeadPoseTracker(
     apply: true,
     tracked: true,
     withinGrace: false,
+    releaseToIdentity: false,
     sourceQuaternion: cloneQuaternion(normalizedSource),
     gapMs,
     reacquireBlend,
@@ -198,6 +202,53 @@ export function computeFaceHeadDelta({
   };
 }
 
+/**
+ * Adds the face tracker delta on top of the body-owned local head pose.  The
+ * body quaternion is deliberately not replaced by a rest-pose target: pose
+ * retargeting remains the absolute owner and face tracking contributes only a
+ * relative local delta.
+ */
+export function composeBodyHeadWithFaceDelta({
+  bodyQuaternion,
+  faceDeltaQuaternion,
+} = {}) {
+  if (!isQuaternionLike(bodyQuaternion) || !isQuaternionLike(faceDeltaQuaternion)) {
+    return invalidQuaternionComposition("invalid-quaternion");
+  }
+
+  return {
+    valid: true,
+    reason: null,
+    quaternion: multiplyQuaternions(
+      normalizeQuaternion(bodyQuaternion),
+      normalizeQuaternion(faceDeltaQuaternion),
+    ),
+  };
+}
+
+/**
+ * Recovers the body-owned pose before the next body solve.  This prevents the
+ * previous frame's face delta from becoming input state to the body smoother
+ * and being accumulated a second time.
+ */
+export function removeFaceDeltaFromComposedHead({
+  composedQuaternion,
+  faceDeltaQuaternion,
+} = {}) {
+  if (!isQuaternionLike(composedQuaternion) || !isQuaternionLike(faceDeltaQuaternion)) {
+    return invalidQuaternionComposition("invalid-quaternion");
+  }
+
+  return {
+    valid: true,
+    reason: null,
+    quaternion: multiplyQuaternions(
+      normalizeQuaternion(composedQuaternion),
+      invertQuaternion(normalizeQuaternion(faceDeltaQuaternion)),
+    ),
+  };
+}
+
 export function quaternionFromEulerYXZ({ x = 0, y = 0, z = 0 } = {}) {
   const c1 = Math.cos(x / 2);
   const c2 = Math.cos(y / 2);
@@ -256,6 +307,14 @@ function invalidFaceTransform(reason) {
     reason,
     layout: "invalid",
     diagnostics: null,
+    quaternion: null,
+  };
+}
+
+function invalidQuaternionComposition(reason) {
+  return {
+    valid: false,
+    reason,
     quaternion: null,
   };
 }

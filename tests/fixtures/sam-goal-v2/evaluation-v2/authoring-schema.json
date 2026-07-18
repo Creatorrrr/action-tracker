@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://action-tracker.local/schemas/sam-goal-manual-authoring-v2.json",
+  "title": "SAM goal independent manual review authoring",
+  "oneOf": [
+    { "$ref": "#/$defs/review" },
+    { "$ref": "#/$defs/adjudication" }
+  ],
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "anchor": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object", "additionalProperties": false, "required": ["x", "y"],
+          "properties": { "x": { "type": "number", "minimum": 0, "maximum": 1 }, "y": { "type": "number", "minimum": 0, "maximum": 1 } }
+        }
+      ]
+    },
+    "subject": {
+      "type": "object", "additionalProperties": false, "required": ["state", "manualTargetId", "anchor"],
+      "properties": {
+        "state": { "enum": ["selected", "absent", "ambiguous", "unknown"] },
+        "manualTargetId": { "type": ["string", "null"] },
+        "anchor": { "$ref": "#/$defs/anchor" }
+      }
+    },
+    "occlusion": {
+      "type": "object", "additionalProperties": false, "required": ["body", "leftFoot", "rightFoot", "leftHand", "rightHand"],
+      "properties": {
+        "body": { "enum": ["observable", "partial", "occluded", "out_of_frame", "unknown"] },
+        "leftFoot": { "enum": ["observable", "partial", "occluded", "out_of_frame", "unknown"] },
+        "rightFoot": { "enum": ["observable", "partial", "occluded", "out_of_frame", "unknown"] },
+        "leftHand": { "enum": ["observable", "partial", "occluded", "out_of_frame", "unknown"] },
+        "rightHand": { "enum": ["observable", "partial", "occluded", "out_of_frame", "unknown"] }
+      }
+    },
+    "contact": {
+      "type": "object", "additionalProperties": false, "required": ["left", "right"],
+      "properties": { "left": { "enum": ["planted", "moving", "unknown"] }, "right": { "enum": ["planted", "moving", "unknown"] } }
+    },
+    "handObservability": {
+      "type": "object", "additionalProperties": false, "required": ["left", "right"],
+      "properties": { "left": { "enum": ["observable", "not_observable"] }, "right": { "enum": ["observable", "not_observable"] } }
+    },
+    "endpointObservability": {
+      "type": "object", "additionalProperties": false, "required": ["leftWrist", "rightWrist", "leftAnkle", "rightAnkle", "head"],
+      "properties": {
+        "leftWrist": { "enum": ["observable", "not_observable"] }, "rightWrist": { "enum": ["observable", "not_observable"] },
+        "leftAnkle": { "enum": ["observable", "not_observable"] }, "rightAnkle": { "enum": ["observable", "not_observable"] },
+        "head": { "enum": ["observable", "not_observable"] }
+      }
+    },
+    "state": {
+      "type": "object", "additionalProperties": false,
+      "required": ["presence", "personState", "occlusion", "contact", "handObservability", "endpointObservability", "subjectSelection"],
+      "properties": {
+        "presence": { "enum": ["present", "absent", "unknown"] },
+        "personState": { "enum": ["single_target", "multiple_people", "absent", "unknown"] },
+        "occlusion": { "$ref": "#/$defs/occlusion" }, "contact": { "$ref": "#/$defs/contact" },
+        "handObservability": { "$ref": "#/$defs/handObservability" }, "endpointObservability": { "$ref": "#/$defs/endpointObservability" },
+        "subjectSelection": { "$ref": "#/$defs/subject" }
+      }
+    },
+    "scenario": {
+      "enum": ["neutral", "entry_exit", "reacquire", "arms_crossed", "self_occlusion", "side_view", "back_view", "fast_motion", "jump", "footwork", "turn", "leg_extension", "distance_change", "partial_body_crop", "multi_person_background", "duplicate_detection_challenge", "hand_closeup", "full_body_dance", "upper_body_only"]
+    },
+    "purpose": {
+      "enum": ["full_clip_denominator", "absence_reacquire", "self_occlusion", "fast_motion", "contact_transition", "multi_person", "crop_out_of_frame", "duplicate_detection", "turning", "hand_observability"]
+    },
+    "interval": {
+      "type": "object", "additionalProperties": false,
+      "required": ["startFrameIndex", "endFrameIndexExclusive", "scenarios", "state"],
+      "properties": {
+        "startFrameIndex": { "type": "integer", "minimum": 0 }, "endFrameIndexExclusive": { "type": "integer", "minimum": 1 },
+        "scenarios": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/scenario" } },
+        "state": { "$ref": "#/$defs/state" }
+      }
+    },
+    "clipReview": {
+      "type": "object", "additionalProperties": false, "required": ["clipId", "intervals"],
+      "properties": { "clipId": { "type": "string", "minLength": 1 }, "intervals": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/interval" } } }
+    },
+    "window": {
+      "type": "object", "additionalProperties": false,
+      "required": ["windowId", "clipId", "startFrameIndex", "endFrameIndexExclusive", "purposeTags", "scenarioTags"],
+      "properties": {
+        "windowId": { "type": "string", "minLength": 1 }, "clipId": { "type": "string", "minLength": 1 },
+        "startFrameIndex": { "type": "integer", "minimum": 0 }, "endFrameIndexExclusive": { "type": "integer", "minimum": 1 },
+        "purposeTags": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/purpose" } },
+        "scenarioTags": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/scenario" } }
+      }
+    },
+    "sourceBinding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["evaluationContractCanonicalSha256", "evaluationSchemaCanonicalSha256", "sourceInventoryCanonicalSha256", "decoderByteSha256", "decoderCanonicalRowsSha256", "decoderRowCount", "sources"],
+      "properties": {
+        "evaluationContractCanonicalSha256": { "$ref": "#/$defs/sha256" }, "evaluationSchemaCanonicalSha256": { "$ref": "#/$defs/sha256" },
+        "sourceInventoryCanonicalSha256": { "$ref": "#/$defs/sha256" }, "decoderByteSha256": { "$ref": "#/$defs/sha256" },
+        "decoderCanonicalRowsSha256": { "$ref": "#/$defs/sha256" }, "decoderRowCount": { "const": 6711 },
+        "sources": { "type": "array", "minItems": 7, "maxItems": 7, "items": { "$ref": "#/$defs/sourceIdentity" } }
+      }
+    },
+    "sourceIdentity": {
+      "type": "object", "additionalProperties": false, "required": ["clipId", "path", "bytes", "sha256"],
+      "properties": {
+        "clipId": { "type": "string", "minLength": 1 }, "path": { "type": "string", "minLength": 1 },
+        "bytes": { "type": "integer", "minimum": 1 }, "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "review": {
+      "type": "object", "additionalProperties": false,
+      "required": ["artifactType", "schemaVersion", "role", "reviewerPseudonymSha256", "origin", "reviewed", "sourceBinding", "windows", "clips", "expectedCanonicalHash"],
+      "properties": {
+        "artifactType": { "const": "manual-review-authoring-v2" }, "schemaVersion": { "const": 1 }, "role": { "enum": ["first", "second"] },
+        "reviewerPseudonymSha256": { "$ref": "#/$defs/sha256" }, "origin": { "const": "manual_video" }, "reviewed": { "const": true },
+        "sourceBinding": { "$ref": "#/$defs/sourceBinding" }, "windows": { "type": "array", "minItems": 7, "items": { "$ref": "#/$defs/window" } },
+        "clips": { "type": "array", "minItems": 7, "maxItems": 7, "items": { "$ref": "#/$defs/clipReview" } },
+        "expectedCanonicalHash": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "decision": {
+      "type": "object", "additionalProperties": false,
+      "required": ["clipId", "startFrameIndex", "endFrameIndexExclusive", "disagreementFields", "scenarios", "state"],
+      "properties": {
+        "clipId": { "type": "string", "minLength": 1 }, "startFrameIndex": { "type": "integer", "minimum": 0 },
+        "endFrameIndexExclusive": { "type": "integer", "minimum": 1 },
+        "disagreementFields": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "scenarios": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/scenario" } },
+        "state": { "$ref": "#/$defs/state" }
+      }
+    },
+    "adjudication": {
+      "type": "object", "additionalProperties": false,
+      "required": ["artifactType", "schemaVersion", "origin", "adjudicated", "adjudicatorPseudonymSha256", "reviewACanonicalSha256", "reviewBCanonicalSha256", "windows", "decisions", "expectedCanonicalHash"],
+      "properties": {
+        "artifactType": { "const": "manual-adjudication-authoring-v2" }, "schemaVersion": { "const": 1 },
+        "origin": { "const": "manual_video" }, "adjudicated": { "const": true }, "adjudicatorPseudonymSha256": { "$ref": "#/$defs/sha256" },
+        "reviewACanonicalSha256": { "$ref": "#/$defs/sha256" }, "reviewBCanonicalSha256": { "$ref": "#/$defs/sha256" },
+        "windows": { "type": "array", "minItems": 7, "items": { "$ref": "#/$defs/window" } },
+        "decisions": { "type": "array", "items": { "$ref": "#/$defs/decision" } }, "expectedCanonicalHash": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  }
+}

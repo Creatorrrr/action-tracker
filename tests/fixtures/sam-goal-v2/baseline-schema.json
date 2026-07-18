@@ -1,0 +1,263 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://action-tracker.local/schemas/sam-goal-baseline-v1.json",
+  "title": "SAM goal baseline index",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "generatedAt",
+    "mode",
+    "runIdentityHash",
+    "completeMatrixRequested",
+    "requested",
+    "git",
+    "environment",
+    "config",
+    "scripts",
+    "evaluationContract",
+    "clips",
+    "unpaired",
+    "rigs",
+    "status",
+    "failures",
+    "cells"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "mode": { "enum": ["dry-run", "run", "resume"] },
+    "runIdentityHash": { "$ref": "#/$defs/sha256" },
+    "completeMatrixRequested": { "type": "boolean" },
+    "requested": {
+      "type": "object",
+      "required": ["clipIds", "rigIds", "expectedCellCount"],
+      "properties": {
+        "clipIds": { "type": "array", "items": { "type": "string" }, "minItems": 1, "uniqueItems": true },
+        "rigIds": { "type": "array", "items": { "type": "string" }, "minItems": 1, "uniqueItems": true },
+        "expectedCellCount": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "git": {
+      "type": "object",
+      "required": [
+        "head",
+        "branch",
+        "dirty",
+        "dirtyFingerprint",
+        "statusSha256",
+        "trackedDiffSha256",
+        "stagedDiffSha256",
+        "untrackedTreeSha256",
+        "untrackedFileCount"
+      ],
+      "properties": {
+        "head": { "type": "string" },
+        "branch": { "type": "string" },
+        "dirty": { "type": "boolean" },
+        "dirtyFingerprint": { "$ref": "#/$defs/sha256" },
+        "statusSha256": { "$ref": "#/$defs/sha256" },
+        "trackedDiffSha256": { "$ref": "#/$defs/sha256" },
+        "stagedDiffSha256": { "$ref": "#/$defs/sha256" },
+        "untrackedTreeSha256": { "$ref": "#/$defs/sha256" },
+        "untrackedFileCount": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "environment": {
+      "type": "object",
+      "required": ["platform", "arch", "osRelease", "cpu", "node", "browser", "mediaProbe", "deviceProfile"],
+      "additionalProperties": { "type": ["string", "number", "boolean", "null"] }
+    },
+    "config": {
+      "type": "object",
+      "required": [
+        "delegate",
+        "trackingWorker",
+        "playbackRate",
+        "pump",
+        "faceTracking",
+        "smoothing",
+        "avatarRetarget",
+        "warmupPoseFrames",
+        "minPoseFrames",
+        "timeoutMs",
+        "completeness"
+      ],
+      "additionalProperties": true
+    },
+    "scripts": {
+      "type": "object",
+      "required": ["agreement", "adapter", "compare"],
+      "additionalProperties": { "$ref": "#/$defs/fileIdentity" }
+    },
+    "evaluationContract": {
+      "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/fileIdentity" }]
+    },
+    "clips": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "fps", "video", "teacher", "teacherStats", "teacherPaths"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "fps": { "type": ["number", "null"], "exclusiveMinimum": 0 },
+          "video": { "$ref": "#/$defs/videoIdentity" },
+          "teacher": {
+            "type": "object",
+            "required": ["files", "sha256"],
+            "properties": {
+              "files": { "type": "array", "items": { "$ref": "#/$defs/fileIdentity" }, "minItems": 3 },
+              "sha256": { "$ref": "#/$defs/sha256" }
+            }
+          },
+          "teacherStats": { "$ref": "#/$defs/teacherStats" },
+          "teacherPaths": {
+            "type": "object",
+            "required": ["raw", "metadata", "summary"],
+            "additionalProperties": { "type": "string" }
+          }
+        }
+      },
+      "minItems": 1
+    },
+    "unpaired": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "reason", "video"],
+        "properties": {
+          "id": { "type": "string" },
+          "reason": { "type": "string" },
+          "video": { "$ref": "#/$defs/videoIdentity" }
+        }
+      }
+    },
+    "rigs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "label", "model"],
+        "properties": {
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "model": { "$ref": "#/$defs/fileIdentity" }
+        }
+      },
+      "minItems": 1
+    },
+    "status": { "enum": ["planned", "running", "completed", "failed"] },
+    "failures": { "type": "array", "items": { "type": "object" } },
+    "completedCellCount": { "type": "integer", "minimum": 0 },
+    "incompleteCellCount": { "type": "integer", "minimum": 0 },
+    "cells": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/cell" },
+      "minItems": 1
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "fileIdentity": {
+      "type": "object",
+      "required": ["path", "bytes", "sha256"],
+      "properties": {
+        "path": { "type": "string" },
+        "bytes": { "type": "integer", "minimum": 0 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      },
+      "additionalProperties": false
+    },
+    "videoIdentity": {
+      "type": "object",
+      "required": ["path", "bytes", "sha256", "media"],
+      "properties": {
+        "path": { "type": "string" },
+        "bytes": { "type": "integer", "minimum": 0 },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "media": { "$ref": "#/$defs/media" }
+      },
+      "additionalProperties": false
+    },
+    "media": {
+      "type": "object",
+      "required": ["codec", "width", "height", "averageFrameRate", "sourceHz", "timeBase", "durationSec"],
+      "properties": {
+        "codec": { "type": "string" },
+        "width": { "type": "number", "exclusiveMinimum": 0 },
+        "height": { "type": "number", "exclusiveMinimum": 0 },
+        "averageFrameRate": { "type": "string" },
+        "sourceHz": { "type": "number", "exclusiveMinimum": 0 },
+        "timeBase": { "type": "string" },
+        "durationSec": { "type": "number", "exclusiveMinimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "teacherStats": {
+      "type": "object",
+      "required": [
+        "rawLineCount",
+        "sourceFrameCount",
+        "processedFrameCount",
+        "totalPersonPredictions",
+        "detectionMisses",
+        "everyNFrames"
+      ],
+      "properties": {
+        "rawLineCount": { "type": "integer", "minimum": 1 },
+        "sourceFrameCount": { "type": "integer", "minimum": 1 },
+        "processedFrameCount": { "type": "integer", "minimum": 1 },
+        "totalPersonPredictions": { "type": "integer", "minimum": 0 },
+        "detectionMisses": { "type": "integer", "minimum": 0 },
+        "everyNFrames": { "const": 1 }
+      },
+      "additionalProperties": false
+    },
+    "artifact": {
+      "type": "object",
+      "required": ["path", "exists", "bytes", "sha256"],
+      "properties": {
+        "path": { "type": "string" },
+        "exists": { "type": "boolean" },
+        "bytes": { "type": "integer", "minimum": 0 },
+        "sha256": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }] }
+      },
+      "additionalProperties": false
+    },
+    "cell": {
+      "type": "object",
+      "required": [
+        "id",
+        "clipId",
+        "rigId",
+        "requested",
+        "identityHash",
+        "status",
+        "reason",
+        "resumed",
+        "sharedTeacherRegenerated",
+        "commands",
+        "artifacts",
+        "execution"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "clipId": { "type": "string" },
+        "rigId": { "type": "string" },
+        "requested": { "type": "boolean" },
+        "identityHash": { "$ref": "#/$defs/sha256" },
+        "status": { "enum": ["planned", "pending", "running", "completed", "failed"] },
+        "reason": { "type": ["string", "null"] },
+        "resumed": { "type": "boolean" },
+        "sharedTeacherRegenerated": { "type": "boolean" },
+        "commands": { "type": "object", "required": ["adapter", "agreement", "compare"] },
+        "artifacts": {
+          "type": "object",
+          "required": ["teacherRecording", "liveRecording", "avatarReport", "comparisonReport"],
+          "additionalProperties": { "$ref": "#/$defs/artifact" }
+        },
+        "execution": { "type": "object" }
+      }
+    }
+  }
+}

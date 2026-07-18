@@ -1,0 +1,881 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "artifactType": "teacher-derivation-policy-v2",
+  "schemaVersion": 2,
+  "canonicalization": {
+    "profile": "recursive-utf8-bytewise-key-sort-root-expectedCanonicalHash-exclusion-v1",
+    "hashAlgorithm": "sha256",
+    "excludedRootKeys": [
+      "expectedCanonicalHash"
+    ],
+    "orderSensitiveArrays": true
+  },
+  "targetRoles": {
+    "evaluation": "raw_hard",
+    "watch": "refined_watch",
+    "combined": "raw_hard_refined_watch",
+    "liveMaySelect": false
+  },
+  "phaseLockIO": {
+    "relativeCliPathBase": "process.cwd",
+    "p0SealedLogicalPaths": {
+      "reviewA": "sealed/review-a.json",
+      "reviewB": "sealed/review-b.json",
+      "adjudication": "sealed/adjudication.json"
+    },
+    "logicalPathsAreFilesystemResolved": false,
+    "callerPathsPersisted": false,
+    "singleBufferHashRoleActorValidation": true,
+    "p1ReopensSealedInputs": false,
+    "p0AnchorOpenCount": 1,
+    "inheritedP1DescriptorsDeepEqual": true,
+    "inheritedP1BuffersReopened": false,
+    "externalSnapshot": "capture every ancestor lstat identity; require nonsymlink regular final with st_nlink=1; open once with O_NOFOLLOW; require pre-lstat/fd/post-lstat/realpath dev+ino+nlink identity agreement and unchanged fd size/device/inode/mtime; revalidate ancestors after each boundary"
+  },
+  "rawBinding": {
+    "algorithm": "decoder row i binds raw JSONL physical line i and requires decoded raw frame_index == decoder sourceFrameIndex. Dataset v2 stores the original line bytes excluding its terminator as base64 plus rawLineByteSha256, rawLineIndex, decodedRawCanonicalSha256, exact decoder identity and derived selection only. The P1 source manifest must repeat and match the P0-frozen teacher-input inventory's UTF-8, CRLF separators, rawTerminalNewline=true, complete source-file byte SHA and row count. Audit base64-decodes every line, verifies its line hash, reconstructs the original file by appending exactly CRLF after every terminator-free JSON byte line and requires byte equality/hash to both the P0 inventory and current source. Therefore original key order, numeric lexemes including -0/exponents, null versus missing, person-array order and unknown-field bytes survive exactly. The decoded raw-frame schema admits exactly video, frame_index, timestamp_sec, image_size{width,height}, person_count and persons; every person admits only person_id, bbox_xyxy, detector_bbox_xyxy, detector_score, focal_length, pred_cam_t, global_rot, keypoints_mhr70_2d, keypoints_mhr70_3d and mhr_joint_coords_127_3d. Every field except bbox_xyxy and detector_bbox_xyxy is required with the frozen shape; the two bbox fields are independently optional and may hold any JSON value or be absent so the frozen usability/fallback algorithm—not schema rejection—handles missing/null/non-array/wrong-length/nonfinite/non-positive values. It requires person_count == persons.length, frame_index == physical zero-based line index, positive integer image dimensions, and all non-bbox frozen array shapes; any other unknown/missing/wrong-shape field is a source-schema hard failure rather than being dropped or masked. raw timestamp_sec is preserved inside the raw line and separately reported against exact rational PTS but never replaces ptsTicks/timeBase.",
+    "serialization": "Dataset v2, teacher-refined and teacher mask are UTF-8 JSONL without BOM, exactly one compact recursively key-sorted JSON object per decoder-manifest row in identical clip/row order, LF separators and terminal LF. They each contain exactly 6,711 rows and no headers. Source manifest and teacher summary are compact recursively key-sorted JSON with one terminal LF; their semantic self-hash excludes exactly root expectedCanonicalHash while byte descriptors include the terminal LF. JSON numbers must be finite and serialized by the repository canonical serializer; raw source numeric spelling survives only inside rawLineBase64. Any alternate whitespace, key order, row order, missing/extra line, CRLF or absent terminal LF fails byte regeneration rather than being normalized silently.",
+    "personIndex": "rawPersonIndex is the zero-based position in the decoded raw persons array; array order is semantic and never sorted. raw person_id is preserved independently and is not treated as a persistent track. selectedTrackId is exactly the manualTargetId only after successful policy selection."
+  },
+  "rawSerialization": {
+    "encoding": "utf-8",
+    "lineEnding": "CRLF",
+    "terminatorHex": "0d0a",
+    "rawLineBase64ExcludesEntireTerminator": true,
+    "reconstruction": "concatenate each decoded raw JSON byte line with exactly CRLF and require byte equality to the P0 inventory",
+    "generatedArtifactLineEnding": "LF"
+  },
+  "metadata": {
+    "algorithm": "For every clip audit metadata format=mhr70, keypoint_count=70, keypoint_names as an identical 70-element unique ordered array, and the policy's complete index/name table. At minimum the used identities are 0 nose, 5 left_shoulder, 6 right_shoulder, 7 left_elbow, 8 right_elbow, 9 left_hip, 10 right_hip, 11 left_knee, 12 right_knee, 13 left_ankle, 14 right_ankle, 15 left_big_toe, 16 left_small_toe, 17 left_heel, 18 right_big_toe, 19 right_small_toe, 20 right_heel, 41 right_wrist, 62 left_wrist and 69 neck. Every raw image_size must equal the accepted source inventory width/height. For each summary require processed_frames == raw physical rows, every_n_frames == 1, total_person_predictions == sum(persons.length), and detection_misses == count(detectorProvenance.state != detector_hit) under detector_provenance_policy; preserve but do not equate extractor-reported source_frame_count to decoder row count. Current exact reconciliation is arms 37 miss+0 fallback, csi 0 miss+163 fallback+0 unavailable and zero for the other five clips. Any mismatch is a P0 teacher-input hard failure, not a mask reason.",
+    "format": "mhr70",
+    "keypointCount": 70,
+    "keypointNames": [
+      {
+        "index": 0,
+        "name": "nose"
+      },
+      {
+        "index": 1,
+        "name": "left_eye"
+      },
+      {
+        "index": 2,
+        "name": "right_eye"
+      },
+      {
+        "index": 3,
+        "name": "left_ear"
+      },
+      {
+        "index": 4,
+        "name": "right_ear"
+      },
+      {
+        "index": 5,
+        "name": "left_shoulder"
+      },
+      {
+        "index": 6,
+        "name": "right_shoulder"
+      },
+      {
+        "index": 7,
+        "name": "left_elbow"
+      },
+      {
+        "index": 8,
+        "name": "right_elbow"
+      },
+      {
+        "index": 9,
+        "name": "left_hip"
+      },
+      {
+        "index": 10,
+        "name": "right_hip"
+      },
+      {
+        "index": 11,
+        "name": "left_knee"
+      },
+      {
+        "index": 12,
+        "name": "right_knee"
+      },
+      {
+        "index": 13,
+        "name": "left_ankle"
+      },
+      {
+        "index": 14,
+        "name": "right_ankle"
+      },
+      {
+        "index": 15,
+        "name": "left_big_toe"
+      },
+      {
+        "index": 16,
+        "name": "left_small_toe"
+      },
+      {
+        "index": 17,
+        "name": "left_heel"
+      },
+      {
+        "index": 18,
+        "name": "right_big_toe"
+      },
+      {
+        "index": 19,
+        "name": "right_small_toe"
+      },
+      {
+        "index": 20,
+        "name": "right_heel"
+      },
+      {
+        "index": 21,
+        "name": "right_thumb4"
+      },
+      {
+        "index": 22,
+        "name": "right_thumb3"
+      },
+      {
+        "index": 23,
+        "name": "right_thumb2"
+      },
+      {
+        "index": 24,
+        "name": "right_thumb_third_joint"
+      },
+      {
+        "index": 25,
+        "name": "right_forefinger4"
+      },
+      {
+        "index": 26,
+        "name": "right_forefinger3"
+      },
+      {
+        "index": 27,
+        "name": "right_forefinger2"
+      },
+      {
+        "index": 28,
+        "name": "right_forefinger_third_joint"
+      },
+      {
+        "index": 29,
+        "name": "right_middle_finger4"
+      },
+      {
+        "index": 30,
+        "name": "right_middle_finger3"
+      },
+      {
+        "index": 31,
+        "name": "right_middle_finger2"
+      },
+      {
+        "index": 32,
+        "name": "right_middle_finger_third_joint"
+      },
+      {
+        "index": 33,
+        "name": "right_ring_finger4"
+      },
+      {
+        "index": 34,
+        "name": "right_ring_finger3"
+      },
+      {
+        "index": 35,
+        "name": "right_ring_finger2"
+      },
+      {
+        "index": 36,
+        "name": "right_ring_finger_third_joint"
+      },
+      {
+        "index": 37,
+        "name": "right_pinky_finger4"
+      },
+      {
+        "index": 38,
+        "name": "right_pinky_finger3"
+      },
+      {
+        "index": 39,
+        "name": "right_pinky_finger2"
+      },
+      {
+        "index": 40,
+        "name": "right_pinky_finger_third_joint"
+      },
+      {
+        "index": 41,
+        "name": "right_wrist"
+      },
+      {
+        "index": 42,
+        "name": "left_thumb4"
+      },
+      {
+        "index": 43,
+        "name": "left_thumb3"
+      },
+      {
+        "index": 44,
+        "name": "left_thumb2"
+      },
+      {
+        "index": 45,
+        "name": "left_thumb_third_joint"
+      },
+      {
+        "index": 46,
+        "name": "left_forefinger4"
+      },
+      {
+        "index": 47,
+        "name": "left_forefinger3"
+      },
+      {
+        "index": 48,
+        "name": "left_forefinger2"
+      },
+      {
+        "index": 49,
+        "name": "left_forefinger_third_joint"
+      },
+      {
+        "index": 50,
+        "name": "left_middle_finger4"
+      },
+      {
+        "index": 51,
+        "name": "left_middle_finger3"
+      },
+      {
+        "index": 52,
+        "name": "left_middle_finger2"
+      },
+      {
+        "index": 53,
+        "name": "left_middle_finger_third_joint"
+      },
+      {
+        "index": 54,
+        "name": "left_ring_finger4"
+      },
+      {
+        "index": 55,
+        "name": "left_ring_finger3"
+      },
+      {
+        "index": 56,
+        "name": "left_ring_finger2"
+      },
+      {
+        "index": 57,
+        "name": "left_ring_finger_third_joint"
+      },
+      {
+        "index": 58,
+        "name": "left_pinky_finger4"
+      },
+      {
+        "index": 59,
+        "name": "left_pinky_finger3"
+      },
+      {
+        "index": 60,
+        "name": "left_pinky_finger2"
+      },
+      {
+        "index": 61,
+        "name": "left_pinky_finger_third_joint"
+      },
+      {
+        "index": 62,
+        "name": "left_wrist"
+      },
+      {
+        "index": 63,
+        "name": "left_olecranon"
+      },
+      {
+        "index": 64,
+        "name": "right_olecranon"
+      },
+      {
+        "index": 65,
+        "name": "left_cubital_fossa"
+      },
+      {
+        "index": 66,
+        "name": "right_cubital_fossa"
+      },
+      {
+        "index": 67,
+        "name": "left_acromion"
+      },
+      {
+        "index": 68,
+        "name": "right_acromion"
+      },
+      {
+        "index": 69,
+        "name": "neck"
+      }
+    ]
+  },
+  "coordinateSemantics": "Preserve keypoints_mhr70_3d and mhr_joint_coords_127_3d as root-relative meters in the upstream camera-axis convention, preserve keypoints_mhr70_2d as source pixels, and preserve pred_cam_t as the camera translation. Derive camera-space MHR70 only as keypoints_mhr70_3d + pred_cam_t and independently recompute u=(x+tx)*f/(z+tz)+width/2 and v=(y+ty)*f/(z+tz)+height/2 against raw 2D; never overwrite a raw array with the derived array. Store all 70 per-joint residual/depth facts, but apply required_coordinates_nonfinite, camera depth, max Euclidean reprojection error 0.01 px and in-frame tolerance to each scored scope's own required joint union: torso; torso+head; torso+one arm; torso+arm+same-side hand; torso+one leg; or full_body. A coordinate failure outside a scope's required union cannot disable that scope.",
+  "detectorProvenance": {
+    "algorithm": "Derive a closed row detectorProvenance without using score thresholds. persons.length==0 is miss_no_prediction. A positive-person row with any unusable detector_bbox_xyxy is provenance_unavailable. Otherwise, when a previous decoder row exists with the same positive persons length and every ordered raw person has detector_score and usable detector_bbox_xyxy exactly Object.is/element-wise equal to the same rawPersonIndex in the previous row, classify carry_forward_fallback; all remaining positive-person rows are detector_hit. First rows cannot be carry-forward. Across each clip, every non-hit count must exactly equal the P0-bound summary detection_misses; this empirically reconciles all seven inputs and makes the inference auditable, but carry-forward is recorded as source=derived_exact_detector_tuple_repeat_summary_reconciled and unavailable as source=missing_or_invalid_native_detector_bbox rather than claimed native provenance. Every non-hit state disables every teacher scoring scope with an explicit reason. bbox_xyxy may still support deterministic subject-selection trace on provenance_unavailable rows but cannot make them teacher-valid. Detector score magnitude never changes provenance, presence, selection or confidence.",
+    "states": [
+      "detector_hit",
+      "carry_forward_fallback",
+      "miss_no_prediction",
+      "provenance_unavailable"
+    ],
+    "scoreThresholdForbidden": true
+  },
+  "subjectSelection": {
+    "algorithm": "Manual subject state selected gates every candidate choice. Evaluate this decision tree in order and emit at most one selection failure. (1) Zero raw persons: teacher_record_missing. (2) One raw person and anchor=null: select it without inspecting either bbox for selection; derivedSelection.effectiveBboxSource/effectiveBboxXyxy are both null and selectionWarningCodes is empty even if detector provenance separately reports unusable native bbox. (3) One raw person and anchor non-null: derive its effective bbox; no usable effective bbox is candidate_bbox_unusable, containment selects it, and usable non-containment is teacher_candidate_anchor_mismatch. (4) More than one raw person and anchor=null: teacher_candidate_ambiguous immediately, regardless of every bbox value; do not derive effective bboxes or fallback warnings. (5) More than one and anchor non-null: derive every effective bbox; any unusable candidate makes candidate_bbox_unusable, otherwise exactly one containing bbox selects that raw index and zero/multiple containment is teacher_candidate_ambiguous. Only a successfully selected candidate that actually needed bbox derivation records effectiveBboxSource/effectiveBboxXyxy and detector_bbox_invalid_fallback when its fallback was used. Failed selections have null effective bbox fields and empty selection warnings. Manual absent/ambiguous/unknown always yields no selected raw candidate. Detector count/score never sets manual physical personState or joint confidence.",
+    "bboxAlgorithm": "A bbox is usable iff it is an array of exactly four finite numbers [xMin,yMin,xMax,yMax] with xMax>xMin and yMax>yMin. Use detector_bbox_xyxy iff usable. Only when detector_bbox_xyxy is missing, null, non-array, wrong-length, nonfinite or non-positive-area may a usable bbox_xyxy be used, with selection warning detector_bbox_invalid_fallback; no fallback is allowed merely because an anchor misses a usable detector bbox. If both are unusable, an anchor-required selection receives candidate_bbox_unusable. Convert normalized manual anchor by pixelX=anchor.x*image_size.width and pixelY=anchor.y*image_size.height. Expand without clamping to [xMin-0.10*width,yMin-0.10*height,xMax+0.10*width,yMax+0.10*height] and test both axes with inclusive <= bounds.",
+    "manualFirst": true
+  },
+  "thresholds": {
+    "bbox_padding_fraction": 0.1,
+    "max_reprojection_error_px": 0.01,
+    "min_segment_m": 0.02,
+    "max_segment_m": 1,
+    "min_dimensionless_normalization_norm": 0.000001,
+    "min_normalized_torso_cross": 0.25881904510252074,
+    "camera_depth_open_min_m": 0.1,
+    "camera_depth_max_m": 100,
+    "focal_open_min_px": 0,
+    "focal_max_px": 100000,
+    "in_frame_tolerance_px": 1,
+    "max_clip_median_scale_deviation": 0.2,
+    "max_adjacent_scale_jump": 0.1,
+    "max_selected_gap_ms": 100,
+    "max_camera_root_speed_mps": 12,
+    "max_root_relative_joint_speed_mps": 20,
+    "contact_stable_confirmation_ms": 100,
+    "pre_mask_min_hand_observable_frames_per_side": 300,
+    "post_mask_min_teacher_valid_hand_frames_per_side": 100,
+    "min_hand_support_clips_per_side": 2,
+    "pre_mask_min_head_observable_frames": 300,
+    "post_mask_min_teacher_valid_head_frames": 100,
+    "min_head_support_clips": 2,
+    "refinement_window_frames": 5,
+    "refinement_savgol_numerator": [
+      -3,
+      12,
+      17,
+      12,
+      -3
+    ],
+    "refinement_savgol_denominator": 35,
+    "refinement_max_joint_displacement_m": 0.05,
+    "refinement_max_camera_displacement_m": 0.1,
+    "refinement_max_reprojection_delta_px": 2
+  },
+  "torsoBasis": "Indices are left/right shoulder 5/6 and left/right hip 9/10. Require all four points finite. Define shoulderVec=rightShoulder-leftShoulder, hipVec=rightHip-leftHip and verticalVec=(leftShoulder+rightShoulder)/2-(leftHip+rightHip)/2; these are the complete meter-valued precursor list and each norm must be >=0.02 m. Define shoulderLateral=shoulderVec/norm, hipLateral=hipVec/norm and lateralSum=shoulderLateral+hipLateral; lateralSum is the sole dimensionless normalization precursor and its norm must be >=0.000001. Then lateral=lateralSum/norm, vertical=verticalVec/norm and basisCross=norm(cross(lateral,vertical)); basisCross must be >=0.25881904510252074. Any failed finite/norm/cross predicate adds invalid_torso_basis; no implementation-selected fallback axis is allowed.",
+  "majorSegments": [
+    "5-7",
+    "7-62",
+    "6-8",
+    "8-41",
+    "9-11",
+    "11-13",
+    "10-12",
+    "12-14",
+    "5-6",
+    "9-10"
+  ],
+  "scopeJointSets": {
+    "torso": [
+      5,
+      6,
+      9,
+      10
+    ],
+    "full_body": [
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      41,
+      62
+    ],
+    "head": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      69
+    ],
+    "left_arm": [
+      5,
+      7,
+      62
+    ],
+    "right_arm": [
+      6,
+      8,
+      41
+    ],
+    "left_hand": [
+      42,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54,
+      55,
+      56,
+      57,
+      58,
+      59,
+      60,
+      61,
+      62
+    ],
+    "right_hand": [
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41
+    ],
+    "left_leg": [
+      9,
+      11,
+      13,
+      15,
+      16,
+      17
+    ],
+    "right_leg": [
+      10,
+      12,
+      14,
+      18,
+      19,
+      20
+    ]
+  },
+  "scaleAndTemporal": "frameScale is the deterministic median of the first eight limb-segment lengths: sort ascending; odd count selects the middle, even count uses the arithmetic mean of the two middle IEEE-754 values. A row is clipScaleEligible iff detectorProvenance=detector_hit, manual subject is selected, policy selection succeeds, all eight lengths are finite and each lies in [0.02,1.0] m; eligibility is evaluated before observability and all scale/temporal masks. clipScale is the same deterministic median of every eligible frameScale in the clip; zero eligible rows makes scale_median_unavailable for every otherwise selected fullBody/contact row and fails P1 materialization. fullBody/contact bone_length_anomaly uses all ten major segments; each arm/hand scope uses its corresponding upper-arm and forearm segments; each leg scope uses its thigh and shin; torso/head have no scale/segment reason. scale_deviation and scale_jump apply only to fullBody/contact. Temporal predecessor is the most recent earlier detector_hit row whose policy selection succeeded with the same manualTargetId, not merely a manual-selected or globally teacher-valid row. No predecessor means no temporal reason. An intervening miss/fallback/unavailable selection therefore produces a nonconsecutive predecessor. A nonconsecutive sourceFrameIndex or exact rational delta>100 ms adds temporal_gap to torsoFacing and every derived scope, suppressing every adjacent reference/jump/speed test. Without a gap, torsoFacing requires finite current/previous pred_cam_t and torso joints; fullBody/contact additionally require frameScale and full_body joints; every auxiliary scope additionally requires its own joints. Missing operands add temporal_reference_unavailable only to affected scopes and suppress later temporal tests. Otherwise torsoFacing and every derived movement scope add root_speed_anomaly for norm(curr.pred_cam_t-prev.pred_cam_t)/dt>12 m/s; torsoFacing uses torso joints, fullBody uses full_body, and each auxiliary uses torso+own joints for joint_speed_anomaly>20 m/s. fullBody/contact alone add scale_jump for abs(currScale/prevScale-1)>0.10. A bad unrelated scope never supplies a reason to another auxiliary scope.",
+  "refinement": {
+    "algorithm": "Store a separate 6,711-row teacher-refined.jsonl; raw Dataset/mask remain byte-unchanged and evaluation targetRole is frozen to raw_hard_refined_watch before any live run. A row is smoothable only when it and the two preceding/two following decoder rows all have detector_hit provenance, are successfully selected to the same manualTargetId, sourceFrameIndex-consecutive, have exactly equal rational adjacent PTS deltas, no adjacent gap, and finite pred_cam_t/MHR70/MHR127 arrays. Apply the centered 5-point quadratic Savitzky-Golay coefficients [-3,12,17,12,-3]/35 independently to every component of pred_cam_t, all 70 root-relative joints and all 127 MHR joints; for bit reproducibility initialize IEEE-754 binary64 acc=0, add coefficient[i]*value[i] strictly left-to-right for i=0..4 without reassociation/FMA, then divide once by 35 and serialize with the repository canonical JSON number writer. Raw 2D, global_rot, bbox, score and IDs remain losslessly preserved only in Dataset/rawLineBase64; the closed refined row copies none of them. Accept the entire refined frame atomically only if every joint displacement from the center raw frame is <=0.05 m, camera displacement <=0.10 m, all values remain finite, all ten segment/torso-basis structural checks pass, and every MHR70 refined projection differs from the center raw 2D by <=2 px. Otherwise the whole selected frame is identity fallback to raw. Unselected or non-hit rows store null pose. Boundaries/nonuniform windows use identity only for selected detector-hit center rows, never interpolation. Closed statuses and precedence are defined separately; audit recomputes every coefficient/result/status bit-for-bit. Live/student/avatar data cannot choose smoothing, fallback or targetRole. Refined watch metrics can never replace raw hard gates without a newly reviewed pre-live P0 contract.",
+    "statusContract": "Accepted Dataset materialization rejects every nonfinite required center/person pose before any refined artifact exists, so a selected accepted center is always finite and hashable; a defensive direct derivation call with a nonfinite selected center fails. Evaluate accepted rows exactly once in this precedence: (1) unavailable when the center is not detector_hit or policy selection fails; pose=null and sourceWindow=null. (2) identity_boundary when fewer than two physical decoder rows exist on either side in the same clip; pose is canonical-serialization-equal raw center and sourceWindow=null. (3) identity_selection_gap when any neighbor is not detector_hit, is not selected to the identical manualTargetId, or is not sourceFrameIndex-consecutive; pose is raw center and sourceWindow is the five exact identities. (4) identity_input_invalid is defensive pure derivation only for a finite accepted center with a nonfinite neighbor; it cannot appear in the current source-validated P1 chain. (5) identity_nonuniform_pts when the four positive rational deltas are not exactly equal or any exceeds 100ms. (6) identity_safety_fallback when any frozen safety predicate fails. (7) smoothed otherwise. rawCenterCanonicalSha256 is present iff policy selection succeeded, including selected non-hit rows; refinedPoseCanonicalSha256 is present iff pose is nonnull. Pose hashes use compact recursively UTF-8-bytewise-key-sorted JSON of exactly {predCamT,keypointsMhr70RootRelativeM,mhrJointCoords127RootRelativeM}, with ECMAScript finite number serialization and no terminator. Draft 2020-12 oneOf closes every selected/status/sourceWindow/pose/hash nullability combination."
+  },
+  "manual": {
+    "scopeMapping": "bodyObservable means manual presence present and occlusion.body observable|partial. Endpoint predicates use the matching endpointObservability field. A leg endpoint is observable when bodyObservable, its ankle endpoint is observable and its foot occlusion is observable|partial; strict fullBody/contact foot observability still requires foot occlusion=observable. An arm endpoint is observable when bodyObservable and its wrist endpoint is observable. A hand is observable when its arm endpoint is observable, its hand occlusion is observable|partial and handObservability for that side is observable. Head is observable when bodyObservable and endpointObservability.head is observable. torsoFacing contains manual selection, detector hit, manual-body/torso-basis plus torso finite/camera-depth/reprojection/in-frame and torso temporal reasons; miss/fallback provenance therefore disables every derived scope. Head, each arm, each hand and each leg inherit torsoFacing, add their matching manual observability, own joint-union coordinate/projection/in-frame and auxiliary temporal reasons, and only their own segment bounds; a hand additionally inherits its same-side arm scope. fullBody inherits torsoFacing, requires both strict feet, full_body coordinates/projection/in-frame, all ten segments, clipScale and full_body temporal reasons, but does not inherit head/arm/hand endpoint-observability scopes. calibration inherits fullBody and always adds native_joint_confidence_unavailable. Each contactEligibility foot retains the accepted invariant of inheriting fullBody and additionally requires that strict foot observable, known planted|moving contact and finite corresponding leg chain. Therefore contact implies fullBody, while head/arm/hand/leg may be true when fullBody is false. Every scope is true iff its ordered reason array is empty.",
+    "truthHardening": "When manual presence is absent, physical personState and subject state are absent, contacts unknown, all hands/endpoints not observable, and every occlusion part is out_of_frame or unknown; observable/partial/occluded target parts are forbidden because the target has no source pixels. Review and adjudication durable rows include canonical sorted scenario arrays in addition to state, and scenario-only differences require a durable adjudication row.",
+    "contactAnnotation": "Contact is a per-foot source-video fact on exact decoder PTS. planted means the foot is visibly in stable support against the ground/surface; camera/body translation and tiny image jitter do not change it. moving means visibly not in stable support, including first lift, swing or a held raised foot, landing before stable confirmation, intentional slide, or pivot. A new planted interval starts retroactively at the first visible settled-support frame only when at least 100 ms of consecutive exact PTS remains observable and stably supported; otherwise those candidate frames stay unknown until confirmable. A moving interval starts at the first visible departure from the prior stable support and ends immediately before that confirmed planted start. When foot/surface evidence is cropped, occluded, motion-blurred, or otherwise insufficient, label unknown rather than infer through the gap. At an isolated window boundary, use planted/moving only when the same visual predicate is directly established; otherwise unknown. Left and right feet are decided independently, so a support foot may remain planted while the other is moving.",
+    "contactRationalInterval": "Manual frame labels are inclusive exact decoder identities, not wall-clock intervals. Let first be the first visually settled candidate row and last be a later row in the same uninterrupted observable/stable run. Confirmation uses the sample-to-sample rational span, explicitly not an end-exclusive frame duration: deltaTicks=last.ptsTicks-first.ptsTicks and deltaTicks*timeBase.numerator*1000 >= contact_stable_confirmation_ms*timeBase.denominator by BigInt cross multiplication. Thus 30fps normally needs four sampled rows from 0 through 100ms and 60000/1001 normally needs seven. All intervening sourceFrameIndex values must be consecutive and visibly stable/observable. Once confirmed, planted begins inclusively at first; the preceding moving interval ends at first.sourceFrameIndex-1. If the run breaks or the clip/window ends before confirmation, candidate settled-but-unconfirmed rows are unknown unless visible motion independently makes them moving. Any unknown/crop/occlusion gap ends inheritance; a post-gap planted run needs fresh confirmation."
+  },
+  "reasons": {
+    "precedence": [
+      "manual_absent",
+      "manual_presence_unknown",
+      "manual_subject_unselected",
+      "detector_miss_no_prediction",
+      "detector_carry_forward_fallback",
+      "detector_provenance_unavailable",
+      "teacher_record_missing",
+      "teacher_candidate_ambiguous",
+      "teacher_candidate_anchor_mismatch",
+      "candidate_bbox_unusable",
+      "required_coordinates_nonfinite",
+      "camera_parameters_invalid",
+      "reprojection_error",
+      "manual_body_unobservable",
+      "invalid_torso_basis",
+      "incomplete_full_body_observability",
+      "manual_head_unobservable",
+      "manual_arm_unobservable",
+      "manual_hand_unobservable",
+      "manual_leg_unobservable",
+      "required_joint_out_of_frame",
+      "leg_chain_nonfinite",
+      "manual_foot_unobservable",
+      "manual_contact_unknown",
+      "bone_length_anomaly",
+      "scale_median_unavailable",
+      "scale_deviation",
+      "temporal_gap",
+      "temporal_reference_unavailable",
+      "scale_jump",
+      "root_speed_anomaly",
+      "joint_speed_anomaly",
+      "native_joint_confidence_unavailable"
+    ],
+    "applicability": {
+      "manual_absent": "manual presence=absent",
+      "manual_presence_unknown": "manual presence=unknown",
+      "manual_subject_unselected": "manual subject state is not selected",
+      "detector_miss_no_prediction": "detectorProvenance.state=miss_no_prediction, regardless of manual state",
+      "detector_carry_forward_fallback": "detectorProvenance.state=carry_forward_fallback, regardless of manual state",
+      "detector_provenance_unavailable": "detectorProvenance.state=provenance_unavailable because a positive-person row lacks a usable native detector bbox",
+      "teacher_record_missing": "manual subject is selected and raw persons length is zero",
+      "teacher_candidate_ambiguous": "manual subject is selected, raw persons length>1, and either anchor is null regardless of bbox state, or anchor is non-null, every candidate has a usable effective bbox and the containing-bbox count is not exactly one; it is mutually exclusive with candidate_bbox_unusable",
+      "teacher_candidate_anchor_mismatch": "manual subject is selected, raw persons length=1, anchor is non-null, a usable bbox exists, and it does not contain the anchor",
+      "candidate_bbox_unusable": "manual subject is selected, anchor is non-null, and one-candidate selection has no usable effective bbox or multi-candidate selection has at least one candidate with no usable effective bbox; null-anchor branches can never emit this reason and it is mutually exclusive with other selection failures",
+      "required_coordinates_nonfinite": "the decoded current-format raw schema has the required array shapes but a selected-candidate coordinate required by the corresponding scope is not finite; wrong/missing shapes are source-schema hard failure, and coordinates outside that scope union do not add this reason",
+      "camera_parameters_invalid": "selected focal is not finite in (0,100000], pred_cam_t is not three finite numbers, or derived camera depth for any joint required by the corresponding scope is not in (0.1,100] m",
+      "reprojection_error": "maximum Euclidean source-pixel error over the corresponding scope's required official projection pairs exceeds 0.01 px",
+      "manual_body_unobservable": "manual body occlusion is not observable|partial or manual presence is not present",
+      "invalid_torso_basis": "any torso precursor length is below 0.02 m, lateral sum cannot normalize, or normalized cross magnitude is below 0.25881904510252074",
+      "incomplete_full_body_observability": "either strict foot predicate (occlusion=observable and ankle endpoint observable) is false",
+      "manual_head_unobservable": "for the head scope, bodyObservable is false or endpointObservability.head is not observable",
+      "manual_arm_unobservable": "for the corresponding arm scope, bodyObservable is false or its wrist endpoint is not observable",
+      "manual_hand_unobservable": "for the corresponding hand scope, hand occlusion is not observable|partial, handObservability is not observable, or wrist endpoint is not observable",
+      "manual_leg_unobservable": "for the corresponding leg scope, bodyObservable is false, ankle endpoint is not observable, or foot occlusion is not observable|partial",
+      "required_joint_out_of_frame": "any 2D joint required by the corresponding full_body, torso+head, torso+arm, torso+arm+hand, or torso+leg scope lies outside [-1,width+1] x [-1,height+1] continuous pixel bounds; torso uses the same predicate on torso joints",
+      "leg_chain_nonfinite": "the corresponding contact leg-chain 3D coordinates are not finite",
+      "manual_foot_unobservable": "the corresponding foot occlusion is not observable or ankle endpoint is not observable",
+      "manual_contact_unknown": "the corresponding contact is not planted|moving",
+      "bone_length_anomaly": "for fullBody/contact, any of all ten major segments is nonfinite/outside [0.02,1.0] m; for an arm/hand, either corresponding upper-arm/forearm segment fails; for a leg, either corresponding thigh/shin segment fails; head has no segment instance of this reason",
+      "scale_median_unavailable": "for fullBody/contact only, the clip has zero clipScaleEligible rows",
+      "scale_deviation": "for fullBody/contact only, frameScale exists and abs(frameScale/clipScale-1)>0.20",
+      "temporal_gap": "an earlier detector_hit and successfully-selected predecessor with the same manualTargetId exists but sourceFrameIndex is nonconsecutive or exact rational delta>100 ms",
+      "temporal_reference_unavailable": "a detector_hit, successfully-selected same-target predecessor exists with no temporal_gap, but either frame lacks finite operands required by that scope: torsoFacing requires pred_cam_t and torso joints; fullBody/contact additionally require frameScale and full_body joints; each auxiliary head/arm/hand/leg additionally requires its own joints",
+      "scale_jump": "for fullBody/contact only, no temporal_gap/reference failure and abs(currScale/prevScale-1)>0.10",
+      "root_speed_anomaly": "for torsoFacing and every derived scope, no temporal_gap/reference failure and camera-translation speed>12 m/s",
+      "joint_speed_anomaly": "no temporal_gap/reference failure and maximum root-relative joint speed over the corresponding torso, full_body or torso+auxiliary scope union exceeds 20 m/s",
+      "native_joint_confidence_unavailable": "calibration scope only, because the current source exposes no native per-joint confidence"
+    },
+    "scopeContract": "Every scope reason array is the ordered unique set of all applicable codes sorted only by reason_precedence; no short-circuit or producer order is accepted. global valid is true iff torsoFacing, fullBody, head, either arm/hand/leg, calibration or either contactEligibility is true. When global valid is true, global exclusionReasons is exactly []; disabled scopes retain their reasons. When all scopes are false, global exclusionReasons is the ordered unique union of torsoFacing/fullBody/head/left-right arm/hand/leg/left-right contact reasons, excluding calibration-only native_joint_confidence_unavailable; it must be nonempty. Every current row warningCodes contains native_joint_confidence_unavailable and detector_provenance_derived_not_native; warnings never satisfy a false scope or global exclusion.",
+    "scopeSources": {
+      "shared_selection": [
+        "manual_absent",
+        "manual_presence_unknown",
+        "manual_subject_unselected",
+        "detector_miss_no_prediction",
+        "detector_carry_forward_fallback",
+        "detector_provenance_unavailable",
+        "teacher_record_missing",
+        "teacher_candidate_ambiguous",
+        "teacher_candidate_anchor_mismatch",
+        "candidate_bbox_unusable"
+      ],
+      "torsoFacing": {
+        "inherits": [
+          "shared_selection"
+        ],
+        "additional": [
+          "required_coordinates_nonfinite",
+          "camera_parameters_invalid",
+          "reprojection_error",
+          "manual_body_unobservable",
+          "invalid_torso_basis",
+          "required_joint_out_of_frame",
+          "temporal_gap",
+          "temporal_reference_unavailable",
+          "root_speed_anomaly",
+          "joint_speed_anomaly"
+        ]
+      },
+      "head": {
+        "inherits": [
+          "torsoFacing"
+        ],
+        "additional": [
+          "manual_head_unobservable",
+          "required_coordinates_nonfinite",
+          "camera_parameters_invalid",
+          "reprojection_error",
+          "required_joint_out_of_frame",
+          "temporal_reference_unavailable",
+          "joint_speed_anomaly"
+        ]
+      },
+      "leftArm": {
+        "inherits": [
+          "torsoFacing"
+        ],
+        "additional": [
+          "manual_arm_unobservable",
+          "required_coordinates_nonfinite",
+          "camera_parameters_invalid",
+          "reprojection_error",
+          "required_joint_out_of_frame",
+          "bone_length_anomaly",
+          "temporal_reference_unavailable",
+          "joint_speed_anomaly"
+        ]
+      },
+      "rightArm": {
+        "inherits": [
+          "torsoFacing"
+        ],
+        "additional": [
+          "manual_arm_unobservable",
+          "required_coordinates_nonfinite",
+          "camera_parameters_invalid",
+          "reprojection_error",
+          "required_joint_out_of_frame",
+          "bone_length_anomaly",
+          "temporal_reference_unavailable",
+          "joint_speed_anomaly"
+        ]
+      },
+      "leftHand": {
+        "inherits": [
+          "leftArm"
+        ],
+        "additional": [
+          "manual_hand_unobservable",
+          "required_coordinates_nonfinite",
+          "camera_parameters_invalid",
+          "reprojection_error",
+          "required_joint_out_of_frame",
+          "temporal_reference_unavailable",
+          "joint_speed_anomaly"
+        ]
+      },
+      "rightHand": {
+        "inherits": [
+          "rightArm"
+        ],
+        "additional": [
+          "manual_hand_unobservable",
+          "required_coordinates_nonfinite",
+          "camera_parameters_invalid",
+          "reprojection_error",
+          "required_joint_out_of_frame",
+          "temporal_reference_unavailable",
+          "joint_speed_anomaly"
+        ]
+      },
+      "leftLeg": {
+        "inherits": [
+          "torsoFacing"
+        ],
+        "additional": [
+          "manual_leg_unobservable",
+          "required_coordinates_nonfinite",
+          "camera_parameters_invalid",
+          "reprojection_error",
+          "required_joint_out_of_frame",
+          "bone_length_anomaly",
+          "temporal_reference_unavailable",
+          "joint_speed_anomaly"
+        ]
+      },
+      "rightLeg": {
+        "inherits": [
+          "torsoFacing"
+        ],
+        "additional": [
+          "manual_leg_unobservable",
+          "required_coordinates_nonfinite",
+          "camera_parameters_invalid",
+          "reprojection_error",
+          "required_joint_out_of_frame",
+          "bone_length_anomaly",
+          "temporal_reference_unavailable",
+          "joint_speed_anomaly"
+        ]
+      },
+      "fullBody": {
+        "inherits": [
+          "torsoFacing"
+        ],
+        "additional": [
+          "incomplete_full_body_observability",
+          "required_coordinates_nonfinite",
+          "camera_parameters_invalid",
+          "reprojection_error",
+          "required_joint_out_of_frame",
+          "bone_length_anomaly",
+          "scale_median_unavailable",
+          "scale_deviation",
+          "temporal_reference_unavailable",
+          "scale_jump",
+          "joint_speed_anomaly"
+        ]
+      },
+      "calibration": {
+        "inherits": [
+          "fullBody"
+        ],
+        "additional": [
+          "native_joint_confidence_unavailable"
+        ]
+      },
+      "leftContact": {
+        "inherits": [
+          "fullBody"
+        ],
+        "additional": [
+          "leg_chain_nonfinite",
+          "manual_foot_unobservable",
+          "manual_contact_unknown"
+        ]
+      },
+      "rightContact": {
+        "inherits": [
+          "fullBody"
+        ],
+        "additional": [
+          "leg_chain_nonfinite",
+          "manual_foot_unobservable",
+          "manual_contact_unknown"
+        ]
+      }
+    }
+  },
+  "warnings": {
+    "codes": [
+      "native_joint_confidence_unavailable",
+      "detector_provenance_derived_not_native",
+      "detector_bbox_invalid_fallback",
+      "raw_timestamp_differs_from_exact_pts"
+    ],
+    "applicability": "native_joint_confidence_unavailable and detector_provenance_derived_not_native appear on every current Dataset/mask row because no native per-joint confidence or per-frame detector event flag exists. detector_bbox_invalid_fallback appears exactly when the successfully selected candidate's detector_bbox_xyxy is unusable and its usable bbox_xyxy fallback was used; failed/unselected candidates do not contribute this row warning. For raw_timestamp_differs_from_exact_pts, parse raw timestamp_sec by ECMAScript JSON.parse to binary64, compute exactPtsNumber strictly as (Number(ptsTicks)*timeBase.numerator)/timeBase.denominator left-to-right, and warn when rawTimestampNumber !== exactPtsNumber; retain raw lexeme bytes and rational PTS, report the binary64 delta, and never use either comparison or raw timestamp for pairing.",
+    "provenanceCodes": [
+      "extractor_code_hash_unavailable",
+      "checkpoint_hash_unavailable",
+      "mhr_asset_hash_unavailable",
+      "detector_weight_hash_unavailable"
+    ]
+  },
+  "provenance": {
+    "algorithm": "The closed provenance array has exactly extractor_code, sam_checkpoint, mhr_asset and detector_weights. Because none of those original bytes is present, each record is {component,availability=unavailable,sha256=null,reason=artifact_bytes_not_present_in_workspace,claimedPathOrModel,claimedConfig}; claimed values come only from the P0-bound summaries and null is used when absent. The seven raw JSONL/metadata/summary result assets are separately availability=verified_result_bytes with their inventory hashes, which does not upgrade model/code availability. Current upstream downloads, repository HEADs or name-matched weights can never fill these hashes or change unavailable to verified.",
+    "components": [
+      "extractor_code",
+      "sam_checkpoint",
+      "mhr_asset",
+      "detector_weights"
+    ]
+  },
+  "splitRoles": {
+    "arms-crossed": "hard_test",
+    "csi-pose": "hard_test",
+    "dance-16x9-padded": "validation",
+    "jujae-regression-0-16_5": "hard_test",
+    "shorts-keGbIts0CA0-16x9-padded": "train_candidate",
+    "shorts-new-dance-E9_h_ZW5z0U-16x9-padded": "train_candidate",
+    "shorts-vc0GDveRIp0-16x9-padded": "train_candidate",
+    "jujae-full": "unpaired_final"
+  },
+  "support": {
+    "handAndHead": {
+      "preMaskFrames": 300,
+      "postMaskFrames": 100,
+      "minClips": 2
+    },
+    "contact": {
+      "preMaskFramesPerFootClass": 300,
+      "postMaskFramesPerFootClass": 100,
+      "minClips": 2
+    }
+  },
+  "expectedRawReconciliation": {
+    "arms-crossed": {
+      "detector_hit": 349,
+      "carry_forward_fallback": 0,
+      "miss_no_prediction": 37,
+      "provenance_unavailable": 0
+    },
+    "csi-pose": {
+      "detector_hit": 2686,
+      "carry_forward_fallback": 163,
+      "miss_no_prediction": 0,
+      "provenance_unavailable": 0
+    },
+    "dance-16x9-padded": {
+      "detector_hit": 359,
+      "carry_forward_fallback": 0,
+      "miss_no_prediction": 0,
+      "provenance_unavailable": 0
+    },
+    "jujae-regression-0-16_5": {
+      "detector_hit": 990,
+      "carry_forward_fallback": 0,
+      "miss_no_prediction": 0,
+      "provenance_unavailable": 0
+    },
+    "shorts-keGbIts0CA0-16x9-padded": {
+      "detector_hit": 1237,
+      "carry_forward_fallback": 0,
+      "miss_no_prediction": 0,
+      "provenance_unavailable": 0
+    },
+    "shorts-new-dance-E9_h_ZW5z0U-16x9-padded": {
+      "detector_hit": 439,
+      "carry_forward_fallback": 0,
+      "miss_no_prediction": 0,
+      "provenance_unavailable": 0
+    },
+    "shorts-vc0GDveRIp0-16x9-padded": {
+      "detector_hit": 451,
+      "carry_forward_fallback": 0,
+      "miss_no_prediction": 0,
+      "provenance_unavailable": 0
+    }
+  },
+  "forbiddenPolicyInputs": [
+    "live",
+    "student",
+    "avatar",
+    "trackerOutput",
+    "retargetOutput",
+    "solverOutput",
+    "modelOutput",
+    "residual",
+    "mpjpe",
+    "angleError",
+    "quaternionError",
+    "endpointError",
+    "latency",
+    "renderFps",
+    "dropRate",
+    "queueDepth"
+  ],
+  "expectedCanonicalHash": "d38b9583cd5b9d9cd57d947866c1f5140e880f93095024b54c613fc3d8c804d7"
+}

@@ -1,0 +1,289 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "artifactType": "teacher-input-inventory-v2",
+  "schemaVersion": 2,
+  "canonicalization": {
+    "profile": "recursive-utf8-bytewise-key-sort-root-expectedCanonicalHash-exclusion-v1",
+    "hashAlgorithm": "sha256",
+    "excludedRootKeys": [
+      "expectedCanonicalHash"
+    ],
+    "arrayOrderSemantic": true
+  },
+  "sourceBinding": {
+    "sourceContract": {
+      "path": "tests/fixtures/sam-goal-v2/source-contract.json",
+      "canonicalSha256": "39b8e1742f9be749dc34e1130b4395bb993a922374ac687b4fdd0f296be09873"
+    },
+    "sourceSchema": {
+      "path": "tests/fixtures/sam-goal-v2/source-schema.json",
+      "canonicalSha256": "ffc7bd71da31c07781b65e9579ed29e9b47cd3b2229b39c7b4df8e841e6a9244"
+    },
+    "sourceInventory": {
+      "path": "tests/fixtures/sam-goal-v2/labels/source-inventory.json",
+      "canonicalSha256": "64ea4c592e4a35f8c7483e33824ef2755cd1c35af77e0f631e9b9ad7f3243d8d"
+    },
+    "decoderManifest": {
+      "path": "tests/fixtures/sam-goal-v2/labels/decoder-manifest.jsonl",
+      "rowCount": 6711,
+      "byteSha256": "d300ac13f9386293f8f1abe746bb64a3ac99f7bd942813286b550375e201cb79",
+      "canonicalRowsSha256": "dde8d9e02fa82341986e535ccf378d4ad555aefaf88d0a27531187db1afecd4d"
+    }
+  },
+  "serialization": {
+    "rawJsonlEncoding": "utf-8",
+    "rawLineEnding": "CRLF",
+    "rawTerminatorHex": "0d0a",
+    "rawTerminalNewline": true,
+    "jsonCanonicalization": "recursive-utf8-bytewise-key-sort",
+    "jsonSelfHashExclusion": "root expectedCanonicalHash only"
+  },
+  "clips": [
+    {
+      "clipId": "arms-crossed",
+      "video": {
+        "path": "output/test-videos/arms-crossed.mp4",
+        "bytes": 2596500,
+        "sha256": "36e01f9a0c50c9df159776946ab96d583d3ea7d4b06509b339ab2d4d42a5c2f3",
+        "width": 720,
+        "height": 1280
+      },
+      "decoderRows": 386,
+      "files": {
+        "skeletonsMhr70": {
+          "path": "sam-3d-body-skeletons/arms-crossed/skeletons_mhr70.jsonl",
+          "bytes": 5449631,
+          "byteSha256": "e6335d66e6576f8ad5b216db110303fdfa1d4b1c47143d0469b1361b6933765d",
+          "encoding": "utf-8",
+          "lineEnding": "CRLF",
+          "terminatorHex": "0d0a",
+          "terminalNewline": true,
+          "rowCount": 386
+        },
+        "metadataMhr70": {
+          "path": "sam-3d-body-skeletons/arms-crossed/metadata_mhr70.json",
+          "bytes": 16084,
+          "byteSha256": "dfaa1f0c2bf94d2651f3bb6c24c0d4bfdeba38e443526e87ad981e6761f8589d",
+          "canonicalSha256": "85202b69856931f26736290af08a8a451d18019a5906fbd4a4f859e8078e96e1"
+        },
+        "summary": {
+          "path": "sam-3d-body-skeletons/arms-crossed/summary.json",
+          "bytes": 828,
+          "byteSha256": "0bff1f38816a3a9851885eb0f1daca34da84767245aad30818af00c2acddf7e0",
+          "canonicalSha256": "4a36c0e4654af64247754a9a6bff5758bd3c4b9f4b058b336b8d900cd89cc153"
+        }
+      }
+    },
+    {
+      "clipId": "csi-pose",
+      "video": {
+        "path": "output/test-videos/csi-pose.mp4",
+        "bytes": 23717172,
+        "sha256": "2e9b58ffb585d0da56950502c67d7874faf992087221bf3a80be27dd20fac9ca",
+        "width": 720,
+        "height": 1280
+      },
+      "decoderRows": 2849,
+      "files": {
+        "skeletonsMhr70": {
+          "path": "sam-3d-body-skeletons/csi-pose/skeletons_mhr70.jsonl",
+          "bytes": 44559540,
+          "byteSha256": "a5731a0c25326bf8d1f919c0effedbf441624328c00af5d52ad5356702fa8462",
+          "encoding": "utf-8",
+          "lineEnding": "CRLF",
+          "terminatorHex": "0d0a",
+          "terminalNewline": true,
+          "rowCount": 2849
+        },
+        "metadataMhr70": {
+          "path": "sam-3d-body-skeletons/csi-pose/metadata_mhr70.json",
+          "bytes": 16084,
+          "byteSha256": "dfaa1f0c2bf94d2651f3bb6c24c0d4bfdeba38e443526e87ad981e6761f8589d",
+          "canonicalSha256": "85202b69856931f26736290af08a8a451d18019a5906fbd4a4f859e8078e96e1"
+        },
+        "summary": {
+          "path": "sam-3d-body-skeletons/csi-pose/summary.json",
+          "bytes": 883,
+          "byteSha256": "bcf66ad482524ae8dd34a99899876dfb927cdad4dbb40b5099ddb16047a07cc0",
+          "canonicalSha256": "9c07bd26d332453c14e7e74a70563988910e9bed3a839c08009b32714e7184c3"
+        }
+      }
+    },
+    {
+      "clipId": "dance-16x9-padded",
+      "video": {
+        "path": "output/test-videos/dance-16x9-padded.mp4",
+        "bytes": 9639781,
+        "sha256": "78a43e4ac497243291c23b87d0c57aaeb717b71461f68d313d39fc84e9df36ad",
+        "width": 3414,
+        "height": 1920
+      },
+      "decoderRows": 359,
+      "files": {
+        "skeletonsMhr70": {
+          "path": "sam-3d-body-skeletons/dance-16x9-padded/skeletons_mhr70.jsonl",
+          "bytes": 5595765,
+          "byteSha256": "d2ac74f3634b0f702141586ed953362bae1ec67e777ee012264749d4fa401812",
+          "encoding": "utf-8",
+          "lineEnding": "CRLF",
+          "terminatorHex": "0d0a",
+          "terminalNewline": true,
+          "rowCount": 359
+        },
+        "metadataMhr70": {
+          "path": "sam-3d-body-skeletons/dance-16x9-padded/metadata_mhr70.json",
+          "bytes": 16084,
+          "byteSha256": "dfaa1f0c2bf94d2651f3bb6c24c0d4bfdeba38e443526e87ad981e6761f8589d",
+          "canonicalSha256": "85202b69856931f26736290af08a8a451d18019a5906fbd4a4f859e8078e96e1"
+        },
+        "summary": {
+          "path": "sam-3d-body-skeletons/dance-16x9-padded/summary.json",
+          "bytes": 861,
+          "byteSha256": "d3f87d70e1e0a640f3aafb9b21df250445530565324e45e8af3a9fc379c881ed",
+          "canonicalSha256": "ee91ef9eb1615b60dbcff8d8516bfc25053ca90ce09018c6865b4d0bf9d3d69c"
+        }
+      }
+    },
+    {
+      "clipId": "jujae-regression-0-16_5",
+      "video": {
+        "path": "output/test-videos/jujae-regression-0-16_5.mp4",
+        "bytes": 10415035,
+        "sha256": "34f24040252482fb1bbd706b713ff8dc9abe1141a310ec8c7be699fa9ead193b",
+        "width": 1080,
+        "height": 1920
+      },
+      "decoderRows": 990,
+      "files": {
+        "skeletonsMhr70": {
+          "path": "sam-3d-body-skeletons/jujae-regression-0-16_5/skeletons_mhr70.jsonl",
+          "bytes": 15458187,
+          "byteSha256": "7b4036fdc84c72e16a2916c81b2509629eaf2f079617dcdcc1cd709de9e2a43e",
+          "encoding": "utf-8",
+          "lineEnding": "CRLF",
+          "terminatorHex": "0d0a",
+          "terminalNewline": true,
+          "rowCount": 990
+        },
+        "metadataMhr70": {
+          "path": "sam-3d-body-skeletons/jujae-regression-0-16_5/metadata_mhr70.json",
+          "bytes": 16084,
+          "byteSha256": "dfaa1f0c2bf94d2651f3bb6c24c0d4bfdeba38e443526e87ad981e6761f8589d",
+          "canonicalSha256": "85202b69856931f26736290af08a8a451d18019a5906fbd4a4f859e8078e96e1"
+        },
+        "summary": {
+          "path": "sam-3d-body-skeletons/jujae-regression-0-16_5/summary.json",
+          "bytes": 884,
+          "byteSha256": "c3c9eb9d283e84a67aa6ec171e6806bc66a37e6b640a7cb4c2d5a8da4982d75d",
+          "canonicalSha256": "9281d68b49b3e78cbffd77ff387562504f70de2e5b98331f66ad6aea5bae529e"
+        }
+      }
+    },
+    {
+      "clipId": "shorts-keGbIts0CA0-16x9-padded",
+      "video": {
+        "path": "output/test-videos/shorts-keGbIts0CA0-16x9-padded.mp4",
+        "bytes": 67516694,
+        "sha256": "f336f69d4b83dc233c43dff43cde74d5723b919527d871caab00bbd9b14cc26c",
+        "width": 3414,
+        "height": 1920
+      },
+      "decoderRows": 1237,
+      "files": {
+        "skeletonsMhr70": {
+          "path": "sam-3d-body-skeletons/shorts-keGbIts0CA0-16x9-padded/skeletons_mhr70.jsonl",
+          "bytes": 19307578,
+          "byteSha256": "469b07b188ae5fd42c448afb53b7a316a98990ec4d94cd14755c87cdf1dc5304",
+          "encoding": "utf-8",
+          "lineEnding": "CRLF",
+          "terminatorHex": "0d0a",
+          "terminalNewline": true,
+          "rowCount": 1237
+        },
+        "metadataMhr70": {
+          "path": "sam-3d-body-skeletons/shorts-keGbIts0CA0-16x9-padded/metadata_mhr70.json",
+          "bytes": 16084,
+          "byteSha256": "dfaa1f0c2bf94d2651f3bb6c24c0d4bfdeba38e443526e87ad981e6761f8589d",
+          "canonicalSha256": "85202b69856931f26736290af08a8a451d18019a5906fbd4a4f859e8078e96e1"
+        },
+        "summary": {
+          "path": "sam-3d-body-skeletons/shorts-keGbIts0CA0-16x9-padded/summary.json",
+          "bytes": 902,
+          "byteSha256": "a00cd768cd5da7c538383ba96aabc4d915e8153e2c4dec495cdd113b91ad1dbe",
+          "canonicalSha256": "ef2a2bd7ace86c68394810ed84a835571c201f4326ee2bcd5b9d5ef89cf397a0"
+        }
+      }
+    },
+    {
+      "clipId": "shorts-new-dance-E9_h_ZW5z0U-16x9-padded",
+      "video": {
+        "path": "output/test-videos/shorts-new-dance-E9_h_ZW5z0U-16x9-padded.mp4",
+        "bytes": 16917403,
+        "sha256": "fff008446c81f1dd741e2f9deb0fe2ead39da56e54f1427e106904e9af7abc98",
+        "width": 3414,
+        "height": 1920
+      },
+      "decoderRows": 439,
+      "files": {
+        "skeletonsMhr70": {
+          "path": "sam-3d-body-skeletons/shorts-new-dance-E9_h_ZW5z0U-16x9-padded/skeletons_mhr70.jsonl",
+          "bytes": 6871067,
+          "byteSha256": "4a6453080b7f7ea9f742fca4a16d130706e21db105b39f15278aa702f1c9659a",
+          "encoding": "utf-8",
+          "lineEnding": "CRLF",
+          "terminatorHex": "0d0a",
+          "terminalNewline": true,
+          "rowCount": 439
+        },
+        "metadataMhr70": {
+          "path": "sam-3d-body-skeletons/shorts-new-dance-E9_h_ZW5z0U-16x9-padded/metadata_mhr70.json",
+          "bytes": 16084,
+          "byteSha256": "dfaa1f0c2bf94d2651f3bb6c24c0d4bfdeba38e443526e87ad981e6761f8589d",
+          "canonicalSha256": "85202b69856931f26736290af08a8a451d18019a5906fbd4a4f859e8078e96e1"
+        },
+        "summary": {
+          "path": "sam-3d-body-skeletons/shorts-new-dance-E9_h_ZW5z0U-16x9-padded/summary.json",
+          "bytes": 927,
+          "byteSha256": "29d6f5743d88c64e9ba37a7c4ea1f8e46229b769c0234b8becd05c856ed53fce",
+          "canonicalSha256": "3af014cb0b076a9a8bb9e018c10fb0b86c1bcd8b05516f9117a545c3efa1355f"
+        }
+      }
+    },
+    {
+      "clipId": "shorts-vc0GDveRIp0-16x9-padded",
+      "video": {
+        "path": "output/test-videos/shorts-vc0GDveRIp0-16x9-padded.mp4",
+        "bytes": 6014129,
+        "sha256": "7fd548c9b46235907f78e88b40dc464b05af2867baea0cbab5b6496d1c9c00dd",
+        "width": 1920,
+        "height": 1080
+      },
+      "decoderRows": 451,
+      "files": {
+        "skeletonsMhr70": {
+          "path": "sam-3d-body-skeletons/shorts-vc0GDveRIp0-16x9-padded/skeletons_mhr70.jsonl",
+          "bytes": 7045855,
+          "byteSha256": "a3cfbfd3c3b260f965fb833b139c58972c0e5955f8c6d566f71c444036445d5e",
+          "encoding": "utf-8",
+          "lineEnding": "CRLF",
+          "terminatorHex": "0d0a",
+          "terminalNewline": true,
+          "rowCount": 451
+        },
+        "metadataMhr70": {
+          "path": "sam-3d-body-skeletons/shorts-vc0GDveRIp0-16x9-padded/metadata_mhr70.json",
+          "bytes": 16084,
+          "byteSha256": "dfaa1f0c2bf94d2651f3bb6c24c0d4bfdeba38e443526e87ad981e6761f8589d",
+          "canonicalSha256": "85202b69856931f26736290af08a8a451d18019a5906fbd4a4f859e8078e96e1"
+        },
+        "summary": {
+          "path": "sam-3d-body-skeletons/shorts-vc0GDveRIp0-16x9-padded/summary.json",
+          "bytes": 887,
+          "byteSha256": "e99caef9c6b01ffa78236ae98eb54d695492eeb28b8931d8640dfdaf582a3f16",
+          "canonicalSha256": "8977b6f64060de4964c12cc85baa94283d9b5649b6581cbd97a631530e695baa"
+        }
+      }
+    }
+  ],
+  "expectedCanonicalHash": "50756ed7c4d461632cea1c96a12fc53910b1112ebc15b92e2f514733e4830f04"
+}

@@ -1,0 +1,202 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://action-tracker.local/schemas/sam-goal-p1-external-anchor-v1.json",
+  "title": "SAM goal write-once external P1 anchor",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifactType",
+    "schemaVersion",
+    "parentP0AnchorSha256",
+    "candidateP1LockCanonicalSha256",
+    "targetRole",
+    "evaluationPackP1",
+    "p1Lock",
+    "teacherArtifacts",
+    "compiledArtifacts",
+    "compiledArtifactSetSha256",
+    "dependencies",
+    "expectedCanonicalHash"
+  ],
+  "properties": {
+    "artifactType": {
+      "const": "sam-goal-p1-external-anchor"
+    },
+    "schemaVersion": {
+      "const": 1
+    },
+    "parentP0AnchorSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "candidateP1LockCanonicalSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "targetRole": {
+      "const": "raw_hard_refined_watch"
+    },
+    "evaluationPackP1": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/canonicalByteDescriptor"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "path": {
+              "const": "evaluation-pack-p1.json"
+            }
+          }
+        }
+      ]
+    },
+    "p1Lock": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/canonicalByteDescriptor"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "path": {
+              "const": "evaluation-lock-p1.json"
+            }
+          }
+        }
+      ]
+    },
+    "teacherArtifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inputInventory",
+        "sourceManifest",
+        "dataset",
+        "refined",
+        "mask",
+        "summary"
+      ],
+      "properties": {
+        "inputInventory": {
+          "$ref": "#/$defs/canonicalByteDescriptor"
+        },
+        "sourceManifest": {
+          "$ref": "#/$defs/canonicalByteDescriptor"
+        },
+        "dataset": {
+          "$ref": "#/$defs/byteDescriptor"
+        },
+        "refined": {
+          "$ref": "#/$defs/byteDescriptor"
+        },
+        "mask": {
+          "$ref": "#/$defs/byteDescriptor"
+        },
+        "summary": {
+          "$ref": "#/$defs/canonicalByteDescriptor"
+        }
+      }
+    },
+    "compiledArtifacts": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/byteDescriptor"
+      }
+    },
+    "compiledArtifactSetSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "dependencies": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evaluationContractCanonicalSha256",
+        "teacherInputInventoryCanonicalSha256",
+        "teacherPolicyCanonicalSha256",
+        "teacherSchemaCanonicalSha256",
+        "p0AnchorSchemaCanonicalSha256",
+        "p1AnchorSchemaCanonicalSha256",
+        "teacherMaterializerByteSha256",
+        "labelAuditorByteSha256"
+      ],
+      "properties": {
+        "evaluationContractCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "teacherInputInventoryCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "teacherPolicyCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "teacherSchemaCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "p0AnchorSchemaCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "p1AnchorSchemaCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "teacherMaterializerByteSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "labelAuditorByteSha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "expectedCanonicalHash": {
+      "$ref": "#/$defs/sha256"
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*//)[^\\u0000]+$"
+    },
+    "byteDescriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "byteSha256"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "byteSha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "canonicalByteDescriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "canonicalSha256",
+        "byteSha256"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "canonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "byteSha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    }
+  }
+}

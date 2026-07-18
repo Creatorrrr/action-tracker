@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://action-tracker.invalid/sam-goal/manual-review-operations/worksheet-v1.schema.json",
+  "title": "SAM Goal process-only UNSET worksheet v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifactType", "schemaVersion", "authorityClass", "compilerInput", "p0Authority", "cycleId", "mode", "actorPseudonymSha256", "bundleManifestByteSha256", "sourceBinding", "rulebookByteSha256", "windows", "rows"],
+  "properties": {
+    "artifactType": {"const": "sam-goal-review-worksheet-v1"},
+    "schemaVersion": {"const": 1},
+    "authorityClass": {"const": "process-evidence-only"},
+    "compilerInput": {"const": false},
+    "p0Authority": {"const": false},
+    "cycleId": {"$ref": "bundle-manifest-v1.schema.json#/$defs/cycleId"},
+    "mode": {"$ref": "bundle-manifest-v1.schema.json#/$defs/blindMode"},
+    "actorPseudonymSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"},
+    "bundleManifestByteSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"},
+    "sourceBinding": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sourceBinding"},
+    "rulebookByteSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"},
+    "windows": {"type": "array", "minItems": 7, "uniqueItems": true, "items": {"$ref": "#/$defs/window"}},
+    "rows": {"type": "array", "minItems": 6711, "maxItems": 6711, "items": {"$ref": "#/$defs/row"}}
+  },
+  "$defs": {
+    "row": {
+      "type": "object", "additionalProperties": false,
+      "required": ["clipId", "sourceFrameIndex", "ptsTicks", "timeBase", "loopEpoch", "scenarios", "manualState"],
+      "properties": {
+        "clipId": {"type": "string", "minLength": 1},
+        "sourceFrameIndex": {"type": "integer", "minimum": 0},
+        "ptsTicks": {"type": "string", "pattern": "^-?(?:0|[1-9][0-9]*)$"},
+        "timeBase": {"$ref": "bundle-manifest-v1.schema.json#/$defs/timeBase"},
+        "loopEpoch": {"const": 0},
+        "scenarios": {"oneOf": [{"$ref": "bundle-manifest-v1.schema.json#/$defs/unset"}, {"$ref": "bundle-manifest-v1.schema.json#/$defs/scenarioArray"}]},
+        "manualState": {"$ref": "bundle-manifest-v1.schema.json#/$defs/annotationState"}
+      }
+    },
+    "window": {"oneOf": [{"$ref": "#/$defs/structuralWindow"}, {"$ref": "#/$defs/overlayWindow"}]},
+    "structuralWindow": {
+      "type": "object", "additionalProperties": false,
+      "required": ["windowId", "clipId", "startFrameIndex", "endFrameIndexExclusive", "origin", "purposeTags", "scenarioTags"],
+      "properties": {"windowId": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"}, "clipId": {"type": "string", "minLength": 1}, "startFrameIndex": {"const": 0}, "endFrameIndexExclusive": {"type": "integer", "minimum": 1}, "origin": {"const": "structural_base"}, "purposeTags": {"const": ["full_clip_denominator"]}, "scenarioTags": {"oneOf": [{"$ref": "bundle-manifest-v1.schema.json#/$defs/unset"}, {"$ref": "bundle-manifest-v1.schema.json#/$defs/scenarioArray"}]}}
+    },
+    "overlayWindow": {
+      "type": "object", "additionalProperties": false,
+      "required": ["windowId", "clipId", "startFrameIndex", "endFrameIndexExclusive", "origin", "purposeTags", "scenarioTags"],
+      "properties": {"windowId": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"}, "clipId": {"type": "string", "minLength": 1}, "startFrameIndex": {"type": "integer", "minimum": 0}, "endFrameIndexExclusive": {"type": "integer", "minimum": 1}, "origin": {"const": "actor_overlay"}, "purposeTags": {"oneOf": [{"$ref": "bundle-manifest-v1.schema.json#/$defs/unset"}, {"$ref": "#/$defs/overlayPurposeArray"}]}, "scenarioTags": {"oneOf": [{"$ref": "bundle-manifest-v1.schema.json#/$defs/unset"}, {"$ref": "bundle-manifest-v1.schema.json#/$defs/scenarioArray"}]}}
+    },
+    "overlayPurposeArray": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["absence_reacquire", "self_occlusion", "fast_motion", "contact_transition", "multi_person", "crop_out_of_frame", "duplicate_detection", "turning", "hand_observability"]}}
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://action-tracker.invalid/sam-goal/manual-review-operations/c0-ledger-v1.schema.json",
+  "title": "SAM Goal sealed source-first C0 ledger v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifactType", "schemaVersion", "authorityClass", "compilerInput", "p0Authority", "cycleId", "adjudicatorPseudonymSha256", "publicPins", "sourceBinding", "rulebookByteSha256", "presentationContractSha256", "bundleManifestByteSha256", "accessEvidenceByteSha256", "editJournalByteSha256", "sourceOnly", "abArtifactsObserved", "windows", "rows", "sessionTreeSha256"],
+  "properties": {
+    "artifactType": {"const": "sam-goal-source-first-c0-ledger-v1"},
+    "schemaVersion": {"const": 1},
+    "authorityClass": {"const": "process-evidence-only"},
+    "compilerInput": {"const": false},
+    "p0Authority": {"const": false},
+    "cycleId": {"$ref": "bundle-manifest-v1.schema.json#/$defs/cycleId"},
+    "adjudicatorPseudonymSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"},
+    "publicPins": {"$ref": "bundle-manifest-v1.schema.json#/$defs/publicPins"},
+    "sourceBinding": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sourceBinding"},
+    "rulebookByteSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"},
+    "presentationContractSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"},
+    "bundleManifestByteSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"},
+    "accessEvidenceByteSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"},
+    "editJournalByteSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"},
+    "sessionTreeSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"},
+    "sourceOnly": {"const": true},
+    "abArtifactsObserved": {"const": false},
+    "windows": {"type": "array", "minItems": 7, "uniqueItems": true, "items": {"$ref": "bundle-manifest-v1.schema.json#/$defs/formalWindow"}},
+    "rows": {"type": "array", "minItems": 6711, "maxItems": 6711, "items": {"$ref": "#/$defs/row"}}
+  },
+  "$defs": {
+    "row": {
+      "type": "object", "additionalProperties": false,
+      "required": ["clipId", "sourceFrameIndex", "ptsTicks", "timeBase", "loopEpoch", "scenarios", "manualState"],
+      "properties": {"clipId": {"type": "string", "minLength": 1}, "sourceFrameIndex": {"type": "integer", "minimum": 0}, "ptsTicks": {"type": "string", "pattern": "^-?(?:0|[1-9][0-9]*)$"}, "timeBase": {"$ref": "bundle-manifest-v1.schema.json#/$defs/timeBase"}, "loopEpoch": {"const": 0}, "scenarios": {"$ref": "bundle-manifest-v1.schema.json#/$defs/scenarioArray"}, "manualState": {"$ref": "https://action-tracker.local/schemas/sam-goal-manual-authoring-v3.json#/$defs/manualState"}}
+    }
+  }
+}

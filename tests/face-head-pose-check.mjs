@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
 import {
+  composeBodyHeadWithFaceDelta,
   computeFaceHeadDelta,
   createFaceHeadPoseTrackerState,
   quaternionFromEulerYXZ,
   readFaceTransformQuaternion,
+  removeFaceDeltaFromComposedHead,
   updateFaceHeadPoseTracker,
 } from "../src/face-head-pose.js";
 
@@ -47,26 +49,77 @@ const mirroredDelta = computeFaceHeadDelta({
 assert.equal(roundDeg(mirroredDelta.eulerRad.y), -30);
 assert.equal(roundDeg(mirroredDelta.eulerRad.x), 12);
 
+const bodyOwnedHead = quaternionFromEulerYXZ({
+  x: degToRad(18),
+  y: degToRad(-22),
+  z: degToRad(7),
+});
+const faceOnlyDelta = quaternionFromEulerYXZ({
+  x: degToRad(4),
+  y: degToRad(11),
+  z: degToRad(-3),
+});
+const composedHead = composeBodyHeadWithFaceDelta({
+  bodyQuaternion: bodyOwnedHead,
+  faceDeltaQuaternion: faceOnlyDelta,
+});
+assert.equal(composedHead.valid, true);
+assert.ok(
+  quaternionAngle(composedHead.quaternion, bodyOwnedHead) > degToRad(10),
+  "the face delta must be added rather than discarded",
+);
+const recoveredBodyHead = removeFaceDeltaFromComposedHead({
+  composedQuaternion: composedHead.quaternion,
+  faceDeltaQuaternion: faceOnlyDelta,
+});
+assert.equal(recoveredBodyHead.valid, true);
+assert.ok(
+  quaternionAngle(recoveredBodyHead.quaternion, bodyOwnedHead) < 0.000001,
+  "removing the applied face delta must recover the body-owned pose exactly",
+);
+const identityFaceComposition = composeBodyHeadWithFaceDelta({
+  bodyQuaternion: bodyOwnedHead,
+  faceDeltaQuaternion: { x: 0, y: 0, z: 0, w: 1 },
+});
+assert.ok(
+  quaternionAngle(identityFaceComposition.quaternion, bodyOwnedHead) < 0.000001,
+  "an identity face delta must preserve a non-rest body head pose",
+);
+
 const tracker = createFaceHeadPoseTrackerState();
 let update = updateFaceHeadPoseTracker(tracker, baseQuaternion, 0);
 assert.equal(update.status, "initialized");
 assert.equal(update.apply, false);
+assert.equal(update.releaseToIdentity, false);
 
 update = updateFaceHeadPoseTracker(tracker, sourceQuaternion, 100);
 assert.equal(update.status, "tracked");
 assert.equal(update.apply, true);
 assert.equal(update.reacquireBlend, 1);
+assert.equal(update.releaseToIdentity, false);
 
 update = updateFaceHeadPoseTracker(tracker, null, 250, { trackingGraceMs: 400 });
 assert.equal(update.status, "holding");
 assert.equal(update.apply, true);
 assert.equal(update.withinGrace, true);
+assert.equal(update.releaseToIdentity, false);
 
 update = updateFaceHeadPoseTracker(tracker, null, 800, { trackingGraceMs: 400 });
 assert.equal(update.status, "missing");
 assert.equal(update.apply, false);
 assert.equal(update.withinGrace, false);
+assert.equal(update.releaseToIdentity, true);
 assert.equal(quaternionAngle(tracker.baseQuaternion, baseQuaternion) < 0.000001, true);
+
+const noHistoryUpdate = updateFaceHeadPoseTracker(
+  createFaceHeadPoseTrackerState(),
+  null,
+  800,
+  { trackingGraceMs: 400 },
+);
+assert.equal(noHistoryUpdate.status, "missing");
+assert.equal(noHistoryUpdate.apply, false);
+assert.equal(noHistoryUpdate.releaseToIdentity, false);
 
 update = updateFaceHeadPoseTracker(tracker, sourceQuaternion, 900, {
   trackingGraceMs: 400,
@@ -75,6 +128,7 @@ update = updateFaceHeadPoseTracker(tracker, sourceQuaternion, 900, {
 assert.equal(update.status, "reacquired");
 assert.equal(update.apply, true);
 assert.equal(update.reacquireBlend, 0);
+assert.equal(update.releaseToIdentity, false);
 assert.equal(tracker.reacquireCount, 1);
 assert.equal(quaternionAngle(tracker.baseQuaternion, baseQuaternion) < 0.000001, true);
 

@@ -1,0 +1,27 @@
+:root{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#eaf0ff;background:#10131b}body{margin:0}header,main{max-width:1200px;margin:auto;padding:20px}header{border-bottom:1px solid #34405a}a{color:#9fc7ff}main{display:grid;grid-template-columns:2fr 1fr;gap:24px}.viewer{grid-row:span 2;min-width:0}video{display:block;max-width:100%;max-height:70vh;margin:0 auto 14px;background:#05070b}.evidence-stage{display:flex;align-items:center;justify-content:center;max-width:100%;min-width:0;overflow:visible;background:#05070b;margin:0 auto 10px}.evidence-stage>[data-sam-goal-evidence-target]{display:block;width:auto;height:auto;max-width:100%;max-height:58vh;margin:0;object-fit:contain;image-rendering:auto;transform:none;outline:0}.view-controls{display:flex;justify-content:center;flex-wrap:wrap;gap:6px;margin:0 auto 10px}.inspection-stage{max-width:100%;max-height:70vh;overflow:auto;background:#05070b;border:1px solid #34405a;margin:0 auto 14px}.inspection-stage canvas{display:block;width:auto;height:auto;max-width:none;max-height:none;margin:0;image-rendering:auto;transform:none}dl{display:grid;grid-template-columns:max-content 1fr;gap:7px 12px}dt{color:#91a9d4}dd{margin:0;overflow-wrap:anywhere}pre{max-height:32vh;overflow:auto;white-space:pre-wrap}label{display:block;margin:12px 0}input,textarea,button,select{font:inherit;color:inherit;background:#1a2130;border:1px solid #53678c;border-radius:4px;padding:8px}textarea{display:block;width:100%;min-height:90px;box-sizing:border-box}button{margin:4px;cursor:pointer}button:focus,input:focus,textarea:focus,select:focus{outline:2px solid #7fb4ff}@media(max-width:800px){main{grid-template-columns:1fr}.viewer{grid-row:auto}}
+
+[hidden]{display:none!important}
+#revealReview{max-width:1440px;grid-template-columns:minmax(320px,2fr) minmax(300px,1fr);align-items:start}
+.reveal-source{grid-row:span 2;position:sticky;top:0;overflow:visible;padding-right:12px;min-width:0}
+.reveal-decisions,.reveal-dispositions,.reveal-session{grid-column:1/-1}
+.warning{border-left:4px solid #ffbf69;background:#2b2419;color:#ffe3b5;padding:12px}
+.warning.compact{margin:14px 0;font-size:.92rem}
+.button-row{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.jump-form{display:grid;grid-template-columns:max-content minmax(150px,1fr);gap:8px 12px;align-items:center;margin:16px 0}
+.jump-form label{margin:0}.jump-form button{grid-column:1/-1;justify-self:start}
+.editor-card{position:relative;border:1px solid #53678c;border-radius:7px;margin:18px 0;padding:18px;background:#141a26;min-width:0}
+.editor-card legend{padding:0 8px;color:#bcd5ff;font-weight:700}
+.record-coordinate{grid-template-columns:max-content minmax(0,1fr);padding:10px;background:#0c1018;border-radius:5px}
+.typed-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.typed-value{min-width:0;border:1px solid #34405a;border-radius:5px;padding:10px;background:#0c1018}
+.typed-value h4{margin:0 0 8px;color:#bcd5ff}.typed-value pre{margin:0;max-height:28vh}
+.json-label{font-weight:700}.json-editor{margin-top:7px;font-weight:400;tab-size:2}
+.state-unset,.state-recorded{display:inline-block;border-radius:999px;padding:4px 9px;font-weight:700;margin-bottom:8px}
+.state-unset{background:#4a291f;color:#ffd1b7;border:1px solid #b86a43}.state-recorded{background:#173a2d;color:#baf4d9;border:1px solid #397e62}
+.secondary-action{background:#27202b;border-color:#84648e}
+#revealResult{min-height:1.5em;padding:10px;border:1px solid #34405a;background:#0c1018}
+#revealResult.error{border-color:#c65b63;color:#ffc6ca}
+#revealReview button:disabled,#revealReview input:disabled,#revealReview textarea:disabled,#revealReview select:disabled{cursor:not-allowed;opacity:.55}
+#revealReview code{color:#c8dcff;background:#0c1018;padding:2px 5px;border-radius:3px}
+@media(max-width:1000px){#revealReview{grid-template-columns:1fr}.reveal-source{position:static;max-height:none;grid-row:auto}.reveal-decisions,.reveal-dispositions,.reveal-session{grid-column:auto}}
+@media(max-width:700px){.typed-grid{grid-template-columns:1fr}.jump-form{grid-template-columns:1fr}.jump-form button{grid-column:auto}.record-coordinate{grid-template-columns:1fr}#revealReview{padding:12px}.editor-card{padding:12px}}

@@ -1,0 +1,196 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schemaVersion": 2,
+  "contractId": "sam_goal.evaluation_contract@v2",
+  "interfaceVersion": 2,
+  "canonicalization": {
+    "profile": "sorted-json-utf8-root-exclusion-v2",
+    "hashAlgorithm": "sha256",
+    "orderSensitiveArrays": true,
+    "excludedRootKeys": ["expectedCanonicalHash"],
+    "wallClockKeysForbidden": ["generatedAt", "auditedAt", "elapsedMs", "reviewedAt"]
+  },
+  "labelSchema": {
+    "path": "tests/fixtures/sam-goal-v2/evaluation-v2/label-schema.json",
+    "canonicalSha256": "38759400e1e5aacb1b06bf3b052a5af8f693366dfa93653d0520280723c8e146"
+  },
+  "sourceBinding": {
+    "sourceContract": { "path": "tests/fixtures/sam-goal-v2/source-contract.json", "canonicalSha256": "39b8e1742f9be749dc34e1130b4395bb993a922374ac687b4fdd0f296be09873" },
+    "sourceSchema": { "path": "tests/fixtures/sam-goal-v2/source-schema.json", "canonicalSha256": "ffc7bd71da31c07781b65e9579ed29e9b47cd3b2229b39c7b4df8e841e6a9244" },
+    "sourceInventory": { "path": "tests/fixtures/sam-goal-v2/labels/source-inventory.json", "canonicalSha256": "64ea4c592e4a35f8c7483e33824ef2755cd1c35af77e0f631e9b9ad7f3243d8d" },
+    "decoderManifest": {
+      "path": "tests/fixtures/sam-goal-v2/labels/decoder-manifest.jsonl",
+      "rowCount": 6711,
+      "byteSha256": "d300ac13f9386293f8f1abe746bb64a3ac99f7bd942813286b550375e201cb79",
+      "canonicalRowsSha256": "dde8d9e02fa82341986e535ccf378d4ad555aefaf88d0a27531187db1afecd4d"
+    },
+    "paired": [
+      { "clipId": "arms-crossed", "startPtsTicks": "512", "endPtsTicksExclusive": "197633", "rows": 386 },
+      { "clipId": "csi-pose", "startPtsTicks": "0", "endPtsTicksExclusive": "1458177", "rows": 2849 },
+      { "clipId": "dance-16x9-padded", "startPtsTicks": "0", "endPtsTicksExclusive": "644759", "rows": 359 },
+      { "clipId": "jujae-regression-0-16_5", "startPtsTicks": "0", "endPtsTicksExclusive": "989990", "rows": 990 },
+      { "clipId": "shorts-keGbIts0CA0-16x9-padded", "startPtsTicks": "0", "endPtsTicksExclusive": "316417", "rows": 1237 },
+      { "clipId": "shorts-new-dance-E9_h_ZW5z0U-16x9-padded", "startPtsTicks": "0", "endPtsTicksExclusive": "224257", "rows": 439 },
+      { "clipId": "shorts-vc0GDveRIp0-16x9-padded", "startPtsTicks": "0", "endPtsTicksExclusive": "230401", "rows": 451 }
+    ],
+    "unpaired": { "clipId": "jujae-full", "decodedFrameCount": 2189, "pairedDecoderRows": 0 }
+  },
+  "clipInventory": [
+    { "clipId": "arms-crossed", "role": "hard_test", "sourceGroup": "arms-crossed-source", "teacher": "sam-3d-body-skeletons/arms-crossed" },
+    { "clipId": "csi-pose", "role": "hard_test", "sourceGroup": "csi-pose-source", "teacher": "sam-3d-body-skeletons/csi-pose" },
+    { "clipId": "dance-16x9-padded", "role": "validation", "sourceGroup": "dance-16x9-padded-source", "teacher": "sam-3d-body-skeletons/dance-16x9-padded" },
+    { "clipId": "jujae-regression-0-16_5", "role": "hard_test", "sourceGroup": "jujae-source", "teacher": "sam-3d-body-skeletons/jujae-regression-0-16_5" },
+    { "clipId": "shorts-keGbIts0CA0-16x9-padded", "role": "train_candidate", "sourceGroup": "shorts-keGbIts0CA0-source", "teacher": "sam-3d-body-skeletons/shorts-keGbIts0CA0-16x9-padded" },
+    { "clipId": "shorts-new-dance-E9_h_ZW5z0U-16x9-padded", "role": "train_candidate", "sourceGroup": "shorts-new-dance-E9_h_ZW5z0U-source", "teacher": "sam-3d-body-skeletons/shorts-new-dance-E9_h_ZW5z0U-16x9-padded" },
+    { "clipId": "shorts-vc0GDveRIp0-16x9-padded", "role": "train_candidate", "sourceGroup": "shorts-vc0GDveRIp0-source", "teacher": "sam-3d-body-skeletons/shorts-vc0GDveRIp0-16x9-padded" }
+  ],
+  "unpairedInventory": [
+    { "clipId": "jujae-full", "role": "unpaired_final", "sourceGroup": "jujae-source", "teacher": null, "allowedUses": ["unpaired_runtime_only"] }
+  ],
+  "splitPolicy": {
+    "isolationUnits": ["clipId", "sourceAssetSha256", "sourceGroup", "sessionId", "personId"],
+    "parameterSelectionRoles": ["train_candidate", "validation"],
+    "protectedRoles": ["hard_test", "unpaired_final"],
+    "hardTestMayTune": false,
+    "unpairedMayTrainTuneOrScore": false,
+    "allowedProtectedAliasSourceGroups": ["jujae-source"]
+  },
+  "timeIdentity": {
+    "key": ["clipId", "sourceFrameIndex", "ptsTicks", "timeBaseNumerator", "timeBaseDenominator", "loopEpoch"],
+    "ptsEncoding": "base10-nonnegative-integer-string",
+    "intervalConvention": "start-inclusive-end-exclusive",
+    "fpsRoundingAllowed": false,
+    "duplicateIdentityAllowed": false
+  },
+  "manualWindows": {
+    "basePurposeTag": "full_clip_denominator",
+    "baseWindowCount": 7,
+    "requiredUnionRows": 6711,
+    "perClipStructuralCoverage": 1,
+    "boundaryDomain": "decoder_pts_or_terminal_plus_one_tick",
+    "overlaysMayChangeDenominator": false,
+    "compilerSplitsAtEveryMembershipBoundary": true,
+    "purposeTags": ["full_clip_denominator", "absence_reacquire", "self_occlusion", "fast_motion", "contact_transition", "multi_person", "crop_out_of_frame", "duplicate_detection", "turning", "hand_observability"]
+  },
+  "scenarioTaxonomy": ["neutral", "entry_exit", "reacquire", "arms_crossed", "self_occlusion", "side_view", "back_view", "fast_motion", "jump", "footwork", "turn", "leg_extension", "distance_change", "partial_body_crop", "multi_person_background", "duplicate_detection_challenge", "hand_closeup", "full_body_dance", "upper_body_only"],
+  "manualSubjectSelection": {
+    "artifact": "manual-subject-selection.jsonl",
+    "rowKinds": ["frame", "interval"],
+    "states": ["selected", "absent", "ambiguous", "unknown"],
+    "selectedRequiresStableManualTargetId": true,
+    "multiplePeopleSelectedRequiresNormalizedAnchor": true,
+    "anchorEvidence": "manual_video",
+    "personStateIsPhysicalPeopleState": true,
+    "samCandidateCountMaySetPersonState": false
+  },
+  "semanticTruthRules": [
+    "absent_requires_absent_subject_unknown_contacts_unobservable_hands_endpoints",
+    "known_contact_requires_present_and_observable_corresponding_foot",
+    "observable_hand_requires_observable_or_partial_hand_and_observable_wrist",
+    "observable_endpoint_forbidden_for_occluded_out_of_frame_or_unknown_part",
+    "multiple_people_requires_selected_with_anchor_or_ambiguous_subject",
+    "single_target_requires_selected_subject",
+    "one_manual_and_subject_row_per_decoder_identity"
+  ],
+  "manualReview": {
+    "passes": ["manual-review-pass1.jsonl", "manual-review-pass2.jsonl"],
+    "adjudication": "manual-adjudication.jsonl",
+    "independentSubjectFields": ["subjectSelection.state", "subjectSelection.manualTargetId", "subjectSelection.anchor"],
+    "subjectReviewRule": "both complete pre-adjudication passes independently record subject state, stable manual target ID, and normalized anchor on every exact decoder identity; every subject disagreement is explicitly adjudicated and the agreed/adjudicated result must equal manual-subject-selection",
+    "subjectFieldsExcludedFromKappaButNotFromReview": true,
+    "distinctReviewerHashes": true,
+    "completeRowsPerPass": 6711,
+    "adjudicateAllDisagreements": true,
+    "doubleReviewEventTypes": ["presence_transition", "subject_transition", "contact_transition", "observability_transition"],
+    "agreement": {
+      "statistic": "unweighted_cohen_kappa",
+      "unknownIncluded": true,
+      "missingRowsHardFailure": true,
+      "presencePersonState": "joint_tuple_per_clip_macro_7",
+      "contact": "class_per_clip_per_foot_macro_14",
+      "observability": "field_per_clip_macro",
+      "zeroVariance": "one_if_identical_constants_else_zero",
+      "adjudicatedRowsForbiddenAsPassInput": true,
+      "minimum": { "presencePersonStateKappa": 0.99, "contactKappa": 0.9, "observabilityKappa": 0.95 }
+    },
+    "automatedCandidateMayClaimReviewedOrAdjudicated": false
+  },
+  "contactPolicy": {
+    "classes": ["planted", "moving", "unknown"],
+    "preMaskMinimumObservableKnownFramesPerFootAndClass": 300,
+    "preMaskSupportMinimumClips": 2,
+    "postMaskMinimumTeacherValidFramesPerFootAndClass": 100,
+    "unknownOrOutOfFrameExcludedButReported": true,
+    "supportFailureMayChangeManualDenominator": false
+  },
+  "reacquirePolicy": {
+    "minimumP0CandidateEvents": 3,
+    "minimumHardTestClips": 2,
+    "minimumUnreliableIntervalMs": 200,
+    "intervalConvention": "start_inclusive_end_exclusive",
+    "statePredicates": {
+      "absent": "manual presence=absent and subjectSelection=absent",
+      "unreliable": "manual presence=unknown, or subjectSelection is ambiguous/unknown, or occlusion.body is occluded/out_of_frame/unknown",
+      "reliable": "manual presence=present, subjectSelection=selected, and occlusion.body is observable/partial"
+    },
+    "p0CandidateMaterialization": "a maximal contiguous interval [startPts,endPts) in which every exact decoder identity satisfies absent or unreliable, lasting at least 200ms in exact rational PTS, followed by the first decoder identity at or after endPts satisfying reliable",
+    "deduplication": "one event per maximal qualifying interval; overlapping/nested intervals merge, adjacent intervals merge when no present decoder identity lies between them, and each start identity is unique",
+    "maximalIntervalsOnly": true,
+    "uniqueStartIdentity": true,
+    "p1Start": "first_teacher_valid_present_identity_at_or_after_candidate_end",
+    "latencyEnd": "first_three_consecutive_processed_presence_true_and_major_bone_error_lte_30deg"
+  },
+  "teacherValidity": {
+    "ruleId": "sam_goal.teacher_valid@v2",
+    "nativeJointConfidenceAbsentInCurrentTeacher": true,
+    "neverImputeNativeJointConfidence": true,
+    "warningCodes": ["native_joint_confidence_unavailable"],
+    "forbiddenExclusionReasons": ["confidence_unavailable"],
+    "requiredMaskFields": ["jointConfidenceSource", "scope.contactEligibility", "warningCodes"],
+    "confidenceUnavailableIsWarningNotExclusion": true,
+    "calibrationWithoutNativeConfidence": false,
+    "validFullBodyContactMayBeTrueWhenConfidenceAvailableFalse": true,
+    "detectorScoreMustNotBecomeJointConfidence": true,
+    "truthRules": [
+      "jointConfidenceSource is native iff confidenceAvailable is true; it is unavailable iff confidenceAvailable is false",
+      "valid false requires torsoFacing/fullBody/calibration and both contactEligibility feet false plus at least one exclusion reason",
+      "valid true requires teacherRecord present, selectedSubject selected, at least one of torsoFacing/fullBody/calibration/contactEligibility true, and zero exclusion reasons",
+      "torsoFacing/fullBody/calibration true each imply valid true",
+      "torsoFacing without native confidence requires finite torso coordinates, manual torso observability, and a valid geometric basis",
+      "fullBody without native confidence requires finite required coordinates, in-frame projection, manual body and limb observability, selected subject, and bone/scale/speed/temporal guards",
+      "either contactEligibility foot true implies fullBody true and valid true",
+      "calibration true implies fullBody true",
+      "a contactEligibility foot true requires manual presence present, that foot observable, known planted/moving contact, finite required leg chain, and temporal guards",
+      "confidenceAvailable false requires warning native_joint_confidence_unavailable, forbids calibration true, and forbids exclusion reason confidence_unavailable",
+      "confidenceAvailable true forbids warning native_joint_confidence_unavailable",
+      "warning codes never satisfy the required nonempty exclusion reasons of an invalid row and never make a valid row invalid",
+      "native_joint_confidence_unavailable alone cannot disable torsoFacing, fullBody, or contactEligibility when their geometric/manual conditions pass",
+      "detector score provenance is detector only; no joint confidence array/value may claim detector score as native confidence"
+    ]
+  },
+  "phaseLocks": {
+    "p0Artifacts": ["contract", "schema", "sourceInventory", "decoderManifest", "manualWindows", "manualLabels", "manualSubjectSelection", "manualReviewPass1", "manualReviewPass2", "manualAdjudication", "manualPolicy", "manualSummary"],
+    "p0ExternalAnchorRequiredForVerified": true,
+    "p0CandidateMayNotClaimFrozen": true,
+    "p1RequiresExternalP0Anchor": true,
+    "p1RequiresExactParentP0LockSha256": true,
+    "p1AddsTeacherMaskSha256": true,
+    "canonicalHashExclusion": "root_expectedCanonicalHash_only"
+  },
+  "artifacts": {
+    "packManifest": "evaluation-pack.json",
+    "p1PackManifest": "evaluation-pack-p1.json",
+    "manualWindows": "manual-windows.json",
+    "manualLabels": "manual-labels.jsonl",
+    "manualSubjectSelection": "manual-subject-selection.jsonl",
+    "manualReviewPass1": "manual-review-pass1.jsonl",
+    "manualReviewPass2": "manual-review-pass2.jsonl",
+    "manualAdjudication": "manual-adjudication.jsonl",
+    "manualPolicy": "manual-policy.json",
+    "manualSummary": "manual-summary.json",
+    "teacherMask": "teacher-valid-mask.jsonl",
+    "p1Lock": "evaluation-lock-p1.json"
+  },
+  "forbiddenDurableFamilies": ["live", "student", "avatar", "trackerOutput", "retargetOutput", "solverOutput", "modelOutput", "liveError", "studentError", "residual", "mpjpe", "angleError", "quaternionError", "endpointError", "agreementToLive", "latency", "renderFps", "dropRate", "queueDepth", "reportPath", "studentModelHash"],
+  "expectedCanonicalHash": "7a7f26a4734d0c971ecc2bef542dd05da11d67134478a2db286e1cd242bb5897"
+}

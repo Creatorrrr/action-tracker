@@ -1,0 +1,294 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schemaVersion": 1,
+  "contractId": "sam_goal.evaluation_contract@v1",
+  "interfaceVersion": 1,
+  "canonicalization": {
+    "profile": "sorted-json-utf8-v1",
+    "hashAlgorithm": "sha256",
+    "orderSensitiveArrays": true,
+    "excludedKeys": [
+      "expectedCanonicalHash",
+      "generatedAt",
+      "auditedAt",
+      "elapsedMs"
+    ]
+  },
+  "labelSchema": {
+    "path": "tests/fixtures/sam-goal-v2/label-schema.json",
+    "canonicalSha256": "84cb26c912aa26ab0544259693f26c58698881c7cd13b8095042890311a78494"
+  },
+  "clipInventory": [
+    {
+      "clipId": "arms-crossed",
+      "role": "hard_test",
+      "sourceGroup": "arms-crossed-source",
+      "video": "output/test-videos/arms-crossed.mp4",
+      "teacher": "sam-3d-body-skeletons/arms-crossed"
+    },
+    {
+      "clipId": "csi-pose",
+      "role": "hard_test",
+      "sourceGroup": "csi-pose-source",
+      "video": "output/test-videos/csi-pose.mp4",
+      "teacher": "sam-3d-body-skeletons/csi-pose"
+    },
+    {
+      "clipId": "dance-16x9-padded",
+      "role": "validation",
+      "sourceGroup": "dance-16x9-padded-source",
+      "video": "output/test-videos/dance-16x9-padded.mp4",
+      "teacher": "sam-3d-body-skeletons/dance-16x9-padded"
+    },
+    {
+      "clipId": "jujae-regression-0-16_5",
+      "role": "hard_test",
+      "sourceGroup": "jujae-source",
+      "video": "output/test-videos/jujae-regression-0-16_5.mp4",
+      "teacher": "sam-3d-body-skeletons/jujae-regression-0-16_5"
+    },
+    {
+      "clipId": "shorts-keGbIts0CA0-16x9-padded",
+      "role": "train_candidate",
+      "sourceGroup": "shorts-keGbIts0CA0-source",
+      "video": "output/test-videos/shorts-keGbIts0CA0-16x9-padded.mp4",
+      "teacher": "sam-3d-body-skeletons/shorts-keGbIts0CA0-16x9-padded"
+    },
+    {
+      "clipId": "shorts-new-dance-E9_h_ZW5z0U-16x9-padded",
+      "role": "train_candidate",
+      "sourceGroup": "shorts-new-dance-E9_h_ZW5z0U-source",
+      "video": "output/test-videos/shorts-new-dance-E9_h_ZW5z0U-16x9-padded.mp4",
+      "teacher": "sam-3d-body-skeletons/shorts-new-dance-E9_h_ZW5z0U-16x9-padded"
+    },
+    {
+      "clipId": "shorts-vc0GDveRIp0-16x9-padded",
+      "role": "train_candidate",
+      "sourceGroup": "shorts-vc0GDveRIp0-source",
+      "video": "output/test-videos/shorts-vc0GDveRIp0-16x9-padded.mp4",
+      "teacher": "sam-3d-body-skeletons/shorts-vc0GDveRIp0-16x9-padded"
+    }
+  ],
+  "unpairedInventory": [
+    {
+      "clipId": "jujae-full",
+      "role": "unpaired_final",
+      "sourceGroup": "jujae-source",
+      "video": "output/test-videos/jujae.mp4",
+      "teacher": null,
+      "allowedUses": [
+        "unpaired_runtime_only"
+      ]
+    }
+  ],
+  "splitPolicy": {
+    "isolationUnits": [
+      "clipId",
+      "sourceAssetSha256",
+      "sourceGroup",
+      "sessionId",
+      "personId"
+    ],
+    "parameterSelectionRoles": [
+      "train_candidate",
+      "validation"
+    ],
+    "protectedRoles": [
+      "hard_test",
+      "unpaired_final"
+    ],
+    "hardTestMayTune": false,
+    "unpairedMayTrainTuneOrScore": false,
+    "allowedProtectedAliasSourceGroups": [
+      "jujae-source"
+    ]
+  },
+  "timeIdentity": {
+    "key": [
+      "clipId",
+      "sourceFrameIndex",
+      "ptsTicks",
+      "timeBaseNumerator",
+      "timeBaseDenominator",
+      "loopEpoch"
+    ],
+    "ptsEncoding": "base10-nonnegative-integer-string",
+    "intervalConvention": "start-inclusive-end-exclusive",
+    "fpsRoundingAllowed": false,
+    "duplicateIdentityAllowed": false
+  },
+  "requiredDimensions": [
+    "scenarios",
+    "presence",
+    "occlusion",
+    "contact",
+    "handObservability",
+    "endpointObservability",
+    "personState"
+  ],
+  "manualCoverage": {
+    "minimumCompleteCoverage": 0.95,
+    "denominator": "all decoded exact PTS in the union of required windows",
+    "numerator": "denominator PTS with one unambiguous label for every required dimension",
+    "teacherInvalidMayReduceDenominator": false,
+    "absentMayReduceDenominator": false,
+    "unknownCountsAsComplete": true,
+    "unknownCountsAsKnown": false,
+    "knownCoverageReportedPerDimension": true,
+    "decodeUnavailableExclusion": {
+      "allowed": true,
+      "requiresMachineReason": true,
+      "preservedInDecoderManifest": true
+    }
+  },
+  "contact": {
+    "feet": [
+      "left",
+      "right"
+    ],
+    "classes": [
+      "planted",
+      "moving",
+      "unknown"
+    ],
+    "minimumTeacherValidObservableFramesPerFootAndKnownClass": 100,
+    "unknownExcludedFromF1": true,
+    "outOfFrameExcludedFromF1": true,
+    "coverageReportedPerFoot": true,
+    "finalMetric": "per-foot planted/moving F1 followed by left/right macro average"
+  },
+  "presence": {
+    "classes": [
+      "present",
+      "absent",
+      "unknown"
+    ],
+    "finalMetric": "present/absent F1 per clip followed by clip macro average",
+    "clipsWithoutAbsentLabelsExcludedFromMacro": true,
+    "excludedClipCoverageMustBeReported": true
+  },
+  "reacquire": {
+    "minimumPriorAbsentOrUnreliableMs": 200,
+    "start": "first teacher-valid present exact PTS after the qualifying interval",
+    "end": "first of three consecutive processed frames with presence true and major-bone angular error at most 30 degrees",
+    "stableProcessedFrames": 3,
+    "majorBoneErrorMaxDeg": 30,
+    "finalMaximumMs": 150
+  },
+  "endpoints": {
+    "names": [
+      "leftWrist",
+      "rightWrist",
+      "leftAnkle",
+      "rightAnkle",
+      "head"
+    ],
+    "denominator": "teacher-observable exact-paired live/avatar states per endpoint",
+    "minimumCoveragePerEndpoint": 0.9,
+    "finalP95AvatarHeightRatioMax": 0.04
+  },
+  "confidenceUpdate": {
+    "canonicalJointConfidenceRange": [
+      0,
+      1
+    ],
+    "boneConfidence": "minimum source-joint confidence",
+    "lowConfidenceExclusiveMax": 0.5,
+    "fullStrengthEffectiveAlphaInclusiveMin": 0.95,
+    "lowConfidenceFullStrengthUpdateMaximumCount": 0
+  },
+  "teacherValidity": {
+    "ruleId": "sam_goal.teacher_valid@v1",
+    "allowedInputFamilies": [
+      "decoderIdentity",
+      "sourceSummary",
+      "samRawCoordinates",
+      "samNativeConfidence",
+      "samDetectorBbox",
+      "samDetectorConfidence",
+      "samPersonCount",
+      "samTrackIdentity",
+      "manualPresence",
+      "manualOcclusion",
+      "manualSubjectSelection",
+      "previousTeacherRowsCausal"
+    ],
+    "forbiddenInputFamilies": [
+      "livePrediction",
+      "studentPrediction",
+      "trackerOutput",
+      "avatarOutput",
+      "retargetOutput",
+      "solverOutput",
+      "liveError",
+      "studentError",
+      "residualToLive",
+      "mpjpeToLive",
+      "angleErrorToLive",
+      "quaternionErrorToLive",
+      "endpointErrorToLive",
+      "agreementToLive",
+      "latency",
+      "renderFps",
+      "dropRate",
+      "queueDepth",
+      "liveReportPath",
+      "studentModelHash"
+    ],
+    "thresholds": {
+      "detectorConfidenceMin": 0.25,
+      "detectorIou": 0.7,
+      "landmarkVisibilityMin": 0.35,
+      "landmarkPresenceMin": 0.35,
+      "torsoFacingMinJointConfidence": 0.35,
+      "lowConfidenceChallengeFractionMin": 0.25,
+      "lowConfidenceChallengeMayExcludeTeacher": false,
+      "calibrationEndpointVisibilityMin": 0.5,
+      "calibrationBodyScale2DExclusiveMin": 0.0001,
+      "torsoBasisNormExclusiveMin": 0.000001,
+      "fullBodyShoulderElbowObservableMin": 3,
+      "fullBodyShoulderElbowTotal": 4,
+      "fullBodyHipObservableMin": 2,
+      "fullBodyHipTotal": 2,
+      "fullBodyKneeAnkleObservableMin": 3,
+      "fullBodyKneeAnkleTotal": 4,
+      "maximumSelectedSubjectsPerFrame": 1,
+      "boneLengthRelativeMedianDeviationMax": 0.35,
+      "frameScaleRatioMin": 0.75,
+      "frameScaleRatioMax": 1.3333333333333333,
+      "rootSpeedBodyHeightsPerSecondMax": 4,
+      "jointSpeedBodyHeightsPerSecondMax": 12,
+      "temporalGapNominalFrameFactorMax": 1.5
+    },
+    "reasonCodes": [
+      "decode_unavailable",
+      "sam_record_missing",
+      "detector_below_threshold",
+      "ambiguous_subject",
+      "manual_absent",
+      "manual_occluded",
+      "confidence_unavailable",
+      "insufficient_observability",
+      "invalid_torso_basis",
+      "incomplete_full_body_scope",
+      "calibration_unobservable",
+      "bone_length_anomaly",
+      "scale_jump",
+      "root_speed_anomaly",
+      "joint_speed_anomaly",
+      "temporal_gap"
+    ],
+    "confidenceUnavailablePolicy": "record explicit false availability and invalidate confidence-dependent scopes",
+    "actualMaskHashFrozenInPhase": "P1",
+    "actualMaskHash": null
+  },
+  "denominatorIntegrity": {
+    "silentRowDeletionAllowed": false,
+    "everyExcludedRowRequiresReason": true,
+    "evaluationReportedDenominatorMustEqualFrozenDenominator": true,
+    "manualWindowUnionDeduplicatesOverlaps": true,
+    "teacherMaskCannotEditDecoderManifest": true,
+    "liveOrStudentOutputCannotEditRulesWindowsLabelsOrMask": true
+  },
+  "expectedCanonicalHash": "c08e496b0ee7bfdb5608d35f9eebe054247a68ff85c13fcd4395e86951c362b9"
+}

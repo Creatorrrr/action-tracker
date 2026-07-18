@@ -1,0 +1,2958 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://action-tracker.local/schemas/sam-goal-teacher-v2.json",
+  "title": "SAM goal lossless teacher Dataset v2, refinement, mask, summary, and P1 artifacts",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/teacherInputInventory"
+    },
+    {
+      "$ref": "#/$defs/rawFrame"
+    },
+    {
+      "$ref": "#/$defs/datasetRow"
+    },
+    {
+      "$ref": "#/$defs/refinedRow"
+    },
+    {
+      "$ref": "#/$defs/maskRow"
+    },
+    {
+      "$ref": "#/$defs/teacherSourceManifest"
+    },
+    {
+      "$ref": "#/$defs/teacherSummary"
+    },
+    {
+      "$ref": "#/$defs/p1PackManifest"
+    },
+    {
+      "$ref": "#/$defs/p1CandidateLock"
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "ticks": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)$"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*//)[^\\u0000]+$"
+    },
+    "timeBase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "numerator",
+        "denominator"
+      ],
+      "properties": {
+        "numerator": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "denominator": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clipId",
+        "sourceFrameIndex",
+        "ptsTicks",
+        "timeBase",
+        "loopEpoch",
+        "decodeStatus",
+        "decodeReason"
+      ],
+      "properties": {
+        "clipId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sourceFrameIndex": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ptsTicks": {
+          "$ref": "#/$defs/ticks"
+        },
+        "timeBase": {
+          "$ref": "#/$defs/timeBase"
+        },
+        "loopEpoch": {
+          "const": 0
+        },
+        "decodeStatus": {
+          "const": "decoded"
+        },
+        "decodeReason": {
+          "type": "null"
+        }
+      }
+    },
+    "vec2": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "number"
+      }
+    },
+    "vec3": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "number"
+      }
+    },
+    "joints70x2": {
+      "type": "array",
+      "minItems": 70,
+      "maxItems": 70,
+      "items": {
+        "$ref": "#/$defs/vec2"
+      }
+    },
+    "joints70x3": {
+      "type": "array",
+      "minItems": 70,
+      "maxItems": 70,
+      "items": {
+        "$ref": "#/$defs/vec3"
+      }
+    },
+    "joints127x3": {
+      "type": "array",
+      "minItems": 127,
+      "maxItems": 127,
+      "items": {
+        "$ref": "#/$defs/vec3"
+      }
+    },
+    "rawPerson": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "person_id",
+        "detector_score",
+        "focal_length",
+        "pred_cam_t",
+        "global_rot",
+        "keypoints_mhr70_2d",
+        "keypoints_mhr70_3d",
+        "mhr_joint_coords_127_3d"
+      ],
+      "properties": {
+        "person_id": {
+          "type": "integer"
+        },
+        "bbox_xyxy": {},
+        "detector_bbox_xyxy": {},
+        "detector_score": {
+          "type": "number"
+        },
+        "focal_length": {
+          "type": "number"
+        },
+        "pred_cam_t": {
+          "$ref": "#/$defs/vec3"
+        },
+        "global_rot": {
+          "$ref": "#/$defs/vec3"
+        },
+        "keypoints_mhr70_2d": {
+          "$ref": "#/$defs/joints70x2"
+        },
+        "keypoints_mhr70_3d": {
+          "$ref": "#/$defs/joints70x3"
+        },
+        "mhr_joint_coords_127_3d": {
+          "$ref": "#/$defs/joints127x3"
+        }
+      }
+    },
+    "imageSize": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "width",
+        "height"
+      ],
+      "properties": {
+        "width": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "rawFrame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "video",
+        "frame_index",
+        "timestamp_sec",
+        "image_size",
+        "person_count",
+        "persons"
+      ],
+      "properties": {
+        "video": {
+          "type": "string"
+        },
+        "frame_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "timestamp_sec": {
+          "type": "number"
+        },
+        "image_size": {
+          "$ref": "#/$defs/imageSize"
+        },
+        "person_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "persons": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/rawPerson"
+          }
+        }
+      }
+    },
+    "detectorProvenance": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state",
+            "source"
+          ],
+          "properties": {
+            "state": {
+              "const": "detector_hit"
+            },
+            "source": {
+              "const": "derived_nonrepeat_valid_native_detector_bbox"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state",
+            "source"
+          ],
+          "properties": {
+            "state": {
+              "const": "carry_forward_fallback"
+            },
+            "source": {
+              "const": "derived_exact_detector_tuple_repeat_summary_reconciled"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state",
+            "source"
+          ],
+          "properties": {
+            "state": {
+              "const": "miss_no_prediction"
+            },
+            "source": {
+              "const": "zero_raw_persons_summary_reconciled"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state",
+            "source"
+          ],
+          "properties": {
+            "state": {
+              "const": "provenance_unavailable"
+            },
+            "source": {
+              "const": "missing_or_invalid_native_detector_bbox"
+            }
+          }
+        }
+      ]
+    },
+    "derivedSelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "manualSubjectState",
+        "manualTargetId",
+        "rawPersonIndex",
+        "rawPersonId",
+        "selectedTrackId",
+        "effectiveBboxSource",
+        "effectiveBboxXyxy",
+        "selectionFailureReason",
+        "selectionWarningCodes"
+      ],
+      "properties": {
+        "manualSubjectState": {
+          "enum": [
+            "selected",
+            "absent",
+            "ambiguous",
+            "unknown"
+          ]
+        },
+        "manualTargetId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rawPersonIndex": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "rawPersonId": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "selectedTrackId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "effectiveBboxSource": {
+          "enum": [
+            "detector",
+            "fallback",
+            null
+          ]
+        },
+        "effectiveBboxXyxy": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/bbox"
+            }
+          ]
+        },
+        "selectionFailureReason": {
+          "enum": [
+            "teacher_record_missing",
+            "teacher_candidate_ambiguous",
+            "teacher_candidate_anchor_mismatch",
+            "candidate_bbox_unusable",
+            null
+          ]
+        },
+        "selectionWarningCodes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "const": "detector_bbox_invalid_fallback"
+          }
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "manualSubjectState": { "const": "selected" },
+            "manualTargetId": { "type": "string", "minLength": 1 },
+            "rawPersonIndex": { "type": "integer", "minimum": 0 },
+            "rawPersonId": { "type": "integer" },
+            "selectedTrackId": { "type": "string", "minLength": 1 },
+            "effectiveBboxSource": { "type": "null" },
+            "effectiveBboxXyxy": { "type": "null" },
+            "selectionFailureReason": { "type": "null" },
+            "selectionWarningCodes": { "type": "array", "minItems": 0, "maxItems": 0 }
+          }
+        },
+        {
+          "properties": {
+            "manualSubjectState": { "const": "selected" },
+            "manualTargetId": { "type": "string", "minLength": 1 },
+            "rawPersonIndex": { "type": "integer", "minimum": 0 },
+            "rawPersonId": { "type": "integer" },
+            "selectedTrackId": { "type": "string", "minLength": 1 },
+            "effectiveBboxSource": { "const": "detector" },
+            "effectiveBboxXyxy": { "$ref": "#/$defs/bbox" },
+            "selectionFailureReason": { "type": "null" },
+            "selectionWarningCodes": { "type": "array", "minItems": 0, "maxItems": 0 }
+          }
+        },
+        {
+          "properties": {
+            "manualSubjectState": { "const": "selected" },
+            "manualTargetId": { "type": "string", "minLength": 1 },
+            "rawPersonIndex": { "type": "integer", "minimum": 0 },
+            "rawPersonId": { "type": "integer" },
+            "selectedTrackId": { "type": "string", "minLength": 1 },
+            "effectiveBboxSource": { "const": "fallback" },
+            "effectiveBboxXyxy": { "$ref": "#/$defs/bbox" },
+            "selectionFailureReason": { "type": "null" },
+            "selectionWarningCodes": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "const": "detector_bbox_invalid_fallback" } }
+          }
+        },
+        {
+          "properties": {
+            "manualSubjectState": { "const": "selected" },
+            "manualTargetId": { "type": "string", "minLength": 1 },
+            "rawPersonIndex": { "type": "null" },
+            "rawPersonId": { "type": "null" },
+            "selectedTrackId": { "type": "null" },
+            "effectiveBboxSource": { "type": "null" },
+            "effectiveBboxXyxy": { "type": "null" },
+            "selectionFailureReason": { "enum": ["teacher_record_missing", "teacher_candidate_ambiguous", "teacher_candidate_anchor_mismatch", "candidate_bbox_unusable"] },
+            "selectionWarningCodes": { "type": "array", "minItems": 0, "maxItems": 0 }
+          }
+        },
+        {
+          "properties": {
+            "manualSubjectState": { "enum": ["absent", "ambiguous", "unknown"] },
+            "manualTargetId": { "type": "null" },
+            "rawPersonIndex": { "type": "null" },
+            "rawPersonId": { "type": "null" },
+            "selectedTrackId": { "type": "null" },
+            "effectiveBboxSource": { "type": "null" },
+            "effectiveBboxXyxy": { "type": "null" },
+            "selectionFailureReason": { "type": "null" },
+            "selectionWarningCodes": { "type": "array", "minItems": 0, "maxItems": 0 }
+          }
+        }
+      ]
+    },
+    "bbox": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "type": "number"
+      }
+    },
+    "timestampComparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rawTimestampNumber",
+        "exactPtsNumber",
+        "deltaSec",
+        "differs"
+      ],
+      "properties": {
+        "rawTimestampNumber": {
+          "type": "number"
+        },
+        "exactPtsNumber": {
+          "type": "number"
+        },
+        "deltaSec": {
+          "type": "number"
+        },
+        "differs": {
+          "type": "boolean"
+        }
+      }
+    },
+    "datasetRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifactType",
+        "schemaVersion",
+        "identity",
+        "rawLineIndex",
+        "rawLineBase64",
+        "rawLineByteSha256",
+        "decodedRawCanonicalSha256",
+        "rawTimestampComparison",
+        "detectorProvenance",
+        "derivedSelection",
+        "warningCodes"
+      ],
+      "properties": {
+        "artifactType": {
+          "const": "teacher-dataset-row-v2"
+        },
+        "schemaVersion": {
+          "const": 2
+        },
+        "identity": {
+          "$ref": "#/$defs/identity"
+        },
+        "rawLineIndex": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rawLineBase64": {
+          "type": "string",
+          "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+        },
+        "rawLineByteSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "decodedRawCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "rawTimestampComparison": {
+          "$ref": "#/$defs/timestampComparison"
+        },
+        "detectorProvenance": {
+          "$ref": "#/$defs/detectorProvenance"
+        },
+        "derivedSelection": {
+          "$ref": "#/$defs/derivedSelection"
+        },
+        "warningCodes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "native_joint_confidence_unavailable",
+              "detector_provenance_derived_not_native",
+              "detector_bbox_invalid_fallback",
+              "raw_timestamp_differs_from_exact_pts"
+            ]
+          }
+        }
+      }
+    },
+    "sourceWindow": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "items": {
+            "$ref": "#/$defs/identity"
+          }
+        }
+      ]
+    },
+    "refinedRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifactType",
+        "schemaVersion",
+        "identity",
+        "selectedRawPersonIndex",
+        "selectedTrackId",
+        "targetRole",
+        "refinementStatus",
+        "policyCanonicalSha256",
+        "sourceWindow",
+        "predCamT",
+        "keypointsMhr70RootRelativeM",
+        "mhrJointCoords127RootRelativeM",
+        "rawCenterCanonicalSha256",
+        "refinedPoseCanonicalSha256"
+      ],
+      "properties": {
+        "artifactType": {
+          "const": "teacher-refined-row-v2"
+        },
+        "schemaVersion": {
+          "const": 2
+        },
+        "identity": {
+          "$ref": "#/$defs/identity"
+        },
+        "selectedRawPersonIndex": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "selectedTrackId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "targetRole": {
+          "const": "watch"
+        },
+        "refinementStatus": {
+          "enum": [
+            "unavailable",
+            "identity_boundary",
+            "identity_selection_gap",
+            "identity_input_invalid",
+            "identity_nonuniform_pts",
+            "identity_safety_fallback",
+            "smoothed"
+          ]
+        },
+        "policyCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "sourceWindow": {
+          "$ref": "#/$defs/sourceWindow"
+        },
+        "predCamT": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/vec3"
+            }
+          ]
+        },
+        "keypointsMhr70RootRelativeM": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/joints70x3"
+            }
+          ]
+        },
+        "mhrJointCoords127RootRelativeM": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/joints127x3"
+            }
+          ]
+        },
+        "rawCenterCanonicalSha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "refinedPoseCanonicalSha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "refinementStatus": { "const": "unavailable" },
+            "selectedRawPersonIndex": { "type": "null" },
+            "selectedTrackId": { "type": "null" },
+            "sourceWindow": { "type": "null" },
+            "predCamT": { "type": "null" },
+            "keypointsMhr70RootRelativeM": { "type": "null" },
+            "mhrJointCoords127RootRelativeM": { "type": "null" },
+            "rawCenterCanonicalSha256": { "type": "null" },
+            "refinedPoseCanonicalSha256": { "type": "null" }
+          }
+        },
+        {
+          "properties": {
+            "refinementStatus": { "const": "unavailable" },
+            "selectedRawPersonIndex": { "type": "integer", "minimum": 0 },
+            "selectedTrackId": { "type": "string", "minLength": 1 },
+            "sourceWindow": { "type": "null" },
+            "predCamT": { "type": "null" },
+            "keypointsMhr70RootRelativeM": { "type": "null" },
+            "mhrJointCoords127RootRelativeM": { "type": "null" },
+            "rawCenterCanonicalSha256": { "$ref": "#/$defs/sha256" },
+            "refinedPoseCanonicalSha256": { "type": "null" }
+          }
+        },
+        {
+          "properties": {
+            "refinementStatus": { "const": "identity_boundary" },
+            "selectedRawPersonIndex": { "type": "integer", "minimum": 0 },
+            "selectedTrackId": { "type": "string", "minLength": 1 },
+            "sourceWindow": { "type": "null" },
+            "predCamT": { "$ref": "#/$defs/vec3" },
+            "keypointsMhr70RootRelativeM": { "$ref": "#/$defs/joints70x3" },
+            "mhrJointCoords127RootRelativeM": { "$ref": "#/$defs/joints127x3" },
+            "rawCenterCanonicalSha256": { "$ref": "#/$defs/sha256" },
+            "refinedPoseCanonicalSha256": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        {
+          "properties": {
+            "refinementStatus": {
+              "enum": [
+                "identity_selection_gap",
+                "identity_input_invalid",
+                "identity_nonuniform_pts",
+                "identity_safety_fallback",
+                "smoothed"
+              ]
+            },
+            "selectedRawPersonIndex": { "type": "integer", "minimum": 0 },
+            "selectedTrackId": { "type": "string", "minLength": 1 },
+            "sourceWindow": {
+              "type": "array",
+              "minItems": 5,
+              "maxItems": 5,
+              "items": { "$ref": "#/$defs/identity" }
+            },
+            "predCamT": { "$ref": "#/$defs/vec3" },
+            "keypointsMhr70RootRelativeM": { "$ref": "#/$defs/joints70x3" },
+            "mhrJointCoords127RootRelativeM": { "$ref": "#/$defs/joints127x3" },
+            "rawCenterCanonicalSha256": { "$ref": "#/$defs/sha256" },
+            "refinedPoseCanonicalSha256": { "$ref": "#/$defs/sha256" }
+          }
+        }
+      ]
+    },
+    "depthRange": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "min",
+            "max"
+          ],
+          "properties": {
+            "min": {
+              "type": "number"
+            },
+            "max": {
+              "type": "number"
+            }
+          }
+        }
+      ]
+    },
+    "exactTemporalDelta": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "deltaTicks",
+            "timeBase"
+          ],
+          "properties": {
+            "deltaTicks": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*$"
+            },
+            "timeBase": {
+              "$ref": "#/$defs/timeBase"
+            }
+          }
+        }
+      ]
+    },
+    "diagnostics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "perScopeMaxReprojectionErrorPx",
+        "perScopeCameraDepthRangeM",
+        "torsoCross",
+        "tenMajorSegmentLengthsM",
+        "frameScaleM",
+        "clipScaleM",
+        "exactTemporalDelta",
+        "scaleJump",
+        "cameraRootSpeedMps",
+        "maxRootRelativeJointSpeedMps"
+      ],
+      "properties": {
+        "perScopeMaxReprojectionErrorPx": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "torsoFacing",
+            "fullBody",
+            "head",
+            "leftArm",
+            "rightArm",
+            "leftHand",
+            "rightHand",
+            "leftLeg",
+            "rightLeg"
+          ],
+          "properties": {
+            "torsoFacing": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "fullBody": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "head": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "leftArm": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "rightArm": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "leftHand": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "rightHand": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "leftLeg": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "rightLeg": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          }
+        },
+        "perScopeCameraDepthRangeM": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "torsoFacing",
+            "fullBody",
+            "head",
+            "leftArm",
+            "rightArm",
+            "leftHand",
+            "rightHand",
+            "leftLeg",
+            "rightLeg"
+          ],
+          "properties": {
+            "torsoFacing": {
+              "$ref": "#/$defs/depthRange"
+            },
+            "fullBody": {
+              "$ref": "#/$defs/depthRange"
+            },
+            "head": {
+              "$ref": "#/$defs/depthRange"
+            },
+            "leftArm": {
+              "$ref": "#/$defs/depthRange"
+            },
+            "rightArm": {
+              "$ref": "#/$defs/depthRange"
+            },
+            "leftHand": {
+              "$ref": "#/$defs/depthRange"
+            },
+            "rightHand": {
+              "$ref": "#/$defs/depthRange"
+            },
+            "leftLeg": {
+              "$ref": "#/$defs/depthRange"
+            },
+            "rightLeg": {
+              "$ref": "#/$defs/depthRange"
+            }
+          }
+        },
+        "torsoCross": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "tenMajorSegmentLengthsM": {
+          "type": "array",
+          "minItems": 10,
+          "maxItems": 10,
+          "items": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "frameScaleM": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "clipScaleM": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "exactTemporalDelta": {
+          "$ref": "#/$defs/exactTemporalDelta"
+        },
+        "scaleJump": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "cameraRootSpeedMps": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "maxRootRelativeJointSpeedMps": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "torsoFacing",
+            "fullBody",
+            "head",
+            "leftArm",
+            "rightArm",
+            "leftHand",
+            "rightHand",
+            "leftLeg",
+            "rightLeg"
+          ],
+          "properties": {
+            "torsoFacing": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "fullBody": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "head": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "leftArm": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "rightArm": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "leftHand": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "rightHand": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "leftLeg": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "rightLeg": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "torsoFacing",
+        "fullBody",
+        "head",
+        "leftArm",
+        "rightArm",
+        "leftHand",
+        "rightHand",
+        "leftLeg",
+        "rightLeg",
+        "calibration",
+        "leftContact",
+        "rightContact"
+      ],
+      "properties": {
+        "torsoFacing": {
+          "type": "boolean"
+        },
+        "fullBody": {
+          "type": "boolean"
+        },
+        "head": {
+          "type": "boolean"
+        },
+        "leftArm": {
+          "type": "boolean"
+        },
+        "rightArm": {
+          "type": "boolean"
+        },
+        "leftHand": {
+          "type": "boolean"
+        },
+        "rightHand": {
+          "type": "boolean"
+        },
+        "leftLeg": {
+          "type": "boolean"
+        },
+        "rightLeg": {
+          "type": "boolean"
+        },
+        "calibration": {
+          "type": "boolean"
+        },
+        "leftContact": {
+          "type": "boolean"
+        },
+        "rightContact": {
+          "type": "boolean"
+        }
+      }
+    },
+    "scopeReasons": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "torsoFacing",
+        "fullBody",
+        "head",
+        "leftArm",
+        "rightArm",
+        "leftHand",
+        "rightHand",
+        "leftLeg",
+        "rightLeg",
+        "calibration",
+        "leftContact",
+        "rightContact"
+      ],
+      "properties": {
+        "torsoFacing": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "manual_absent",
+              "manual_presence_unknown",
+              "manual_subject_unselected",
+              "detector_miss_no_prediction",
+              "detector_carry_forward_fallback",
+              "detector_provenance_unavailable",
+              "teacher_record_missing",
+              "teacher_candidate_ambiguous",
+              "teacher_candidate_anchor_mismatch",
+              "candidate_bbox_unusable",
+              "required_coordinates_nonfinite",
+              "camera_parameters_invalid",
+              "reprojection_error",
+              "manual_body_unobservable",
+              "invalid_torso_basis",
+              "incomplete_full_body_observability",
+              "manual_head_unobservable",
+              "manual_arm_unobservable",
+              "manual_hand_unobservable",
+              "manual_leg_unobservable",
+              "required_joint_out_of_frame",
+              "leg_chain_nonfinite",
+              "manual_foot_unobservable",
+              "manual_contact_unknown",
+              "bone_length_anomaly",
+              "scale_median_unavailable",
+              "scale_deviation",
+              "temporal_gap",
+              "temporal_reference_unavailable",
+              "scale_jump",
+              "root_speed_anomaly",
+              "joint_speed_anomaly",
+              "native_joint_confidence_unavailable"
+            ]
+          }
+        },
+        "fullBody": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "manual_absent",
+              "manual_presence_unknown",
+              "manual_subject_unselected",
+              "detector_miss_no_prediction",
+              "detector_carry_forward_fallback",
+              "detector_provenance_unavailable",
+              "teacher_record_missing",
+              "teacher_candidate_ambiguous",
+              "teacher_candidate_anchor_mismatch",
+              "candidate_bbox_unusable",
+              "required_coordinates_nonfinite",
+              "camera_parameters_invalid",
+              "reprojection_error",
+              "manual_body_unobservable",
+              "invalid_torso_basis",
+              "incomplete_full_body_observability",
+              "manual_head_unobservable",
+              "manual_arm_unobservable",
+              "manual_hand_unobservable",
+              "manual_leg_unobservable",
+              "required_joint_out_of_frame",
+              "leg_chain_nonfinite",
+              "manual_foot_unobservable",
+              "manual_contact_unknown",
+              "bone_length_anomaly",
+              "scale_median_unavailable",
+              "scale_deviation",
+              "temporal_gap",
+              "temporal_reference_unavailable",
+              "scale_jump",
+              "root_speed_anomaly",
+              "joint_speed_anomaly",
+              "native_joint_confidence_unavailable"
+            ]
+          }
+        },
+        "head": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "manual_absent",
+              "manual_presence_unknown",
+              "manual_subject_unselected",
+              "detector_miss_no_prediction",
+              "detector_carry_forward_fallback",
+              "detector_provenance_unavailable",
+              "teacher_record_missing",
+              "teacher_candidate_ambiguous",
+              "teacher_candidate_anchor_mismatch",
+              "candidate_bbox_unusable",
+              "required_coordinates_nonfinite",
+              "camera_parameters_invalid",
+              "reprojection_error",
+              "manual_body_unobservable",
+              "invalid_torso_basis",
+              "incomplete_full_body_observability",
+              "manual_head_unobservable",
+              "manual_arm_unobservable",
+              "manual_hand_unobservable",
+              "manual_leg_unobservable",
+              "required_joint_out_of_frame",
+              "leg_chain_nonfinite",
+              "manual_foot_unobservable",
+              "manual_contact_unknown",
+              "bone_length_anomaly",
+              "scale_median_unavailable",
+              "scale_deviation",
+              "temporal_gap",
+              "temporal_reference_unavailable",
+              "scale_jump",
+              "root_speed_anomaly",
+              "joint_speed_anomaly",
+              "native_joint_confidence_unavailable"
+            ]
+          }
+        },
+        "leftArm": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "manual_absent",
+              "manual_presence_unknown",
+              "manual_subject_unselected",
+              "detector_miss_no_prediction",
+              "detector_carry_forward_fallback",
+              "detector_provenance_unavailable",
+              "teacher_record_missing",
+              "teacher_candidate_ambiguous",
+              "teacher_candidate_anchor_mismatch",
+              "candidate_bbox_unusable",
+              "required_coordinates_nonfinite",
+              "camera_parameters_invalid",
+              "reprojection_error",
+              "manual_body_unobservable",
+              "invalid_torso_basis",
+              "incomplete_full_body_observability",
+              "manual_head_unobservable",
+              "manual_arm_unobservable",
+              "manual_hand_unobservable",
+              "manual_leg_unobservable",
+              "required_joint_out_of_frame",
+              "leg_chain_nonfinite",
+              "manual_foot_unobservable",
+              "manual_contact_unknown",
+              "bone_length_anomaly",
+              "scale_median_unavailable",
+              "scale_deviation",
+              "temporal_gap",
+              "temporal_reference_unavailable",
+              "scale_jump",
+              "root_speed_anomaly",
+              "joint_speed_anomaly",
+              "native_joint_confidence_unavailable"
+            ]
+          }
+        },
+        "rightArm": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "manual_absent",
+              "manual_presence_unknown",
+              "manual_subject_unselected",
+              "detector_miss_no_prediction",
+              "detector_carry_forward_fallback",
+              "detector_provenance_unavailable",
+              "teacher_record_missing",
+              "teacher_candidate_ambiguous",
+              "teacher_candidate_anchor_mismatch",
+              "candidate_bbox_unusable",
+              "required_coordinates_nonfinite",
+              "camera_parameters_invalid",
+              "reprojection_error",
+              "manual_body_unobservable",
+              "invalid_torso_basis",
+              "incomplete_full_body_observability",
+              "manual_head_unobservable",
+              "manual_arm_unobservable",
+              "manual_hand_unobservable",
+              "manual_leg_unobservable",
+              "required_joint_out_of_frame",
+              "leg_chain_nonfinite",
+              "manual_foot_unobservable",
+              "manual_contact_unknown",
+              "bone_length_anomaly",
+              "scale_median_unavailable",
+              "scale_deviation",
+              "temporal_gap",
+              "temporal_reference_unavailable",
+              "scale_jump",
+              "root_speed_anomaly",
+              "joint_speed_anomaly",
+              "native_joint_confidence_unavailable"
+            ]
+          }
+        },
+        "leftHand": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "manual_absent",
+              "manual_presence_unknown",
+              "manual_subject_unselected",
+              "detector_miss_no_prediction",
+              "detector_carry_forward_fallback",
+              "detector_provenance_unavailable",
+              "teacher_record_missing",
+              "teacher_candidate_ambiguous",
+              "teacher_candidate_anchor_mismatch",
+              "candidate_bbox_unusable",
+              "required_coordinates_nonfinite",
+              "camera_parameters_invalid",
+              "reprojection_error",
+              "manual_body_unobservable",
+              "invalid_torso_basis",
+              "incomplete_full_body_observability",
+              "manual_head_unobservable",
+              "manual_arm_unobservable",
+              "manual_hand_unobservable",
+              "manual_leg_unobservable",
+              "required_joint_out_of_frame",
+              "leg_chain_nonfinite",
+              "manual_foot_unobservable",
+              "manual_contact_unknown",
+              "bone_length_anomaly",
+              "scale_median_unavailable",
+              "scale_deviation",
+              "temporal_gap",
+              "temporal_reference_unavailable",
+              "scale_jump",
+              "root_speed_anomaly",
+              "joint_speed_anomaly",
+              "native_joint_confidence_unavailable"
+            ]
+          }
+        },
+        "rightHand": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "manual_absent",
+              "manual_presence_unknown",
+              "manual_subject_unselected",
+              "detector_miss_no_prediction",
+              "detector_carry_forward_fallback",
+              "detector_provenance_unavailable",
+              "teacher_record_missing",
+              "teacher_candidate_ambiguous",
+              "teacher_candidate_anchor_mismatch",
+              "candidate_bbox_unusable",
+              "required_coordinates_nonfinite",
+              "camera_parameters_invalid",
+              "reprojection_error",
+              "manual_body_unobservable",
+              "invalid_torso_basis",
+              "incomplete_full_body_observability",
+              "manual_head_unobservable",
+              "manual_arm_unobservable",
+              "manual_hand_unobservable",
+              "manual_leg_unobservable",
+              "required_joint_out_of_frame",
+              "leg_chain_nonfinite",
+              "manual_foot_unobservable",
+              "manual_contact_unknown",
+              "bone_length_anomaly",
+              "scale_median_unavailable",
+              "scale_deviation",
+              "temporal_gap",
+              "temporal_reference_unavailable",
+              "scale_jump",
+              "root_speed_anomaly",
+              "joint_speed_anomaly",
+              "native_joint_confidence_unavailable"
+            ]
+          }
+        },
+        "leftLeg": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "manual_absent",
+              "manual_presence_unknown",
+              "manual_subject_unselected",
+              "detector_miss_no_prediction",
+              "detector_carry_forward_fallback",
+              "detector_provenance_unavailable",
+              "teacher_record_missing",
+              "teacher_candidate_ambiguous",
+              "teacher_candidate_anchor_mismatch",
+              "candidate_bbox_unusable",
+              "required_coordinates_nonfinite",
+              "camera_parameters_invalid",
+              "reprojection_error",
+              "manual_body_unobservable",
+              "invalid_torso_basis",
+              "incomplete_full_body_observability",
+              "manual_head_unobservable",
+              "manual_arm_unobservable",
+              "manual_hand_unobservable",
+              "manual_leg_unobservable",
+              "required_joint_out_of_frame",
+              "leg_chain_nonfinite",
+              "manual_foot_unobservable",
+              "manual_contact_unknown",
+              "bone_length_anomaly",
+              "scale_median_unavailable",
+              "scale_deviation",
+              "temporal_gap",
+              "temporal_reference_unavailable",
+              "scale_jump",
+              "root_speed_anomaly",
+              "joint_speed_anomaly",
+              "native_joint_confidence_unavailable"
+            ]
+          }
+        },
+        "rightLeg": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "manual_absent",
+              "manual_presence_unknown",
+              "manual_subject_unselected",
+              "detector_miss_no_prediction",
+              "detector_carry_forward_fallback",
+              "detector_provenance_unavailable",
+              "teacher_record_missing",
+              "teacher_candidate_ambiguous",
+              "teacher_candidate_anchor_mismatch",
+              "candidate_bbox_unusable",
+              "required_coordinates_nonfinite",
+              "camera_parameters_invalid",
+              "reprojection_error",
+              "manual_body_unobservable",
+              "invalid_torso_basis",
+              "incomplete_full_body_observability",
+              "manual_head_unobservable",
+              "manual_arm_unobservable",
+              "manual_hand_unobservable",
+              "manual_leg_unobservable",
+              "required_joint_out_of_frame",
+              "leg_chain_nonfinite",
+              "manual_foot_unobservable",
+              "manual_contact_unknown",
+              "bone_length_anomaly",
+              "scale_median_unavailable",
+              "scale_deviation",
+              "temporal_gap",
+              "temporal_reference_unavailable",
+              "scale_jump",
+              "root_speed_anomaly",
+              "joint_speed_anomaly",
+              "native_joint_confidence_unavailable"
+            ]
+          }
+        },
+        "calibration": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "manual_absent",
+              "manual_presence_unknown",
+              "manual_subject_unselected",
+              "detector_miss_no_prediction",
+              "detector_carry_forward_fallback",
+              "detector_provenance_unavailable",
+              "teacher_record_missing",
+              "teacher_candidate_ambiguous",
+              "teacher_candidate_anchor_mismatch",
+              "candidate_bbox_unusable",
+              "required_coordinates_nonfinite",
+              "camera_parameters_invalid",
+              "reprojection_error",
+              "manual_body_unobservable",
+              "invalid_torso_basis",
+              "incomplete_full_body_observability",
+              "manual_head_unobservable",
+              "manual_arm_unobservable",
+              "manual_hand_unobservable",
+              "manual_leg_unobservable",
+              "required_joint_out_of_frame",
+              "leg_chain_nonfinite",
+              "manual_foot_unobservable",
+              "manual_contact_unknown",
+              "bone_length_anomaly",
+              "scale_median_unavailable",
+              "scale_deviation",
+              "temporal_gap",
+              "temporal_reference_unavailable",
+              "scale_jump",
+              "root_speed_anomaly",
+              "joint_speed_anomaly",
+              "native_joint_confidence_unavailable"
+            ]
+          }
+        },
+        "leftContact": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "manual_absent",
+              "manual_presence_unknown",
+              "manual_subject_unselected",
+              "detector_miss_no_prediction",
+              "detector_carry_forward_fallback",
+              "detector_provenance_unavailable",
+              "teacher_record_missing",
+              "teacher_candidate_ambiguous",
+              "teacher_candidate_anchor_mismatch",
+              "candidate_bbox_unusable",
+              "required_coordinates_nonfinite",
+              "camera_parameters_invalid",
+              "reprojection_error",
+              "manual_body_unobservable",
+              "invalid_torso_basis",
+              "incomplete_full_body_observability",
+              "manual_head_unobservable",
+              "manual_arm_unobservable",
+              "manual_hand_unobservable",
+              "manual_leg_unobservable",
+              "required_joint_out_of_frame",
+              "leg_chain_nonfinite",
+              "manual_foot_unobservable",
+              "manual_contact_unknown",
+              "bone_length_anomaly",
+              "scale_median_unavailable",
+              "scale_deviation",
+              "temporal_gap",
+              "temporal_reference_unavailable",
+              "scale_jump",
+              "root_speed_anomaly",
+              "joint_speed_anomaly",
+              "native_joint_confidence_unavailable"
+            ]
+          }
+        },
+        "rightContact": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "manual_absent",
+              "manual_presence_unknown",
+              "manual_subject_unselected",
+              "detector_miss_no_prediction",
+              "detector_carry_forward_fallback",
+              "detector_provenance_unavailable",
+              "teacher_record_missing",
+              "teacher_candidate_ambiguous",
+              "teacher_candidate_anchor_mismatch",
+              "candidate_bbox_unusable",
+              "required_coordinates_nonfinite",
+              "camera_parameters_invalid",
+              "reprojection_error",
+              "manual_body_unobservable",
+              "invalid_torso_basis",
+              "incomplete_full_body_observability",
+              "manual_head_unobservable",
+              "manual_arm_unobservable",
+              "manual_hand_unobservable",
+              "manual_leg_unobservable",
+              "required_joint_out_of_frame",
+              "leg_chain_nonfinite",
+              "manual_foot_unobservable",
+              "manual_contact_unknown",
+              "bone_length_anomaly",
+              "scale_median_unavailable",
+              "scale_deviation",
+              "temporal_gap",
+              "temporal_reference_unavailable",
+              "scale_jump",
+              "root_speed_anomaly",
+              "joint_speed_anomaly",
+              "native_joint_confidence_unavailable"
+            ]
+          }
+        }
+      }
+    },
+    "maskRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifactType",
+        "schemaVersion",
+        "identity",
+        "selectedRawPersonIndex",
+        "selectedTrackId",
+        "detectorProvenance",
+        "jointConfidenceSource",
+        "confidenceAvailable",
+        "diagnostics",
+        "scope",
+        "scopeReasons",
+        "valid",
+        "exclusionReasons",
+        "warningCodes"
+      ],
+      "properties": {
+        "artifactType": {
+          "const": "teacher-mask-row-v2"
+        },
+        "schemaVersion": {
+          "const": 2
+        },
+        "identity": {
+          "$ref": "#/$defs/identity"
+        },
+        "selectedRawPersonIndex": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "selectedTrackId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "detectorProvenance": {
+          "$ref": "#/$defs/detectorProvenance"
+        },
+        "jointConfidenceSource": {
+          "const": "unavailable"
+        },
+        "confidenceAvailable": {
+          "const": false
+        },
+        "diagnostics": {
+          "$ref": "#/$defs/diagnostics"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "scopeReasons": {
+          "$ref": "#/$defs/scopeReasons"
+        },
+        "valid": {
+          "type": "boolean"
+        },
+        "exclusionReasons": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "manual_absent",
+              "manual_presence_unknown",
+              "manual_subject_unselected",
+              "detector_miss_no_prediction",
+              "detector_carry_forward_fallback",
+              "detector_provenance_unavailable",
+              "teacher_record_missing",
+              "teacher_candidate_ambiguous",
+              "teacher_candidate_anchor_mismatch",
+              "candidate_bbox_unusable",
+              "required_coordinates_nonfinite",
+              "camera_parameters_invalid",
+              "reprojection_error",
+              "manual_body_unobservable",
+              "invalid_torso_basis",
+              "incomplete_full_body_observability",
+              "manual_head_unobservable",
+              "manual_arm_unobservable",
+              "manual_hand_unobservable",
+              "manual_leg_unobservable",
+              "required_joint_out_of_frame",
+              "leg_chain_nonfinite",
+              "manual_foot_unobservable",
+              "manual_contact_unknown",
+              "bone_length_anomaly",
+              "scale_median_unavailable",
+              "scale_deviation",
+              "temporal_gap",
+              "temporal_reference_unavailable",
+              "scale_jump",
+              "root_speed_anomaly",
+              "joint_speed_anomaly",
+              "native_joint_confidence_unavailable"
+            ]
+          }
+        },
+        "warningCodes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "native_joint_confidence_unavailable",
+              "detector_provenance_derived_not_native",
+              "detector_bbox_invalid_fallback",
+              "raw_timestamp_differs_from_exact_pts"
+            ]
+          }
+        }
+      }
+    },
+    "canonicalByteDescriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "canonicalSha256",
+        "byteSha256"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "canonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "byteSha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "logicalCanonicalByteDescriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "logicalPath",
+        "canonicalSha256",
+        "byteSha256"
+      ],
+      "properties": {
+        "logicalPath": {
+          "const": "anchors/p0.json"
+        },
+        "canonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "byteSha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "byteDescriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "byteSha256"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "byteSha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "rawJsonDescriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "bytes",
+        "byteSha256",
+        "canonicalSha256"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "byteSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "canonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "rawJsonlDescriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "bytes",
+        "byteSha256",
+        "encoding",
+        "lineEnding",
+        "terminatorHex",
+        "terminalNewline",
+        "rowCount"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "byteSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "encoding": {
+          "const": "utf-8"
+        },
+        "lineEnding": {
+          "const": "CRLF"
+        },
+        "terminatorHex": {
+          "const": "0d0a"
+        },
+        "terminalNewline": {
+          "const": true
+        },
+        "rowCount": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "inventoryClip": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clipId",
+        "video",
+        "decoderRows",
+        "files"
+      ],
+      "properties": {
+        "clipId": {
+          "type": "string"
+        },
+        "video": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path",
+            "bytes",
+            "sha256",
+            "width",
+            "height"
+          ],
+          "properties": {
+            "path": {
+              "$ref": "#/$defs/path"
+            },
+            "bytes": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "width": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "decoderRows": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "files": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "skeletonsMhr70",
+            "metadataMhr70",
+            "summary"
+          ],
+          "properties": {
+            "skeletonsMhr70": {
+              "$ref": "#/$defs/rawJsonlDescriptor"
+            },
+            "metadataMhr70": {
+              "$ref": "#/$defs/rawJsonDescriptor"
+            },
+            "summary": {
+              "$ref": "#/$defs/rawJsonDescriptor"
+            }
+          }
+        }
+      }
+    },
+    "inventoryCanonicalization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile", "hashAlgorithm", "excludedRootKeys", "arrayOrderSemantic"],
+      "properties": {
+        "profile": { "const": "recursive-utf8-bytewise-key-sort-root-expectedCanonicalHash-exclusion-v1" },
+        "hashAlgorithm": { "const": "sha256" },
+        "excludedRootKeys": { "const": ["expectedCanonicalHash"] },
+        "arrayOrderSemantic": { "const": true }
+      }
+    },
+    "canonicalSourceDescriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "canonicalSha256"],
+      "properties": {
+        "path": { "$ref": "#/$defs/path" },
+        "canonicalSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "inventoryDecoderDescriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "rowCount", "byteSha256", "canonicalRowsSha256"],
+      "properties": {
+        "path": { "$ref": "#/$defs/path" },
+        "rowCount": { "const": 6711 },
+        "byteSha256": { "$ref": "#/$defs/sha256" },
+        "canonicalRowsSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "inventorySourceBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceContract", "sourceSchema", "sourceInventory", "decoderManifest"],
+      "properties": {
+        "sourceContract": { "$ref": "#/$defs/canonicalSourceDescriptor" },
+        "sourceSchema": { "$ref": "#/$defs/canonicalSourceDescriptor" },
+        "sourceInventory": { "$ref": "#/$defs/canonicalSourceDescriptor" },
+        "decoderManifest": { "$ref": "#/$defs/inventoryDecoderDescriptor" }
+      }
+    },
+    "inventorySerialization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rawJsonlEncoding", "rawLineEnding", "rawTerminatorHex", "rawTerminalNewline", "jsonCanonicalization", "jsonSelfHashExclusion"],
+      "properties": {
+        "rawJsonlEncoding": { "const": "utf-8" },
+        "rawLineEnding": { "const": "CRLF" },
+        "rawTerminatorHex": { "const": "0d0a" },
+        "rawTerminalNewline": { "const": true },
+        "jsonCanonicalization": { "const": "recursive-utf8-bytewise-key-sort" },
+        "jsonSelfHashExclusion": { "const": "root expectedCanonicalHash only" }
+      }
+    },
+    "teacherManifestSerialization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["json", "jsonl", "lineEnding", "terminalNewline", "rowOrder"],
+      "properties": {
+        "json": { "const": "compact-recursively-key-sorted-utf8-terminal-lf" },
+        "jsonl": { "const": "one-compact-recursively-key-sorted-object-per-decoder-row" },
+        "lineEnding": { "const": "LF" },
+        "terminalNewline": { "const": true },
+        "rowOrder": { "const": "decoder-manifest" }
+      }
+    },
+    "teacherInputInventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "$schema",
+        "artifactType",
+        "schemaVersion",
+        "canonicalization",
+        "sourceBinding",
+        "serialization",
+        "clips",
+        "expectedCanonicalHash"
+      ],
+      "properties": {
+        "$schema": {
+          "const": "https://json-schema.org/draft/2020-12/schema"
+        },
+        "artifactType": {
+          "const": "teacher-input-inventory-v2"
+        },
+        "schemaVersion": {
+          "const": 2
+        },
+        "canonicalization": {
+          "$ref": "#/$defs/inventoryCanonicalization"
+        },
+        "sourceBinding": {
+          "$ref": "#/$defs/inventorySourceBinding"
+        },
+        "serialization": {
+          "$ref": "#/$defs/inventorySerialization"
+        },
+        "clips": {
+          "type": "array",
+          "minItems": 7,
+          "maxItems": 7,
+          "items": {
+            "$ref": "#/$defs/inventoryClip"
+          }
+        },
+        "expectedCanonicalHash": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "provenanceRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "component",
+        "availability",
+        "sha256",
+        "reason",
+        "claimedPathOrModel",
+        "claimedConfig"
+      ],
+      "properties": {
+        "component": {
+          "enum": [
+            "extractor_code",
+            "sam_checkpoint",
+            "mhr_asset",
+            "detector_weights"
+          ]
+        },
+        "availability": {
+          "const": "unavailable"
+        },
+        "sha256": {
+          "type": "null"
+        },
+        "reason": {
+          "const": "artifact_bytes_not_present_in_workspace"
+        },
+        "claimedPathOrModel": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "claimedConfig": {}
+      }
+    },
+    "teacherSourceManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifactType",
+        "schemaVersion",
+        "parentP0AnchorSha256",
+        "teacherInputInventoryCanonicalSha256",
+        "sourceInventoryCanonicalSha256",
+        "decoderManifest",
+        "clips",
+        "provenance",
+        "serialization",
+        "expectedCanonicalHash"
+      ],
+      "properties": {
+        "artifactType": {
+          "const": "teacher-source-manifest-v2"
+        },
+        "schemaVersion": {
+          "const": 2
+        },
+        "parentP0AnchorSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "teacherInputInventoryCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "sourceInventoryCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "decoderManifest": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path",
+            "byteSha256",
+            "canonicalRowsSha256",
+            "rowCount"
+          ],
+          "properties": {
+            "path": {
+              "$ref": "#/$defs/path"
+            },
+            "byteSha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "canonicalRowsSha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "rowCount": {
+              "const": 6711
+            }
+          }
+        },
+        "clips": {
+          "type": "array",
+          "minItems": 7,
+          "maxItems": 7,
+          "items": {
+            "$ref": "#/$defs/inventoryClip"
+          }
+        },
+        "provenance": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "$ref": "#/$defs/provenanceRecord"
+          }
+        },
+        "serialization": {
+          "$ref": "#/$defs/teacherManifestSerialization"
+        },
+        "expectedCanonicalHash": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "trueFalseCount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "true",
+        "false"
+      ],
+      "properties": {
+        "true": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "false": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "scopeCountMap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "torsoFacing",
+        "fullBody",
+        "head",
+        "leftArm",
+        "rightArm",
+        "leftHand",
+        "rightHand",
+        "leftLeg",
+        "rightLeg",
+        "calibration",
+        "leftContact",
+        "rightContact"
+      ],
+      "properties": {
+        "torsoFacing": {
+          "$ref": "#/$defs/trueFalseCount"
+        },
+        "fullBody": {
+          "$ref": "#/$defs/trueFalseCount"
+        },
+        "head": {
+          "$ref": "#/$defs/trueFalseCount"
+        },
+        "leftArm": {
+          "$ref": "#/$defs/trueFalseCount"
+        },
+        "rightArm": {
+          "$ref": "#/$defs/trueFalseCount"
+        },
+        "leftHand": {
+          "$ref": "#/$defs/trueFalseCount"
+        },
+        "rightHand": {
+          "$ref": "#/$defs/trueFalseCount"
+        },
+        "leftLeg": {
+          "$ref": "#/$defs/trueFalseCount"
+        },
+        "rightLeg": {
+          "$ref": "#/$defs/trueFalseCount"
+        },
+        "calibration": {
+          "$ref": "#/$defs/trueFalseCount"
+        },
+        "leftContact": {
+          "$ref": "#/$defs/trueFalseCount"
+        },
+        "rightContact": {
+          "$ref": "#/$defs/trueFalseCount"
+        }
+      }
+    },
+    "provenanceCountMap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "detector_hit",
+        "carry_forward_fallback",
+        "miss_no_prediction",
+        "provenance_unavailable"
+      ],
+      "properties": {
+        "detector_hit": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "carry_forward_fallback": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "miss_no_prediction": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "provenance_unavailable": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "refinementCountMap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "unavailable",
+        "identity_boundary",
+        "identity_selection_gap",
+        "identity_input_invalid",
+        "identity_nonuniform_pts",
+        "identity_safety_fallback",
+        "smoothed"
+      ],
+      "properties": {
+        "unavailable": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "identity_boundary": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "identity_selection_gap": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "identity_input_invalid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "identity_nonuniform_pts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "identity_safety_fallback": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "smoothed": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "reasonCountMap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "manual_absent",
+        "manual_presence_unknown",
+        "manual_subject_unselected",
+        "detector_miss_no_prediction",
+        "detector_carry_forward_fallback",
+        "detector_provenance_unavailable",
+        "teacher_record_missing",
+        "teacher_candidate_ambiguous",
+        "teacher_candidate_anchor_mismatch",
+        "candidate_bbox_unusable",
+        "required_coordinates_nonfinite",
+        "camera_parameters_invalid",
+        "reprojection_error",
+        "manual_body_unobservable",
+        "invalid_torso_basis",
+        "incomplete_full_body_observability",
+        "manual_head_unobservable",
+        "manual_arm_unobservable",
+        "manual_hand_unobservable",
+        "manual_leg_unobservable",
+        "required_joint_out_of_frame",
+        "leg_chain_nonfinite",
+        "manual_foot_unobservable",
+        "manual_contact_unknown",
+        "bone_length_anomaly",
+        "scale_median_unavailable",
+        "scale_deviation",
+        "temporal_gap",
+        "temporal_reference_unavailable",
+        "scale_jump",
+        "root_speed_anomaly",
+        "joint_speed_anomaly",
+        "native_joint_confidence_unavailable"
+      ],
+      "properties": {
+        "manual_absent": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "manual_presence_unknown": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "manual_subject_unselected": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "detector_miss_no_prediction": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "detector_carry_forward_fallback": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "detector_provenance_unavailable": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "teacher_record_missing": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "teacher_candidate_ambiguous": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "teacher_candidate_anchor_mismatch": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "candidate_bbox_unusable": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "required_coordinates_nonfinite": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "camera_parameters_invalid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reprojection_error": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "manual_body_unobservable": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "invalid_torso_basis": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "incomplete_full_body_observability": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "manual_head_unobservable": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "manual_arm_unobservable": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "manual_hand_unobservable": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "manual_leg_unobservable": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "required_joint_out_of_frame": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "leg_chain_nonfinite": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "manual_foot_unobservable": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "manual_contact_unknown": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "bone_length_anomaly": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "scale_median_unavailable": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "scale_deviation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "temporal_gap": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "temporal_reference_unavailable": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "scale_jump": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "root_speed_anomaly": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "joint_speed_anomaly": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "native_joint_confidence_unavailable": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "selectionCountMap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "selected",
+        "unattempted",
+        "teacher_record_missing",
+        "teacher_candidate_ambiguous",
+        "teacher_candidate_anchor_mismatch",
+        "candidate_bbox_unusable",
+        "detectorBboxInvalidFallback"
+      ],
+      "properties": {
+        "selected": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unattempted": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "teacher_record_missing": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "teacher_candidate_ambiguous": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "teacher_candidate_anchor_mismatch": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "candidate_bbox_unusable": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "detectorBboxInvalidFallback": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "clipTeacherCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clipId",
+        "role",
+        "decoderRows",
+        "rawRows",
+        "personPredictions",
+        "zeroPersonRows",
+        "multiPersonRows",
+        "selectedRows",
+        "detectorProvenance",
+        "refinementStatuses",
+        "selection",
+        "reasons",
+        "scopes",
+        "validRows",
+        "invalidRows"
+      ],
+      "properties": {
+        "clipId": {
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "hard_test",
+            "validation",
+            "train_candidate",
+            "all_paired"
+          ]
+        },
+        "decoderRows": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "rawRows": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "personPredictions": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "zeroPersonRows": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "multiPersonRows": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "selectedRows": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "detectorProvenance": {
+          "$ref": "#/$defs/provenanceCountMap"
+        },
+        "refinementStatuses": {
+          "$ref": "#/$defs/refinementCountMap"
+        },
+        "selection": {
+          "$ref": "#/$defs/selectionCountMap"
+        },
+        "reasons": {
+          "$ref": "#/$defs/reasonCountMap"
+        },
+        "scopes": {
+          "$ref": "#/$defs/scopeCountMap"
+        },
+        "validRows": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "invalidRows": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "supportCell": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "preMaskFrames",
+        "postMaskFrames",
+        "preMaskClips",
+        "postMaskClips"
+      ],
+      "properties": {
+        "preMaskFrames": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "postMaskFrames": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "preMaskClips": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "postMaskClips": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "teacherSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifactType",
+        "schemaVersion",
+        "parentP0AnchorSha256",
+        "teacherInputInventoryCanonicalSha256",
+        "teacherSourceManifestCanonicalSha256",
+        "teacherDatasetByteSha256",
+        "teacherRefinedByteSha256",
+        "teacherMaskByteSha256",
+        "targetRole",
+        "teacherPolicyCanonicalSha256",
+        "evaluationContractCanonicalSha256",
+        "teacherSchemaCanonicalSha256",
+        "perClip",
+        "totals",
+        "manualCoverageRows",
+        "support",
+        "unpaired",
+        "provenanceAvailability",
+        "forbiddenDurableFamilyCount",
+        "expectedCanonicalHash"
+      ],
+      "properties": {
+        "artifactType": {
+          "const": "teacher-summary-v2"
+        },
+        "schemaVersion": {
+          "const": 2
+        },
+        "parentP0AnchorSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "teacherInputInventoryCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "teacherSourceManifestCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "teacherDatasetByteSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "teacherRefinedByteSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "teacherMaskByteSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "targetRole": {
+          "const": "raw_hard_refined_watch"
+        },
+        "teacherPolicyCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "evaluationContractCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "teacherSchemaCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "perClip": {
+          "type": "array",
+          "minItems": 7,
+          "maxItems": 7,
+          "items": {
+            "$ref": "#/$defs/clipTeacherCounts"
+          }
+        },
+        "totals": {
+          "$ref": "#/$defs/clipTeacherCounts"
+        },
+        "manualCoverageRows": {
+          "const": 6711
+        },
+        "support": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "leftHand",
+            "rightHand",
+            "head",
+            "leftPlanted",
+            "leftMoving",
+            "rightPlanted",
+            "rightMoving"
+          ],
+          "properties": {
+            "leftHand": {
+              "$ref": "#/$defs/supportCell"
+            },
+            "rightHand": {
+              "$ref": "#/$defs/supportCell"
+            },
+            "head": {
+              "$ref": "#/$defs/supportCell"
+            },
+            "leftPlanted": {
+              "$ref": "#/$defs/supportCell"
+            },
+            "leftMoving": {
+              "$ref": "#/$defs/supportCell"
+            },
+            "rightPlanted": {
+              "$ref": "#/$defs/supportCell"
+            },
+            "rightMoving": {
+              "$ref": "#/$defs/supportCell"
+            }
+          }
+        },
+        "unpaired": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "clipId",
+            "role",
+            "teacherState",
+            "pairedRows"
+          ],
+          "properties": {
+            "clipId": {
+              "const": "jujae-full"
+            },
+            "role": {
+              "const": "unpaired_final"
+            },
+            "teacherState": {
+              "const": "teacher_missing"
+            },
+            "pairedRows": {
+              "const": 0
+            }
+          }
+        },
+        "provenanceAvailability": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "$ref": "#/$defs/provenanceRecord"
+          }
+        },
+        "forbiddenDurableFamilyCount": {
+          "const": 0
+        },
+        "expectedCanonicalHash": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "p1FileDescriptors": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "p0Pack",
+        "externalP0Anchor",
+        "evaluationContract",
+        "labelSchema",
+        "teacherInputInventory",
+        "teacherPolicy",
+        "teacherSchema",
+        "p0AnchorSchema",
+        "p1AnchorSchema",
+        "sourceInventory",
+        "teacherSourceManifest",
+        "teacherSummary",
+        "decoderManifest",
+        "teacherDataset",
+        "teacherRefined",
+        "teacherMask",
+        "teacherMaterializer",
+        "labelAuditor"
+      ],
+      "properties": {
+        "p0Pack": {
+          "$ref": "#/$defs/canonicalByteDescriptor"
+        },
+        "externalP0Anchor": {
+          "$ref": "#/$defs/logicalCanonicalByteDescriptor"
+        },
+        "evaluationContract": {
+          "$ref": "#/$defs/canonicalByteDescriptor"
+        },
+        "labelSchema": {
+          "$ref": "#/$defs/canonicalByteDescriptor"
+        },
+        "teacherInputInventory": {
+          "$ref": "#/$defs/canonicalByteDescriptor"
+        },
+        "teacherPolicy": {
+          "$ref": "#/$defs/canonicalByteDescriptor"
+        },
+        "teacherSchema": {
+          "$ref": "#/$defs/canonicalByteDescriptor"
+        },
+        "p0AnchorSchema": {
+          "$ref": "#/$defs/canonicalByteDescriptor"
+        },
+        "p1AnchorSchema": {
+          "$ref": "#/$defs/canonicalByteDescriptor"
+        },
+        "sourceInventory": {
+          "$ref": "#/$defs/canonicalByteDescriptor"
+        },
+        "teacherSourceManifest": {
+          "$ref": "#/$defs/canonicalByteDescriptor"
+        },
+        "teacherSummary": {
+          "$ref": "#/$defs/canonicalByteDescriptor"
+        },
+        "decoderManifest": {
+          "$ref": "#/$defs/byteDescriptor"
+        },
+        "teacherDataset": {
+          "$ref": "#/$defs/byteDescriptor"
+        },
+        "teacherRefined": {
+          "$ref": "#/$defs/byteDescriptor"
+        },
+        "teacherMask": {
+          "$ref": "#/$defs/byteDescriptor"
+        },
+        "teacherMaterializer": {
+          "$ref": "#/$defs/byteDescriptor"
+        },
+        "labelAuditor": {
+          "$ref": "#/$defs/byteDescriptor"
+        }
+      }
+    },
+    "p1PackManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifactType",
+        "schemaVersion",
+        "phase",
+        "parentP0AnchorSha256",
+        "targetRole",
+        "files",
+        "expectedCanonicalHash"
+      ],
+      "properties": {
+        "artifactType": {
+          "const": "evaluation-pack-v2"
+        },
+        "schemaVersion": {
+          "const": 2
+        },
+        "phase": {
+          "const": "p1-candidate"
+        },
+        "parentP0AnchorSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "targetRole": {
+          "const": "raw_hard_refined_watch"
+        },
+        "files": {
+          "$ref": "#/$defs/p1FileDescriptors"
+        },
+        "expectedCanonicalHash": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "p1CandidateLock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifactType",
+        "schemaVersion",
+        "phase",
+        "parentP0AnchorSha256",
+        "p1PackCanonicalSha256",
+        "targetRole",
+        "teacherInputInventoryCanonicalSha256",
+        "teacherSourceManifestCanonicalSha256",
+        "teacherDatasetByteSha256",
+        "teacherRefinedByteSha256",
+        "teacherMaskByteSha256",
+        "teacherSummaryCanonicalSha256",
+        "teacherPolicyCanonicalSha256",
+        "teacherMaterializerByteSha256",
+        "labelAuditorByteSha256",
+        "expectedCanonicalHash"
+      ],
+      "properties": {
+        "artifactType": {
+          "const": "evaluation-lock-v2"
+        },
+        "schemaVersion": {
+          "const": 2
+        },
+        "phase": {
+          "const": "p1-candidate"
+        },
+        "parentP0AnchorSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "p1PackCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "targetRole": {
+          "const": "raw_hard_refined_watch"
+        },
+        "teacherInputInventoryCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "teacherSourceManifestCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "teacherDatasetByteSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "teacherRefinedByteSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "teacherMaskByteSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "teacherSummaryCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "teacherPolicyCanonicalSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "teacherMaterializerByteSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "labelAuditorByteSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "expectedCanonicalHash": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    }
+  }
+}

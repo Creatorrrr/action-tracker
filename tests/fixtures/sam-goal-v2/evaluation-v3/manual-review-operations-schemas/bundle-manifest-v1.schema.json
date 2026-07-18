@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://action-tracker.invalid/sam-goal/manual-review-operations/bundle-manifest-v1.schema.json",
+  "title": "SAM Goal source-only review bundle manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifactType", "schemaVersion", "authorityClass", "compilerInput", "p0Authority", "cycleId", "mode", "actorPseudonymSha256", "publicPins", "sourceBinding", "rulebookByteSha256", "presentationContractSha256", "immutableAssets", "runtimeExecutableLogicalPath", "launcherLogicalPath", "processDecoderLogicalPaths", "immutableAssetSetSha256", "mutableLogicalRoots"],
+  "properties": {
+    "artifactType": {"const": "sam-goal-review-bundle-manifest-v1"},
+    "schemaVersion": {"const": 1},
+    "authorityClass": {"const": "process-evidence-only"},
+    "compilerInput": {"const": false},
+    "p0Authority": {"const": false},
+    "cycleId": {"$ref": "#/$defs/cycleId"},
+    "mode": {"$ref": "#/$defs/mode"},
+    "actorPseudonymSha256": {"$ref": "#/$defs/sha256"},
+    "publicPins": {"$ref": "#/$defs/publicPins"},
+    "sourceBinding": {"$ref": "#/$defs/sourceBinding"},
+    "rulebookByteSha256": {"$ref": "#/$defs/sha256"},
+    "presentationContractSha256": {"$ref": "#/$defs/sha256"},
+    "immutableAssets": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/immutableAsset"}},
+    "runtimeExecutableLogicalPath": {"$ref": "#/$defs/logicalPath"},
+    "launcherLogicalPath": {"$ref": "#/$defs/logicalPath"},
+    "processDecoderLogicalPaths": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/logicalPath"}},
+    "immutableAssetSetSha256": {"$ref": "#/$defs/sha256"},
+    "mutableLogicalRoots": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/logicalPath"}}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "cycleId": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+    "logicalPath": {"type": "string", "minLength": 1, "maxLength": 512, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$"},
+    "mode": {"enum": ["first", "second", "source-first-c0", "adjudication-reveal"]},
+    "reviewMode": {"enum": ["first", "second"]},
+    "blindMode": {"enum": ["first", "second", "source-first-c0"]},
+    "publicPins": {
+      "type": "object", "additionalProperties": false,
+      "required": ["evaluationContractCanonicalSha256", "labelSchemaCanonicalSha256", "authoringSchemaCanonicalSha256", "sourceInventoryCanonicalSha256", "decoderByteSha256", "decoderCanonicalRowsSha256", "manualPackCompilerByteSha256"],
+      "properties": {
+        "evaluationContractCanonicalSha256": {"$ref": "#/$defs/sha256"},
+        "labelSchemaCanonicalSha256": {"$ref": "#/$defs/sha256"},
+        "authoringSchemaCanonicalSha256": {"$ref": "#/$defs/sha256"},
+        "sourceInventoryCanonicalSha256": {"$ref": "#/$defs/sha256"},
+        "decoderByteSha256": {"$ref": "#/$defs/sha256"},
+        "decoderCanonicalRowsSha256": {"$ref": "#/$defs/sha256"},
+        "manualPackCompilerByteSha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "sourceIdentity": {
+      "type": "object", "additionalProperties": false,
+      "required": ["clipId", "path", "bytes", "sha256"],
+      "properties": {
+        "clipId": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "minLength": 1},
+        "bytes": {"type": "integer", "minimum": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "sourceBinding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["evaluationContractCanonicalSha256", "labelSchemaCanonicalSha256", "authoringSchemaCanonicalSha256", "sourceInventoryCanonicalSha256", "decoderByteSha256", "decoderCanonicalRowsSha256", "decoderRowCount", "sources"],
+      "properties": {
+        "evaluationContractCanonicalSha256": {"$ref": "#/$defs/sha256"},
+        "labelSchemaCanonicalSha256": {"$ref": "#/$defs/sha256"},
+        "authoringSchemaCanonicalSha256": {"$ref": "#/$defs/sha256"},
+        "sourceInventoryCanonicalSha256": {"$ref": "#/$defs/sha256"},
+        "decoderByteSha256": {"$ref": "#/$defs/sha256"},
+        "decoderCanonicalRowsSha256": {"$ref": "#/$defs/sha256"},
+        "decoderRowCount": {"const": 6711},
+        "sources": {"type": "array", "minItems": 7, "maxItems": 7, "uniqueItems": true, "items": {"$ref": "#/$defs/sourceIdentity"}}
+      }
+    },
+    "immutableAsset": {
+      "type": "object", "additionalProperties": false,
+      "required": ["logicalPath", "bytes", "sha256", "mediaType", "executable", "assetClass"],
+      "properties": {
+        "logicalPath": {"$ref": "#/$defs/logicalPath"},
+        "bytes": {"type": "integer", "minimum": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "mediaType": {"type": "string", "minLength": 1},
+        "executable": {"type": "boolean"},
+        "assetClass": {"enum": ["authority_snapshot", "source_copy", "owned_rulebook", "owned_process_schema", "owned_viewer", "owned_launcher", "runtime_executable", "process_decoder"]}
+      }
+    },
+    "unset": {"type": "object", "additionalProperties": false, "required": ["status"], "properties": {"status": {"const": "UNSET"}}},
+    "scenario": {"enum": ["neutral", "entry_exit", "reacquire", "arms_crossed", "self_occlusion", "side_view", "back_view", "fast_motion", "jump", "footwork", "turn", "leg_extension", "distance_change", "partial_body_crop", "multi_person_background", "duplicate_detection_challenge", "hand_closeup", "full_body_dance", "upper_body_only"]},
+    "scenarioArray": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/scenario"}},
+    "purpose": {"enum": ["full_clip_denominator", "absence_reacquire", "self_occlusion", "fast_motion", "contact_transition", "multi_person", "crop_out_of_frame", "duplicate_detection", "turning", "hand_observability"]},
+    "purposeArray": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/purpose"}},
+    "timeBase": {"type": "object", "additionalProperties": false, "required": ["numerator", "denominator"], "properties": {"numerator": {"type": "integer", "minimum": 1}, "denominator": {"type": "integer", "minimum": 1}}},
+    "identity": {
+      "type": "object", "additionalProperties": false,
+      "required": ["clipId", "sourceFrameIndex", "ptsTicks", "timeBase", "loopEpoch"],
+      "properties": {"clipId": {"type": "string", "minLength": 1}, "sourceFrameIndex": {"type": "integer", "minimum": 0}, "ptsTicks": {"type": "string", "pattern": "^-?(?:0|[1-9][0-9]*)$"}, "timeBase": {"$ref": "#/$defs/timeBase"}, "loopEpoch": {"const": 0}}
+    },
+    "anchor": {"oneOf": [{"type": "null"}, {"type": "object", "additionalProperties": false, "required": ["x", "y"], "properties": {"x": {"type": "number", "minimum": 0, "maximum": 1}, "y": {"type": "number", "minimum": 0, "maximum": 1}}}]},
+    "annotationState": {
+      "type": "object", "additionalProperties": false,
+      "required": ["presence", "personState", "occlusion", "contact", "handObservability", "endpointObservability", "subjectSelection"],
+      "properties": {
+        "presence": {"oneOf": [{"$ref": "#/$defs/unset"}, {"enum": ["present", "absent", "unknown"]}]},
+        "personState": {"oneOf": [{"$ref": "#/$defs/unset"}, {"enum": ["single_target", "multiple_people", "absent", "unknown"]}]},
+        "occlusion": {"type": "object", "additionalProperties": false, "required": ["body", "leftFoot", "rightFoot", "leftHand", "rightHand"], "properties": {"body": {"$ref": "#/$defs/unsetOrOcclusion"}, "leftFoot": {"$ref": "#/$defs/unsetOrOcclusion"}, "rightFoot": {"$ref": "#/$defs/unsetOrOcclusion"}, "leftHand": {"$ref": "#/$defs/unsetOrOcclusion"}, "rightHand": {"$ref": "#/$defs/unsetOrOcclusion"}}},
+        "contact": {"type": "object", "additionalProperties": false, "required": ["left", "right"], "properties": {"left": {"$ref": "#/$defs/unsetOrContact"}, "right": {"$ref": "#/$defs/unsetOrContact"}}},
+        "handObservability": {"type": "object", "additionalProperties": false, "required": ["left", "right"], "properties": {"left": {"$ref": "#/$defs/unsetOrObservability"}, "right": {"$ref": "#/$defs/unsetOrObservability"}}},
+        "endpointObservability": {"type": "object", "additionalProperties": false, "required": ["leftWrist", "rightWrist", "leftAnkle", "rightAnkle", "head"], "properties": {"leftWrist": {"$ref": "#/$defs/unsetOrObservability"}, "rightWrist": {"$ref": "#/$defs/unsetOrObservability"}, "leftAnkle": {"$ref": "#/$defs/unsetOrObservability"}, "rightAnkle": {"$ref": "#/$defs/unsetOrObservability"}, "head": {"$ref": "#/$defs/unsetOrObservability"}}},
+        "subjectSelection": {"type": "object", "additionalProperties": false, "required": ["state", "manualTargetId", "anchor"], "properties": {"state": {"oneOf": [{"$ref": "#/$defs/unset"}, {"enum": ["selected", "absent", "ambiguous", "unknown"]}]}, "manualTargetId": {"oneOf": [{"$ref": "#/$defs/unset"}, {"type": ["string", "null"], "minLength": 1}]}, "anchor": {"oneOf": [{"$ref": "#/$defs/unset"}, {"$ref": "#/$defs/anchor"}]}}}
+      }
+    },
+    "unsetOrOcclusion": {"oneOf": [{"$ref": "#/$defs/unset"}, {"enum": ["observable", "partial", "occluded", "out_of_frame", "unknown"]}]},
+    "unsetOrContact": {"oneOf": [{"$ref": "#/$defs/unset"}, {"enum": ["planted", "moving", "unknown"]}]},
+    "unsetOrObservability": {"oneOf": [{"$ref": "#/$defs/unset"}, {"enum": ["observable", "not_observable"]}]},
+    "worksheetWindow": {
+      "type": "object", "additionalProperties": false,
+      "required": ["windowId", "clipId", "startFrameIndex", "endFrameIndexExclusive", "origin", "purposeTags", "scenarioTags"],
+      "properties": {"windowId": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"}, "clipId": {"type": "string", "minLength": 1}, "startFrameIndex": {"type": "integer", "minimum": 0}, "endFrameIndexExclusive": {"type": "integer", "minimum": 1}, "origin": {"enum": ["structural_base", "actor_overlay"]}, "purposeTags": {"oneOf": [{"$ref": "#/$defs/unset"}, {"$ref": "#/$defs/purposeArray"}]}, "scenarioTags": {"oneOf": [{"$ref": "#/$defs/unset"}, {"$ref": "#/$defs/scenarioArray"}]}}
+    },
+    "formalWindow": {"type": "object", "additionalProperties": false, "required": ["windowId", "clipId", "startFrameIndex", "endFrameIndexExclusive", "purposeTags", "scenarioTags"], "properties": {"windowId": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"}, "clipId": {"type": "string", "minLength": 1}, "startFrameIndex": {"type": "integer", "minimum": 0}, "endFrameIndexExclusive": {"type": "integer", "minimum": 1}, "purposeTags": {"$ref": "#/$defs/purposeArray"}, "scenarioTags": {"$ref": "#/$defs/scenarioArray"}}},
+    "c0Missing": {"type": "object", "additionalProperties": false, "required": ["status"], "properties": {"status": {"const": "C0_WINDOW_MISSING"}}}
+  }
+}

@@ -1,33 +1,31 @@
 import {
-  FaceLandmarker,
   FilesetResolver,
-  HandLandmarker,
   PoseLandmarker,
 } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/vision_bundle.mjs";
 import {
   createMotionFrame,
-  normalizeFace,
   serializeMotionFrame,
 } from "./motion-frame.js?v=20260708-single-hand-side-1";
+import {
+  createPrewarmedVideoTrackerGenerationOwner,
+} from "./tracking-input-generation.js?v=20260717-prewarmed-pose-pool-1";
 
 let vision = null;
-let poseLandmarker = null;
-let handLandmarker = null;
-let faceLandmarker = null;
-let loadedPoseModelUrl = "";
-let loadedFaceTrackingEnabled = false;
-let loadedFaceLandmarksEnabled = false;
-let frameCanvas = null;
-let frameContext = null;
+let loadedConfigurationKey = "";
 const MEDIAPIPE_PREFERRED_DELEGATE = "GPU";
 const MEDIAPIPE_FALLBACK_DELEGATE = "CPU";
+const MEDIAPIPE_BODY_RUNNING_MODE = "VIDEO";
+const MEDIAPIPE_BODY_RESET_RUNNING_MODE = "IMAGE";
+const BODY_TRACKER_POOL_SIZE = 2;
+const BODY_TRACKER_PRIME_CANVAS_SIZE = 16;
 let requestedDelegate = MEDIAPIPE_PREFERRED_DELEGATE;
+const bodyTrackerGenerationOwner = createPrewarmedVideoTrackerGenerationOwner();
+let messageTail = Promise.resolve();
 const detectorDelegates = {
   requested: requestedDelegate,
   fallback: MEDIAPIPE_FALLBACK_DELEGATE,
-  hand: "unloaded",
   pose: "unloaded",
-  face: "unloaded",
+  poseStandby: "unloaded",
   lastFallbackReason: "",
   attempted: {},
   fallbackReasons: {},
@@ -36,7 +34,24 @@ const detectorDelegates = {
 installMediaPipeModuleFactoryImportBridge();
 
 self.addEventListener("message", (event) => {
-  void handleMessage(event.data ?? {});
+  const message = event.data ?? {};
+  // Nominate a newer generation at receipt time, not after the serialized
+  // message tail reaches it. This prevents an in-progress older candidate set
+  // from committing after the app has already requested a newer boundary.
+  if (
+    message.type === "prepare-generation" ||
+    message.type === "reserve-generation"
+  ) {
+    try {
+      bodyTrackerGenerationOwner.reserve(message.inputGeneration);
+    } catch {
+      // The serialized handler returns the protocol error for invalid input.
+    }
+  }
+  messageTail = messageTail.then(
+    () => handleMessage(message),
+    () => handleMessage(message),
+  );
 });
 
 function installMediaPipeModuleFactoryImportBridge() {
@@ -68,14 +83,54 @@ async function handleMessage(message) {
       postWorkerMessage({
         type: "ready",
         requestId,
+        configurationKey: loadedConfigurationKey,
+        bodyTrackerGenerationMeta: bodyTrackerGenerationOwner.getTelemetry(),
         detectorDelegates: getDetectorDelegates(),
+      });
+      return;
+    }
+
+    if (message.type === "prepare-generation") {
+      if (message.imageBitmap) {
+        throw new Error("Tracking worker prepare-generation must not transfer frame pixels.");
+      }
+      const bodyTrackerGenerationMeta = await prepareGeneration(message);
+      postWorkerMessage({
+        type: "generation-ready",
+        requestId,
+        inputGeneration: message.inputGeneration,
+        configurationKey: loadedConfigurationKey,
+        bodyTrackerGenerationMeta,
+        detectorDelegates: getDetectorDelegates(),
+      });
+      return;
+    }
+
+    if (message.type === "reserve-generation") {
+      if (!loadedConfigurationKey) {
+        throw new Error("Tracking worker cannot reserve a generation before Pose initialization.");
+      }
+      if (!bodyTrackerGenerationOwner.reserve(message.inputGeneration)) {
+        throw new Error("Tracking worker cannot reserve an older input generation.");
+      }
+      postWorkerMessage({
+        type: "generation-reserved",
+        requestId,
+        inputGeneration: message.inputGeneration,
+        configurationKey: loadedConfigurationKey,
       });
       return;
     }
 
     if (message.type === "detect") {
       const frame = await detectMotionFrame(message);
-      postWorkerMessage({ type: "result", requestId, frame });
+      postWorkerMessage({
+        type: "result",
+        requestId,
+        inputGeneration: message.inputGeneration,
+        configurationKey: loadedConfigurationKey,
+        frame,
+      });
       return;
     }
 
@@ -87,11 +142,20 @@ async function handleMessage(message) {
 
     throw new Error(`Unsupported worker message type: ${message.type}`);
   } catch (error) {
-    closeImageBitmap(message.imageBitmap);
+    if (message.type !== "detect") {
+      closeImageBitmap(message.imageBitmap);
+    }
     postWorkerMessage({
       type: "error",
       requestId,
+      inputGeneration: Number.isSafeInteger(message.inputGeneration)
+        ? message.inputGeneration
+        : null,
+      configurationKey: loadedConfigurationKey,
       message: getErrorDetail(error),
+      code: String(error?.code ?? ""),
+      bodyTrackerGenerationMeta:
+        error?.bodyTrackerGenerationMeta ?? bodyTrackerGenerationOwner.getTelemetry(),
     });
   }
 }
@@ -99,67 +163,211 @@ async function handleMessage(message) {
 async function initModels({
   wasmAssetPath,
   poseModelUrl,
-  handModelUrl,
-  faceModelUrl,
-  faceTrackingEnabled = false,
-  faceLandmarksEnabled = false,
   delegate = MEDIAPIPE_PREFERRED_DELEGATE,
 } = {}) {
-  if (!wasmAssetPath || !poseModelUrl || !handModelUrl) {
-    throw new Error("Tracking worker init requires wasm, pose, and hand model URLs.");
+  if (!wasmAssetPath || !poseModelUrl) {
+    throw new Error("Tracking worker init requires wasm and pose model URLs.");
   }
 
   if (!vision) {
     vision = await FilesetResolver.forVisionTasks(wasmAssetPath, true);
   }
 
-  requestedDelegate = normalizeMediaPipeDelegate(delegate);
-  detectorDelegates.requested = requestedDelegate;
-  resetDetectorDelegateTelemetry();
+  const nextConfiguration = {
+    poseModelUrl: String(poseModelUrl),
+    delegate: normalizeMediaPipeDelegate(delegate),
+  };
+  const nextConfigurationKey = buildTrackerConfigurationKey(nextConfiguration);
 
-  if (!handLandmarker) {
-    handLandmarker = await createLandmarkerWithDelegate("hand", HandLandmarker, vision, {
-      baseOptions: { modelAssetPath: handModelUrl },
-      runningMode: "VIDEO",
-      numHands: 2,
-    });
+  if (nextConfigurationKey !== loadedConfigurationKey) {
+    const previousDelegateTelemetry = getDetectorDelegates();
+    detectorDelegates.requested = nextConfiguration.delegate;
+    resetDetectorDelegateTelemetry();
+    let initialPoolSlots = null;
+    try {
+      // Ready means both same-delegate VIDEO slots have completed their
+      // neutral prime. No generation is reserved or prepared during priming.
+      initialPoolSlots = await createInitialPoseDetectorPool(nextConfiguration);
+      bodyTrackerGenerationOwner.installPrewarmedPool({
+        configurationKey: nextConfigurationKey,
+        poolSlots: initialPoolSlots,
+      });
+      initialPoolSlots = null;
+    } catch (error) {
+      closePoseDetectorPool(initialPoolSlots);
+      restoreDetectorDelegateTelemetry(previousDelegateTelemetry);
+      throw error;
+    }
+    requestedDelegate = nextConfiguration.delegate;
+    loadedConfigurationKey = nextConfigurationKey;
   }
-
-  if (!poseLandmarker || loadedPoseModelUrl !== poseModelUrl) {
-    const nextPoseLandmarker = await createLandmarkerWithDelegate("pose", PoseLandmarker, vision, {
-      baseOptions: { modelAssetPath: poseModelUrl },
-      runningMode: "VIDEO",
-      numPoses: 1,
-    });
-    closeLandmarker(poseLandmarker);
-    poseLandmarker = nextPoseLandmarker;
-    loadedPoseModelUrl = poseModelUrl;
-  }
-
-  if (faceTrackingEnabled && !faceLandmarker) {
-    faceLandmarker = await createLandmarkerWithDelegate("face", FaceLandmarker, vision, {
-      baseOptions: { modelAssetPath: faceModelUrl },
-      runningMode: "VIDEO",
-      numFaces: 1,
-      outputFaceBlendshapes: true,
-      outputFacialTransformationMatrixes: true,
-    });
-  }
-
-  if (!faceTrackingEnabled && faceLandmarker) {
-    closeLandmarker(faceLandmarker);
-    faceLandmarker = null;
-    detectorDelegates.face = "unloaded";
-  }
-
-  loadedFaceTrackingEnabled = Boolean(faceTrackingEnabled);
-  loadedFaceLandmarksEnabled = Boolean(faceLandmarksEnabled);
 }
 
-async function createLandmarkerWithDelegate(detectorKey, Landmarker, visionRef, options) {
+function buildTrackerConfigurationKey({
+  poseModelUrl,
+  delegate,
+}) {
+  return JSON.stringify([
+    String(poseModelUrl ?? ""),
+    normalizeMediaPipeDelegate(delegate),
+    MEDIAPIPE_BODY_RUNNING_MODE,
+  ]);
+}
+
+function createPoseDetectorOptions(configuration) {
+  return {
+    baseOptions: { modelAssetPath: configuration.poseModelUrl },
+    runningMode: MEDIAPIPE_BODY_RUNNING_MODE,
+    numPoses: 1,
+  };
+}
+
+function createPoseDetectorStateResets() {
+  return [{
+    id: "pose",
+    reset: async (poseLandmarker) => {
+      if (typeof poseLandmarker?.setOptions !== "function") {
+        throw new Error("Pose VIDEO detector does not support setOptions state reset.");
+      }
+      await poseLandmarker.setOptions({
+        runningMode: MEDIAPIPE_BODY_RESET_RUNNING_MODE,
+      });
+      await poseLandmarker.setOptions({
+        runningMode: MEDIAPIPE_BODY_RUNNING_MODE,
+      });
+    },
+  }];
+}
+
+async function createInitialPoseDetectorPool(configuration) {
+  const poolSlots = [];
+  const options = createPoseDetectorOptions(configuration);
+  try {
+    const currentStartedAt = performance.now();
+    const currentDetector = await createLandmarkerWithDelegate(
+      "pose",
+      PoseLandmarker,
+      vision,
+      options,
+      configuration.delegate,
+    );
+    const effectiveDelegate = detectorDelegates.pose;
+    const currentSlot = {
+      slotId: "current",
+      delegate: effectiveDelegate,
+      prewarmed: false,
+      primeDurationMs: 0,
+      detectors: [{ id: "pose", detector: currentDetector }],
+    };
+    poolSlots.push(currentSlot);
+    prewarmPoseVideoDetector(currentDetector);
+    currentSlot.prewarmed = true;
+    currentSlot.primeDurationMs = Math.max(0, performance.now() - currentStartedAt);
+
+    const standbyStartedAt = performance.now();
+    const standbyDetector = await createLandmarkerWithDelegate(
+      "poseStandby",
+      PoseLandmarker,
+      vision,
+      options,
+      effectiveDelegate,
+      { allowFallback: false },
+    );
+    const standbySlot = {
+      slotId: "standby",
+      delegate: effectiveDelegate,
+      prewarmed: false,
+      primeDurationMs: 0,
+      detectors: [{ id: "pose", detector: standbyDetector }],
+    };
+    poolSlots.push(standbySlot);
+    if (detectorDelegates.poseStandby !== effectiveDelegate) {
+      throw new Error(
+        `Pose standby delegate ${detectorDelegates.poseStandby} does not match current ${effectiveDelegate}.`,
+      );
+    }
+    prewarmPoseVideoDetector(standbyDetector);
+    standbySlot.prewarmed = true;
+    standbySlot.primeDurationMs = Math.max(0, performance.now() - standbyStartedAt);
+
+    if (poolSlots.length !== BODY_TRACKER_POOL_SIZE) {
+      throw new Error("Pose VIDEO detector pool did not prime both slots.");
+    }
+    return poolSlots;
+  } catch (error) {
+    closePoseDetectorPool(poolSlots);
+    throw error;
+  }
+}
+
+function prewarmPoseVideoDetector(poseLandmarker) {
+  if (typeof OffscreenCanvas !== "function") {
+    throw new Error("Pose VIDEO pool priming requires OffscreenCanvas.");
+  }
+  const canvas = new OffscreenCanvas(
+    BODY_TRACKER_PRIME_CANVAS_SIZE,
+    BODY_TRACKER_PRIME_CANVAS_SIZE,
+  );
+  const context = canvas.getContext("2d", { alpha: false });
+  if (!context) {
+    throw new Error("Pose VIDEO pool could not create its neutral prime canvas.");
+  }
+  context.fillStyle = "#000000";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  // The prime timestamp is detector-local only: it is never copied into a
+  // MotionFrame, source metadata, or the product causal clock.
+  const primeResult = poseLandmarker.detectForVideo(canvas, 0);
+  if (
+    (primeResult?.landmarks?.length ?? 0) > 0 ||
+    (primeResult?.worldLandmarks?.length ?? 0) > 0
+  ) {
+    throw new Error("Pose VIDEO pool neutral prime unexpectedly detected a pose.");
+  }
+}
+
+function closePoseDetectorPool(poolSlots) {
+  const closed = new Set();
+  for (const slot of poolSlots ?? []) {
+    for (const { detector } of slot.detectors ?? []) {
+      if (!detector || closed.has(detector)) {
+        continue;
+      }
+      closed.add(detector);
+      try {
+        detector.close?.();
+      } catch {
+        // Best-effort cleanup for a pool that was never installed.
+      }
+    }
+  }
+}
+
+async function prepareGeneration({ inputGeneration, configurationKey } = {}) {
+  const requestedConfigurationKey = String(configurationKey ?? "");
+  if (!requestedConfigurationKey || requestedConfigurationKey !== loadedConfigurationKey) {
+    throw new Error("Tracking worker generation configuration does not match its loaded Pose detector.");
+  }
+  return bodyTrackerGenerationOwner.prepare({
+    inputGeneration,
+    configurationKey: requestedConfigurationKey,
+    detectorStateResets: createPoseDetectorStateResets(),
+  });
+}
+
+async function createLandmarkerWithDelegate(
+  detectorKey,
+  Landmarker,
+  visionRef,
+  options,
+  preferredDelegate = requestedDelegate,
+  { allowFallback = true } = {},
+) {
   let preferredError = null;
 
-  for (const delegate of getMediaPipeDelegateAttemptOrder()) {
+  const attemptOrder = allowFallback
+    ? getMediaPipeDelegateAttemptOrder(preferredDelegate)
+    : [normalizeMediaPipeDelegate(preferredDelegate)];
+  for (const delegate of attemptOrder) {
     recordDetectorDelegateAttempt(detectorKey, delegate);
 
     try {
@@ -173,13 +381,13 @@ async function createLandmarkerWithDelegate(detectorKey, Landmarker, visionRef, 
       markDetectorDelegate(detectorKey, delegate, preferredError);
       return landmarker;
     } catch (error) {
-      if (delegate === MEDIAPIPE_FALLBACK_DELEGATE) {
+      if (!allowFallback || delegate === MEDIAPIPE_FALLBACK_DELEGATE) {
         throw error;
       }
 
       preferredError = error;
       console.warn(
-        `${detectorKey} ${MEDIAPIPE_PREFERRED_DELEGATE} delegate failed in worker; retrying with ${MEDIAPIPE_FALLBACK_DELEGATE}.`,
+        `${detectorKey} ${preferredDelegate} delegate failed in worker; retrying with ${MEDIAPIPE_FALLBACK_DELEGATE}.`,
         error,
       );
     }
@@ -188,8 +396,8 @@ async function createLandmarkerWithDelegate(detectorKey, Landmarker, visionRef, 
   throw preferredError ?? new Error(`Unable to create ${detectorKey} landmarker in worker.`);
 }
 
-function getMediaPipeDelegateAttemptOrder() {
-  if (requestedDelegate === MEDIAPIPE_FALLBACK_DELEGATE) {
+function getMediaPipeDelegateAttemptOrder(preferredDelegate = requestedDelegate) {
+  if (preferredDelegate === MEDIAPIPE_FALLBACK_DELEGATE) {
     return [MEDIAPIPE_FALLBACK_DELEGATE];
   }
 
@@ -236,6 +444,17 @@ function resetDetectorDelegateTelemetry() {
   detectorDelegates.lastFallbackReason = "";
   detectorDelegates.attempted = {};
   detectorDelegates.fallbackReasons = {};
+  detectorDelegates.poseStandby = "unloaded";
+}
+
+function restoreDetectorDelegateTelemetry(previous) {
+  detectorDelegates.requested = previous.requested;
+  detectorDelegates.fallback = previous.fallback;
+  detectorDelegates.pose = previous.pose;
+  detectorDelegates.poseStandby = previous.poseStandby ?? "unloaded";
+  detectorDelegates.lastFallbackReason = previous.lastFallbackReason;
+  detectorDelegates.attempted = cloneRecordArrayValues(previous.attempted);
+  detectorDelegates.fallbackReasons = { ...previous.fallbackReasons };
 }
 
 function cloneRecordArrayValues(value) {
@@ -251,96 +470,58 @@ async function detectMotionFrame({
   imageBitmap,
   timestamp = 0,
   mirrored = false,
+  inputGeneration,
+  configurationKey,
   sourceMeta = {},
-  faceTrackingEnabled = false,
-  faceLandmarksEnabled = false,
 } = {}) {
   if (!imageBitmap) {
     throw new Error("Tracking worker detect requires an ImageBitmap frame.");
   }
 
-  if (!poseLandmarker || !handLandmarker) {
-    throw new Error("Tracking worker models are not ready.");
+  try {
+    if (sourceMeta?.inputGeneration !== inputGeneration) {
+      throw new Error("Tracking worker input generation metadata does not match its request envelope.");
+    }
+    if (!configurationKey || configurationKey !== loadedConfigurationKey) {
+      throw new Error("Tracking worker detect configuration does not match its prepared Pose detector.");
+    }
+
+    const preparedSet = bodyTrackerGenerationOwner.getPreparedSet(inputGeneration);
+    const poseLandmarker = preparedSet.pose;
+    if (!poseLandmarker) {
+      throw new Error("Tracking worker prepared detector set has no pose landmarker.");
+    }
+
+    const detectionStartedAt = performance.now();
+    const poseResults = poseLandmarker.detectForVideo(imageBitmap, timestamp);
+    const poseDetectionDurationMs = performance.now() - detectionStartedAt;
+
+    return serializeMotionFrame(createMotionFrame({
+      timestamp,
+      mirrored,
+      poseResults,
+      handResults: null,
+      face: null,
+      sourceMeta: {
+        ...sourceMeta,
+        trackingRuntime: "worker",
+        bodyInputMode: "image-bitmap",
+        bodyLandmarkerRunningMode: MEDIAPIPE_BODY_RUNNING_MODE,
+        bodyDetectionDurationMs: poseDetectionDurationMs,
+        poseDetectionDurationMs,
+        bodyTrackerGeneration: inputGeneration,
+        bodyTrackerConfigurationKey: loadedConfigurationKey,
+        ...bodyTrackerGenerationOwner.getTelemetry(),
+      },
+    }));
+  } finally {
+    closeImageBitmap(imageBitmap);
   }
-
-  const videoFrame = drawImageBitmapToImageData(imageBitmap);
-  closeImageBitmap(imageBitmap);
-  const poseResults = poseLandmarker.detectForVideo(videoFrame, timestamp);
-  const handResults = handLandmarker.detectForVideo(videoFrame, timestamp);
-  const face = detectFace(videoFrame, timestamp, faceTrackingEnabled, faceLandmarksEnabled);
-
-  return serializeMotionFrame(createMotionFrame({
-    timestamp,
-    mirrored,
-    poseResults,
-    handResults,
-    face,
-    sourceMeta: {
-      ...sourceMeta,
-      trackingRuntime: "worker",
-    },
-  }));
-}
-
-function drawImageBitmapToImageData(imageBitmap) {
-  if (typeof OffscreenCanvas !== "function") {
-    throw new Error("Tracking worker requires OffscreenCanvas for MediaPipe detection.");
-  }
-
-  const width = imageBitmap.width;
-  const height = imageBitmap.height;
-
-  if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0) {
-    throw new Error("Tracking worker received an invalid ImageBitmap frame size.");
-  }
-
-  if (!frameCanvas || frameCanvas.width !== width || frameCanvas.height !== height) {
-    frameCanvas = new OffscreenCanvas(width, height);
-    frameContext = frameCanvas.getContext("2d", {
-      alpha: false,
-      desynchronized: true,
-      willReadFrequently: true,
-    });
-  }
-
-  if (!frameContext) {
-    throw new Error("Tracking worker could not create an OffscreenCanvas 2D context.");
-  }
-
-  frameContext.drawImage(imageBitmap, 0, 0, width, height);
-  return frameContext.getImageData(0, 0, width, height);
-}
-
-function detectFace(videoFrame, timestamp, faceTrackingEnabled, faceLandmarksEnabled) {
-  if (!faceTrackingEnabled || !faceLandmarker || !loadedFaceTrackingEnabled) {
-    return null;
-  }
-
-  loadedFaceLandmarksEnabled = Boolean(faceLandmarksEnabled);
-
-  return normalizeFace(faceLandmarker.detectForVideo(videoFrame, timestamp), {
-    includeLandmarks: loadedFaceLandmarksEnabled,
-  });
 }
 
 function closeAllLandmarkers() {
-  closeLandmarker(poseLandmarker);
-  closeLandmarker(handLandmarker);
-  closeLandmarker(faceLandmarker);
-  poseLandmarker = null;
-  handLandmarker = null;
-  faceLandmarker = null;
-  loadedPoseModelUrl = "";
-  loadedFaceTrackingEnabled = false;
-  loadedFaceLandmarksEnabled = false;
-}
-
-function closeLandmarker(landmarker) {
-  try {
-    landmarker?.close?.();
-  } catch {
-    // Best-effort cleanup inside the worker.
-  }
+  bodyTrackerGenerationOwner.dispose();
+  loadedConfigurationKey = "";
 }
 
 function closeImageBitmap(imageBitmap) {

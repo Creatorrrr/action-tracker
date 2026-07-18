@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   MOTION_FRAME_VERSION,
   MOTION_RECORDING_JSONL_FRAME_TYPE,
+  MOTION_RECORDING_JSONL_MAX_CHUNK_FRAMES,
   MOTION_RECORDING_JSONL_TYPE,
   MOTION_RECORDING_VERSION,
   createMotionFrame,
@@ -16,6 +17,7 @@ import {
   parseMotionRecordingJsonl,
   serializeMotionFrame,
   serializeMotionRecordingJsonl,
+  serializeMotionRecordingJsonlChunk,
 } from "../src/motion-frame.js";
 
 function landmarks(count, xOffset = 0) {
@@ -221,6 +223,81 @@ assert.throws(
     ...recording,
     source: { ...recording.source, rawVideoBytes: "not allowed" },
   }),
+  /raw video or model binary/i,
+);
+
+function serializeRecordingInChunks(value, maxFrames) {
+  const chunks = [];
+  let cursor = 0;
+  do {
+    const chunk = serializeMotionRecordingJsonlChunk(value, {
+      cursor,
+      maxFrames,
+    });
+    assert.equal(chunk.cursor, cursor);
+    assert.equal(chunk.nextCursor, cursor + chunk.frameLines);
+    assert.ok(chunk.frameLines <= maxFrames);
+    chunks.push(chunk.text);
+    cursor = chunk.nextCursor;
+    if (chunk.done) {
+      break;
+    }
+    assert.ok(chunk.nextCursor > chunk.cursor);
+  } while (true);
+  return chunks.join("");
+}
+
+for (const frameCount of [0, 1, 15, 16, 17, 33]) {
+  const chunkedRecording = createMotionRecording({
+    source: { inputKind: "video", videoFileName: `chunk-${frameCount}.mp4` },
+    frames: Array.from({ length: frameCount }, () => frame),
+    createdAt: "2026-07-16T00:00:00.000Z",
+    droppedFrames: 3,
+  });
+  const before = JSON.stringify(chunkedRecording);
+  const eager = serializeMotionRecordingJsonl(chunkedRecording);
+  const chunked = serializeRecordingInChunks(
+    chunkedRecording,
+    MOTION_RECORDING_JSONL_MAX_CHUNK_FRAMES,
+  );
+  assert.equal(chunked, eager);
+  assert.deepEqual(parseMotionRecordingJsonl(chunked), chunkedRecording);
+  assert.equal(JSON.stringify(chunkedRecording), before);
+  assert.equal(chunked.endsWith("\n"), true);
+  assert.equal(
+    chunked.trim().split("\n").filter(Boolean).length,
+    frameCount + 1,
+  );
+}
+
+assert.throws(
+  () => serializeMotionRecordingJsonlChunk(recording, { cursor: -1 }),
+  /cursor/i,
+);
+assert.throws(
+  () => serializeMotionRecordingJsonlChunk(recording, { cursor: 2 }),
+  /cursor/i,
+);
+assert.throws(
+  () => serializeMotionRecordingJsonlChunk(recording, { maxFrames: 0 }),
+  /1-16 frames/i,
+);
+assert.throws(
+  () => serializeMotionRecordingJsonlChunk(recording, { maxFrames: 17 }),
+  /1-16 frames/i,
+);
+assert.throws(
+  () => serializeMotionRecordingJsonlChunk({
+    ...recording,
+    frames: [{ ...recording.frames[0], sourceMeta: { rawModelBytes: "blocked" } }],
+  }),
+  /raw video or model binary/i,
+);
+assert.throws(
+  () => serializeMotionRecordingJsonlChunk({
+    ...recording,
+    source: { rawVideoBytes: "blocked" },
+  }, { cursor: 1 }),
   /raw video or model binary/i,
 );
 

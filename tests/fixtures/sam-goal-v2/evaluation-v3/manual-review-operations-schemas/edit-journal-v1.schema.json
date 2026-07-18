@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://action-tracker.invalid/sam-goal/manual-review-operations/edit-journal-v1.schema.json",
+  "title": "SAM Goal explicit actor edit journal v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifactType", "schemaVersion", "authorityClass", "compilerInput", "p0Authority", "cycleId", "mode", "actorPseudonymSha256", "bundleManifestByteSha256", "events"],
+  "properties": {
+    "artifactType": {"const": "sam-goal-review-edit-journal-v1"},
+    "schemaVersion": {"const": 1},
+    "authorityClass": {"const": "process-evidence-only"},
+    "compilerInput": {"const": false},
+    "p0Authority": {"const": false},
+    "cycleId": {"$ref": "bundle-manifest-v1.schema.json#/$defs/cycleId"},
+    "mode": {"$ref": "bundle-manifest-v1.schema.json#/$defs/mode"},
+    "actorPseudonymSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"},
+    "bundleManifestByteSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"},
+    "revealReceiptByteSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"},
+    "events": {"type": "array"}
+  },
+  "oneOf": [
+    {
+      "properties": {"mode": {"enum": ["first", "second", "source-first-c0"]}, "events": {"items": {"$ref": "#/$defs/blindEvent"}}},
+      "required": ["mode", "events"],
+      "not": {"required": ["revealReceiptByteSha256"]}
+    },
+    {
+      "properties": {"mode": {"const": "adjudication-reveal"}, "events": {"items": {"$ref": "#/$defs/revealEvent"}}},
+      "required": ["mode", "revealReceiptByteSha256", "events"]
+    }
+  ],
+  "$defs": {
+    "blindEvent": {
+      "oneOf": [
+        {"$ref": "#/$defs/mutationEvent"},
+        {"$ref": "#/$defs/overlayCreateEvent"},
+        {"$ref": "#/$defs/navigationEvent"}
+      ]
+    },
+    "revealEvent": {
+      "oneOf": [
+        {"$ref": "#/$defs/decisionEvent"},
+        {"$ref": "#/$defs/dispositionEvent"},
+        {"$ref": "#/$defs/navigationEvent"}
+      ]
+    },
+    "mutationEvent": {
+      "allOf": [
+        {"type": "object", "additionalProperties": false, "required": ["sequence", "action", "actorPseudonymSha256", "clipId", "startFrameIndex", "endFrameIndexExclusive", "fieldPath", "valueType", "value", "lockedIdentity"], "properties": {"sequence": {"type": "integer", "minimum": 1}, "action": {"enum": ["set", "undo"]}, "actorPseudonymSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"}, "clipId": {"type": "string", "minLength": 1}, "startFrameIndex": {"type": "integer", "minimum": 0}, "endFrameIndexExclusive": {"type": "integer", "minimum": 1}, "fieldPath": {"type": "string", "minLength": 1}, "valueType": {"enum": ["scenario-array", "presence", "person-state", "occlusion-state", "contact-state", "hand-observability-state", "endpoint-observability-state", "subject-state", "manual-target-id", "anchor", "purpose-array"]}, "value": {"$ref": "#/$defs/typedValue"}, "lockedIdentity": {"$ref": "bundle-manifest-v1.schema.json#/$defs/identity"}}},
+        {"oneOf": [
+          {"properties": {"fieldPath": {"oneOf": [{"const": "scenarios"}, {"pattern": "^/windowsById/[A-Za-z0-9][A-Za-z0-9._-]{0,63}/scenarioTags$"}]}, "valueType": {"const": "scenario-array"}, "value": {"$ref": "bundle-manifest-v1.schema.json#/$defs/scenarioArray"}}},
+          {"properties": {"fieldPath": {"const": "presence"}, "valueType": {"const": "presence"}, "value": {"enum": ["present", "absent", "unknown"]}}},
+          {"properties": {"fieldPath": {"const": "personState"}, "valueType": {"const": "person-state"}, "value": {"enum": ["single_target", "multiple_people", "absent", "unknown"]}}},
+          {"properties": {"fieldPath": {"pattern": "^occlusion/(body|leftFoot|rightFoot|leftHand|rightHand)$"}, "valueType": {"const": "occlusion-state"}, "value": {"enum": ["observable", "partial", "occluded", "out_of_frame", "unknown"]}}},
+          {"properties": {"fieldPath": {"pattern": "^contact/(left|right)$"}, "valueType": {"const": "contact-state"}, "value": {"enum": ["planted", "moving", "unknown"]}}},
+          {"properties": {"fieldPath": {"pattern": "^handObservability/(left|right)$"}, "valueType": {"const": "hand-observability-state"}, "value": {"enum": ["observable", "not_observable"]}}},
+          {"properties": {"fieldPath": {"pattern": "^endpointObservability/(leftWrist|rightWrist|leftAnkle|rightAnkle|head)$"}, "valueType": {"const": "endpoint-observability-state"}, "value": {"enum": ["observable", "not_observable"]}}},
+          {"properties": {"fieldPath": {"const": "subjectSelection/state"}, "valueType": {"const": "subject-state"}, "value": {"enum": ["selected", "absent", "ambiguous", "unknown"]}}},
+          {"properties": {"fieldPath": {"const": "subjectSelection/manualTargetId"}, "valueType": {"const": "manual-target-id"}, "value": {"type": ["string", "null"], "minLength": 1}}},
+          {"properties": {"fieldPath": {"const": "subjectSelection/anchor"}, "valueType": {"const": "anchor"}, "value": {"$ref": "bundle-manifest-v1.schema.json#/$defs/anchor"}}},
+          {"properties": {"fieldPath": {"pattern": "^/windowsById/(?!base-)[A-Za-z0-9][A-Za-z0-9._-]{0,63}/purposeTags$"}, "valueType": {"const": "purpose-array"}, "value": {"$ref": "bundle-manifest-v1.schema.json#/$defs/purposeArray"}}}
+        ]}
+      ]
+    },
+    "overlayCreateEvent": {"type": "object", "additionalProperties": false, "required": ["sequence", "action", "actorPseudonymSha256", "clipId", "startFrameIndex", "endFrameIndexExclusive", "windowId", "lockedIdentity"], "properties": {"sequence": {"type": "integer", "minimum": 1}, "action": {"const": "create-overlay"}, "actorPseudonymSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"}, "clipId": {"type": "string", "minLength": 1}, "startFrameIndex": {"type": "integer", "minimum": 0}, "endFrameIndexExclusive": {"type": "integer", "minimum": 1}, "windowId": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"}, "lockedIdentity": {"$ref": "bundle-manifest-v1.schema.json#/$defs/identity"}}},
+    "decisionEvent": {
+      "allOf": [
+        {"type": "object", "additionalProperties": false, "required": ["sequence", "action", "actorPseudonymSha256", "path", "valueType", "decision"], "properties": {"sequence": {"type": "integer", "minimum": 1}, "action": {"const": "set-decision"}, "actorPseudonymSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"}, "path": {"type": "string", "minLength": 1}, "valueType": {"enum": ["scenario-array", "presence", "person-state", "occlusion-state", "contact-state", "hand-observability-state", "endpoint-observability-state", "subject-state", "manual-target-id", "anchor", "window-or-null", "source-frame-index", "source-frame-index-exclusive", "purpose-array"]}, "decision": {"oneOf": [{"$ref": "bundle-manifest-v1.schema.json#/$defs/unset"}, {"$ref": "#/$defs/typedValue"}]}}},
+        {"oneOf": [
+          {"properties": {"decision": {"$ref": "bundle-manifest-v1.schema.json#/$defs/unset"}}},
+          {"properties": {"path": {"$ref": "https://action-tracker.local/schemas/sam-goal-manual-authoring-v3.json#/$defs/scenarioArrayPath"}, "valueType": {"const": "scenario-array"}, "decision": {"$ref": "bundle-manifest-v1.schema.json#/$defs/scenarioArray"}}},
+          {"properties": {"path": {"$ref": "https://action-tracker.local/schemas/sam-goal-manual-authoring-v3.json#/$defs/presencePath"}, "valueType": {"const": "presence"}, "decision": {"enum": ["present", "absent", "unknown"]}}},
+          {"properties": {"path": {"$ref": "https://action-tracker.local/schemas/sam-goal-manual-authoring-v3.json#/$defs/personStatePath"}, "valueType": {"const": "person-state"}, "decision": {"enum": ["single_target", "multiple_people", "absent", "unknown"]}}},
+          {"properties": {"path": {"$ref": "https://action-tracker.local/schemas/sam-goal-manual-authoring-v3.json#/$defs/occlusionStatePath"}, "valueType": {"const": "occlusion-state"}, "decision": {"enum": ["observable", "partial", "occluded", "out_of_frame", "unknown"]}}},
+          {"properties": {"path": {"$ref": "https://action-tracker.local/schemas/sam-goal-manual-authoring-v3.json#/$defs/contactStatePath"}, "valueType": {"const": "contact-state"}, "decision": {"enum": ["planted", "moving", "unknown"]}}},
+          {"properties": {"path": {"$ref": "https://action-tracker.local/schemas/sam-goal-manual-authoring-v3.json#/$defs/handObservabilityStatePath"}, "valueType": {"const": "hand-observability-state"}, "decision": {"enum": ["observable", "not_observable"]}}},
+          {"properties": {"path": {"$ref": "https://action-tracker.local/schemas/sam-goal-manual-authoring-v3.json#/$defs/endpointObservabilityStatePath"}, "valueType": {"const": "endpoint-observability-state"}, "decision": {"enum": ["observable", "not_observable"]}}},
+          {"properties": {"path": {"$ref": "https://action-tracker.local/schemas/sam-goal-manual-authoring-v3.json#/$defs/subjectStatePath"}, "valueType": {"const": "subject-state"}, "decision": {"enum": ["selected", "absent", "ambiguous", "unknown"]}}},
+          {"properties": {"path": {"$ref": "https://action-tracker.local/schemas/sam-goal-manual-authoring-v3.json#/$defs/manualTargetIdPath"}, "valueType": {"const": "manual-target-id"}, "decision": {"type": ["string", "null"], "minLength": 1}}},
+          {"properties": {"path": {"$ref": "https://action-tracker.local/schemas/sam-goal-manual-authoring-v3.json#/$defs/anchorPath"}, "valueType": {"const": "anchor"}, "decision": {"$ref": "bundle-manifest-v1.schema.json#/$defs/anchor"}}},
+          {"properties": {"path": {"$ref": "https://action-tracker.local/schemas/sam-goal-manual-authoring-v3.json#/$defs/windowOrNullPath"}, "valueType": {"const": "window-or-null"}, "decision": {"oneOf": [{"type": "null"}, {"$ref": "bundle-manifest-v1.schema.json#/$defs/formalWindow"}]}}},
+          {"properties": {"path": {"$ref": "https://action-tracker.local/schemas/sam-goal-manual-authoring-v3.json#/$defs/startFrameIndexPath"}, "valueType": {"const": "source-frame-index"}, "decision": {"type": "integer", "minimum": 0}}},
+          {"properties": {"path": {"$ref": "https://action-tracker.local/schemas/sam-goal-manual-authoring-v3.json#/$defs/endFrameIndexExclusivePath"}, "valueType": {"const": "source-frame-index-exclusive"}, "decision": {"type": "integer", "minimum": 1}}},
+          {"properties": {"path": {"$ref": "https://action-tracker.local/schemas/sam-goal-manual-authoring-v3.json#/$defs/purposeArrayPath"}, "valueType": {"const": "purpose-array"}, "decision": {"$ref": "bundle-manifest-v1.schema.json#/$defs/purposeArray"}}}
+        ]}
+      ]
+    },
+    "dispositionEvent": {
+      "allOf": [
+        {"type": "object", "additionalProperties": false, "required": ["sequence", "action", "actorPseudonymSha256", "path", "coordinateKind", "deviationClass", "disposition", "rationale"], "properties": {"sequence": {"type": "integer", "minimum": 1}, "action": {"const": "set-disposition"}, "actorPseudonymSha256": {"$ref": "bundle-manifest-v1.schema.json#/$defs/sha256"}, "path": {"type": "string", "minLength": 1}, "coordinateKind": {"enum": ["segment", "window-parent", "window-child"]}, "deviationClass": {"enum": ["final_matches_a_only", "final_matches_b_only", "final_matches_neither_raw_review", "final_matches_c0_all_rows", "final_matches_c0_some_rows", "final_matches_c0_no_rows", "c0_differs_from_ab_agreement", "c0_boundary_not_represented_by_ab", "window_final_matches_c0", "window_final_differs_from_c0", "c0_window_missing"]}, "disposition": {"oneOf": [{"$ref": "bundle-manifest-v1.schema.json#/$defs/unset"}, {"enum": ["accept_a_value", "accept_b_value", "accept_novel_source_value", "confirm_c0_alignment", "accept_partial_c0_divergence", "accept_c0_divergence", "confirm_ab_agreement_over_c0", "confirm_unsplit_ab_coordinate", "confirm_window_c0_alignment", "accept_window_c0_divergence", "accept_window_without_c0", "restart_cycle"]}]}, "rationale": {"oneOf": [{"$ref": "bundle-manifest-v1.schema.json#/$defs/unset"}, {"type": "string", "minLength": 1, "pattern": "^.*\\S.*$"}]}}},
+        {"oneOf": [
+          {"properties": {"disposition": {"$ref": "bundle-manifest-v1.schema.json#/$defs/unset"}, "rationale": {"$ref": "bundle-manifest-v1.schema.json#/$defs/unset"}}},
+          {"properties": {"deviationClass": {"const": "final_matches_a_only"}, "disposition": {"enum": ["accept_a_value", "restart_cycle"]}, "rationale": {"type": "string"}}},
+          {"properties": {"deviationClass": {"const": "final_matches_b_only"}, "disposition": {"enum": ["accept_b_value", "restart_cycle"]}, "rationale": {"type": "string"}}},
+          {"properties": {"deviationClass": {"const": "final_matches_neither_raw_review"}, "disposition": {"enum": ["accept_novel_source_value", "restart_cycle"]}, "rationale": {"type": "string"}}},
+          {"properties": {"deviationClass": {"const": "final_matches_c0_all_rows"}, "disposition": {"enum": ["confirm_c0_alignment", "restart_cycle"]}, "rationale": {"type": "string"}}},
+          {"properties": {"deviationClass": {"const": "final_matches_c0_some_rows"}, "disposition": {"enum": ["accept_partial_c0_divergence", "restart_cycle"]}, "rationale": {"type": "string"}}},
+          {"properties": {"deviationClass": {"const": "final_matches_c0_no_rows"}, "disposition": {"enum": ["accept_c0_divergence", "restart_cycle"]}, "rationale": {"type": "string"}}},
+          {"properties": {"deviationClass": {"const": "c0_differs_from_ab_agreement"}, "disposition": {"enum": ["confirm_ab_agreement_over_c0", "restart_cycle"]}, "rationale": {"type": "string"}}},
+          {"properties": {"deviationClass": {"const": "c0_boundary_not_represented_by_ab"}, "disposition": {"enum": ["confirm_unsplit_ab_coordinate", "restart_cycle"]}, "rationale": {"type": "string"}}},
+          {"properties": {"deviationClass": {"const": "window_final_matches_c0"}, "disposition": {"enum": ["confirm_window_c0_alignment", "restart_cycle"]}, "rationale": {"type": "string"}}},
+          {"properties": {"deviationClass": {"const": "window_final_differs_from_c0"}, "disposition": {"enum": ["accept_window_c0_divergence", "restart_cycle"]}, "rationale": {"type": "string"}}},
+          {"properties": {"deviationClass": {"const": "c0_window_missing"}, "disposition": {"enum": ["accept_window_without_c0", "restart_cycle"]}, "rationale": {"type": "string"}}}
+        ]}
+      ]
+    },
+    "typedValue": {"anyOf": [{"$ref": "bundle-manifest-v1.schema.json#/$defs/scenarioArray"}, {"enum": ["present", "absent", "unknown", "single_target", "multiple_people", "observable", "partial", "occluded", "out_of_frame", "planted", "moving", "not_observable", "selected", "ambiguous"]}, {"type": "string", "minLength": 1}, {"type": "null"}, {"$ref": "bundle-manifest-v1.schema.json#/$defs/anchor"}, {"$ref": "bundle-manifest-v1.schema.json#/$defs/formalWindow"}, {"type": "integer", "minimum": 0}, {"$ref": "bundle-manifest-v1.schema.json#/$defs/purposeArray"}]},
+    "navigationEvent": {"type": "object", "additionalProperties": false, "required": ["sequence", "action", "clipId", "sourceFrameIndex"], "properties": {"sequence": {"type": "integer", "minimum": 1}, "action": {"enum": ["navigate", "playback"]}, "clipId": {"type": "string", "minLength": 1}, "sourceFrameIndex": {"type": "integer", "minimum": 0}}}
+  }
+}

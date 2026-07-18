@@ -3,6 +3,7 @@ export const MOTION_RECORDING_VERSION = 1;
 export const MOTION_RECORDING_JSONL_TYPE = "action-tracker-motion-recording";
 export const MOTION_RECORDING_JSONL_FRAME_TYPE = "action-tracker-motion-frame";
 export const MOTION_RECORDING_FRAME_LIMIT = 18000;
+export const MOTION_RECORDING_JSONL_MAX_CHUNK_FRAMES = 16;
 export const MOTION_FACE_VERSION = 1;
 export const EXTERNAL_HMR_SOURCE_TYPE = "external-hmr";
 export const EXTERNAL_HMR_EXTRACTORS = Object.freeze([
@@ -134,29 +135,72 @@ export function normalizeMotionRecording(recording) {
 
 export function serializeMotionRecordingJsonl(recording) {
   const normalizedRecording = normalizeMotionRecording(recording);
+  let cursor = 0;
+  const chunks = [];
 
-  assertNoEmbeddedMotionBinary(normalizedRecording.source, "recording.source");
+  do {
+    const chunk = serializeMotionRecordingJsonlChunk(normalizedRecording, {
+      cursor,
+      maxFrames: MOTION_RECORDING_JSONL_MAX_CHUNK_FRAMES,
+    });
+    chunks.push(chunk.text);
+    cursor = chunk.nextCursor;
+    if (chunk.done) {
+      break;
+    }
+  } while (true);
 
-  const header = {
-    type: MOTION_RECORDING_JSONL_TYPE,
-    version: MOTION_RECORDING_VERSION,
-    createdAt: normalizedRecording.createdAt,
-    source: normalizedRecording.source,
-    droppedFrames: normalizedRecording.droppedFrames,
-    frameCount: normalizedRecording.frames.length,
-  };
-  const lines = [JSON.stringify(header)];
+  return chunks.join("");
+}
 
-  normalizedRecording.frames.forEach((frame, index) => {
+export function serializeMotionRecordingJsonlChunk(
+  recording,
+  {
+    cursor = 0,
+    maxFrames = MOTION_RECORDING_JSONL_MAX_CHUNK_FRAMES,
+  } = {},
+) {
+  assertChunkableMotionRecording(recording);
+  assertMotionRecordingChunkRange(recording.frames.length, cursor, maxFrames);
+
+  const frameCount = recording.frames.length;
+  const nextCursor = Math.min(frameCount, cursor + maxFrames);
+  const source = clonePlainObject(recording.source ?? {});
+  assertNoEmbeddedMotionBinary(source, "recording.source");
+  const lines = [];
+
+  if (cursor === 0) {
+    lines.push(JSON.stringify({
+      type: MOTION_RECORDING_JSONL_TYPE,
+      version: MOTION_RECORDING_VERSION,
+      createdAt: recording.createdAt,
+      source,
+      droppedFrames: Math.max(
+        0,
+        Math.trunc(normalizeNumber(recording.droppedFrames, 0)),
+      ),
+      frameCount,
+    }));
+  }
+
+  for (let index = cursor; index < nextCursor; index += 1) {
+    const frame = serializeMotionFrame(recording.frames[index]);
     assertNoEmbeddedMotionBinary(frame.sourceMeta, `frames[${index}].sourceMeta`);
     lines.push(JSON.stringify({
       type: MOTION_RECORDING_JSONL_FRAME_TYPE,
       version: MOTION_FRAME_VERSION,
       frame,
     }));
-  });
+  }
 
-  return `${lines.join("\n")}\n`;
+  return {
+    text: lines.length > 0 ? `${lines.join("\n")}\n` : "",
+    cursor,
+    nextCursor,
+    frameCount,
+    frameLines: nextCursor - cursor,
+    done: nextCursor >= frameCount,
+  };
 }
 
 export function parseMotionRecordingJsonl(source) {
@@ -229,6 +273,34 @@ function parseJsonlLine(line, lineNumber) {
     return JSON.parse(line);
   } catch (error) {
     throw new Error(`Invalid motion recording JSONL on line ${lineNumber}: ${error.message}`);
+  }
+}
+
+function assertChunkableMotionRecording(recording) {
+  if (
+    !recording ||
+    recording.version !== MOTION_RECORDING_VERSION ||
+    !Array.isArray(recording.frames)
+  ) {
+    throw new Error("Expected a motion recording with version 1 and a frames array.");
+  }
+  if (typeof recording.createdAt !== "string" || recording.createdAt.length === 0) {
+    throw new Error("Chunked motion recording export requires a stable createdAt value.");
+  }
+}
+
+function assertMotionRecordingChunkRange(frameCount, cursor, maxFrames) {
+  if (!Number.isSafeInteger(cursor) || cursor < 0 || cursor > frameCount) {
+    throw new RangeError(`Motion recording chunk cursor must be between 0 and ${frameCount}.`);
+  }
+  if (
+    !Number.isSafeInteger(maxFrames) ||
+    maxFrames < 1 ||
+    maxFrames > MOTION_RECORDING_JSONL_MAX_CHUNK_FRAMES
+  ) {
+    throw new RangeError(
+      `Motion recording chunks must contain 1-${MOTION_RECORDING_JSONL_MAX_CHUNK_FRAMES} frames.`,
+    );
   }
 }
 

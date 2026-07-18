@@ -1,0 +1,400 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://action-tracker.local/schemas/sam-goal-evaluation-v2-labels.json",
+  "title": "SAM goal evaluation v2 durable artifacts",
+  "oneOf": [
+    { "$ref": "#/$defs/decoderRow" },
+    { "$ref": "#/$defs/windowPack" },
+    { "$ref": "#/$defs/manualLabel" },
+    { "$ref": "#/$defs/subjectSelection" },
+    { "$ref": "#/$defs/reviewRow" },
+    { "$ref": "#/$defs/adjudicationRow" },
+    { "$ref": "#/$defs/manualPolicy" },
+    { "$ref": "#/$defs/manualSummary" },
+    { "$ref": "#/$defs/teacherMaskRow" },
+    { "$ref": "#/$defs/evaluationLock" },
+    { "$ref": "#/$defs/packManifest" }
+  ],
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "ticks": { "type": "string", "pattern": "^(0|[1-9][0-9]*)$" },
+    "timeBase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["numerator", "denominator"],
+      "properties": {
+        "numerator": { "type": "integer", "minimum": 1 },
+        "denominator": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["clipId", "sourceFrameIndex", "ptsTicks", "timeBase", "loopEpoch"],
+      "properties": {
+        "clipId": { "type": "string", "minLength": 1 },
+        "sourceFrameIndex": { "type": "integer", "minimum": 0 },
+        "ptsTicks": { "$ref": "#/$defs/ticks" },
+        "timeBase": { "$ref": "#/$defs/timeBase" },
+        "loopEpoch": { "const": 0 }
+      }
+    },
+    "decoderRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifactType", "clipId", "sourceFrameIndex", "ptsTicks", "timeBase", "loopEpoch", "decodeStatus", "decodeReason"],
+      "properties": {
+        "artifactType": { "const": "decoder-pts" },
+        "clipId": { "type": "string", "minLength": 1 },
+        "sourceFrameIndex": { "type": "integer", "minimum": 0 },
+        "ptsTicks": { "$ref": "#/$defs/ticks" },
+        "timeBase": { "$ref": "#/$defs/timeBase" },
+        "loopEpoch": { "const": 0 },
+        "decodeStatus": { "const": "decoded" },
+        "decodeReason": { "type": "null" }
+      }
+    },
+    "span": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "identity"],
+          "properties": { "kind": { "const": "frame" }, "identity": { "$ref": "#/$defs/identity" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "clipId", "startPtsTicks", "endPtsTicksExclusive", "loopEpoch"],
+          "properties": {
+            "kind": { "const": "interval" },
+            "clipId": { "type": "string", "minLength": 1 },
+            "startPtsTicks": { "$ref": "#/$defs/ticks" },
+            "endPtsTicksExclusive": { "$ref": "#/$defs/ticks" },
+            "loopEpoch": { "const": 0 }
+          }
+        }
+      ]
+    },
+    "occlusion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["body", "leftFoot", "rightFoot", "leftHand", "rightHand"],
+      "properties": {
+        "body": { "enum": ["observable", "partial", "occluded", "out_of_frame", "unknown"] },
+        "leftFoot": { "enum": ["observable", "partial", "occluded", "out_of_frame", "unknown"] },
+        "rightFoot": { "enum": ["observable", "partial", "occluded", "out_of_frame", "unknown"] },
+        "leftHand": { "enum": ["observable", "partial", "occluded", "out_of_frame", "unknown"] },
+        "rightHand": { "enum": ["observable", "partial", "occluded", "out_of_frame", "unknown"] }
+      }
+    },
+    "contact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["left", "right"],
+      "properties": { "left": { "enum": ["planted", "moving", "unknown"] }, "right": { "enum": ["planted", "moving", "unknown"] } }
+    },
+    "handObservability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["left", "right"],
+      "properties": { "left": { "enum": ["observable", "not_observable"] }, "right": { "enum": ["observable", "not_observable"] } }
+    },
+    "endpointObservability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["leftWrist", "rightWrist", "leftAnkle", "rightAnkle", "head"],
+      "properties": {
+        "leftWrist": { "enum": ["observable", "not_observable"] },
+        "rightWrist": { "enum": ["observable", "not_observable"] },
+        "leftAnkle": { "enum": ["observable", "not_observable"] },
+        "rightAnkle": { "enum": ["observable", "not_observable"] },
+        "head": { "enum": ["observable", "not_observable"] }
+      }
+    },
+    "reviewSubjectSelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "manualTargetId", "anchor"],
+      "properties": {
+        "state": { "enum": ["selected", "absent", "ambiguous", "unknown"] },
+        "manualTargetId": { "type": ["string", "null"] },
+        "anchor": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object", "additionalProperties": false, "required": ["x", "y"],
+              "properties": { "x": { "type": "number", "minimum": 0, "maximum": 1 }, "y": { "type": "number", "minimum": 0, "maximum": 1 } }
+            }
+          ]
+        }
+      }
+    },
+    "reviewState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["presence", "personState", "occlusion", "contact", "handObservability", "endpointObservability", "subjectSelection"],
+      "properties": {
+        "presence": { "enum": ["present", "absent", "unknown"] },
+        "personState": { "enum": ["single_target", "multiple_people", "absent", "unknown"] },
+        "occlusion": { "$ref": "#/$defs/occlusion" },
+        "contact": { "$ref": "#/$defs/contact" },
+        "handObservability": { "$ref": "#/$defs/handObservability" },
+        "endpointObservability": { "$ref": "#/$defs/endpointObservability" },
+        "subjectSelection": { "$ref": "#/$defs/reviewSubjectSelection" }
+      }
+    },
+    "window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["windowId", "clipId", "startPtsTicks", "endPtsTicksExclusive", "expectedDecoderRows", "purposeTags", "scenarioTags"],
+      "properties": {
+        "windowId": { "type": "string", "minLength": 1 },
+        "clipId": { "type": "string", "minLength": 1 },
+        "startPtsTicks": { "$ref": "#/$defs/ticks" },
+        "endPtsTicksExclusive": { "$ref": "#/$defs/ticks" },
+        "expectedDecoderRows": { "type": "integer", "minimum": 1 },
+        "purposeTags": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } },
+        "scenarioTags": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } }
+      }
+    },
+    "windowPack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifactType", "schemaVersion", "windows", "expectedCanonicalHash"],
+      "properties": {
+        "artifactType": { "const": "manual-windows-v2" },
+        "schemaVersion": { "const": 2 },
+        "windows": { "type": "array", "minItems": 7, "items": { "$ref": "#/$defs/window" } },
+        "expectedCanonicalHash": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "manualLabel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifactType", "labelId", "span", "scenarios", "presence", "personState", "occlusion", "contact", "handObservability", "endpointObservability", "provenance"],
+      "properties": {
+        "artifactType": { "const": "manual-label-v2" },
+        "labelId": { "type": "string", "minLength": 1 },
+        "span": { "$ref": "#/$defs/span" },
+        "scenarios": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } },
+        "presence": { "enum": ["present", "absent", "unknown"] },
+        "personState": { "enum": ["single_target", "multiple_people", "absent", "unknown"] },
+        "occlusion": { "$ref": "#/$defs/occlusion" },
+        "contact": { "$ref": "#/$defs/contact" },
+        "handObservability": { "$ref": "#/$defs/handObservability" },
+        "endpointObservability": { "$ref": "#/$defs/endpointObservability" },
+        "provenance": {
+          "type": "object", "additionalProperties": false, "required": ["origin", "reviewStatus"],
+          "properties": { "origin": { "const": "manual_video" }, "reviewStatus": { "const": "adjudicated" } }
+        }
+      }
+    },
+    "subjectSelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifactType", "selectionId", "span", "state", "manualTargetId", "anchor", "evidence"],
+      "properties": {
+        "artifactType": { "const": "manual-subject-selection-v2" },
+        "selectionId": { "type": "string", "minLength": 1 },
+        "span": { "$ref": "#/$defs/span" },
+        "state": { "enum": ["selected", "absent", "ambiguous", "unknown"] },
+        "manualTargetId": { "type": ["string", "null"] },
+        "anchor": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object", "additionalProperties": false, "required": ["x", "y"],
+              "properties": { "x": { "type": "number", "minimum": 0, "maximum": 1 }, "y": { "type": "number", "minimum": 0, "maximum": 1 } }
+            }
+          ]
+        },
+        "evidence": { "const": "manual_video" }
+      }
+    },
+    "reviewRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifactType", "pass", "reviewerHash", "identity", "reviewed", "origin", "state"],
+      "properties": {
+        "artifactType": { "const": "manual-review-v2" },
+        "pass": { "enum": ["first", "second"] },
+        "reviewerHash": { "$ref": "#/$defs/sha256" },
+        "identity": { "$ref": "#/$defs/identity" },
+        "reviewed": { "const": true },
+        "origin": { "const": "manual" },
+        "state": { "$ref": "#/$defs/reviewState" }
+      }
+    },
+    "adjudicationRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifactType", "adjudicatorHash", "identity", "disagreementFields", "decision", "origin", "adjudicated"],
+      "properties": {
+        "artifactType": { "const": "manual-adjudication-v2" },
+        "adjudicatorHash": { "$ref": "#/$defs/sha256" },
+        "identity": { "$ref": "#/$defs/identity" },
+        "disagreementFields": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "decision": { "$ref": "#/$defs/reviewState" },
+        "origin": { "const": "manual" },
+        "adjudicated": { "const": true }
+      }
+    },
+    "manualPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifactType", "schemaVersion", "contractCanonicalSha256", "schemaCanonicalSha256", "reviewerHashes", "thresholds", "expectedCanonicalHash"],
+      "properties": {
+        "artifactType": { "const": "manual-policy-v2" },
+        "schemaVersion": { "const": 2 },
+        "contractCanonicalSha256": { "$ref": "#/$defs/sha256" },
+        "schemaCanonicalSha256": { "$ref": "#/$defs/sha256" },
+        "reviewerHashes": {
+          "type": "object", "additionalProperties": false, "required": ["first", "second", "adjudicator"],
+          "properties": { "first": { "$ref": "#/$defs/sha256" }, "second": { "$ref": "#/$defs/sha256" }, "adjudicator": { "$ref": "#/$defs/sha256" } }
+        },
+        "thresholds": {
+          "type": "object", "additionalProperties": false,
+          "required": ["presencePersonStateKappa", "contactKappa", "observabilityKappa", "preMaskContactFrames", "preMaskContactClips", "p0ReacquireEvents", "p0ReacquireHardTestClips"],
+          "properties": {
+            "presencePersonStateKappa": { "const": 0.99 }, "contactKappa": { "const": 0.9 }, "observabilityKappa": { "const": 0.95 },
+            "preMaskContactFrames": { "const": 300 }, "preMaskContactClips": { "const": 2 }, "p0ReacquireEvents": { "const": 3 }, "p0ReacquireHardTestClips": { "const": 2 }
+          }
+        },
+        "expectedCanonicalHash": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "clipSummary": {
+      "type": "object", "additionalProperties": false, "required": ["clipId", "decoderRows", "manualRows", "subjectRows", "reviewPass1Rows", "reviewPass2Rows"],
+      "properties": {
+        "clipId": { "type": "string" }, "decoderRows": { "type": "integer", "minimum": 1 }, "manualRows": { "type": "integer", "minimum": 1 },
+        "subjectRows": { "type": "integer", "minimum": 1 }, "reviewPass1Rows": { "type": "integer", "minimum": 1 }, "reviewPass2Rows": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "manualSummary": {
+      "type": "object", "additionalProperties": false,
+      "required": ["artifactType", "schemaVersion", "decoderRows", "materializedManualRows", "materializedSubjectRows", "reviewPass1Rows", "reviewPass2Rows", "perClip", "expectedCanonicalHash"],
+      "properties": {
+        "artifactType": { "const": "manual-summary-v2" }, "schemaVersion": { "const": 2 }, "decoderRows": { "const": 6711 },
+        "materializedManualRows": { "const": 6711 }, "materializedSubjectRows": { "const": 6711 }, "reviewPass1Rows": { "const": 6711 }, "reviewPass2Rows": { "const": 6711 },
+        "perClip": { "type": "array", "minItems": 7, "maxItems": 7, "items": { "$ref": "#/$defs/clipSummary" } },
+        "expectedCanonicalHash": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "teacherScope": {
+      "type": "object", "additionalProperties": false, "required": ["torsoFacing", "fullBody", "calibration", "contactEligibility"],
+      "properties": {
+        "torsoFacing": { "type": "boolean" }, "fullBody": { "type": "boolean" }, "calibration": { "type": "boolean" },
+        "contactEligibility": {
+          "type": "object", "additionalProperties": false, "required": ["left", "right"],
+          "properties": { "left": { "type": "boolean" }, "right": { "type": "boolean" } }
+        }
+      }
+    },
+    "teacherManualFacts": {
+      "type": "object", "additionalProperties": false,
+      "required": ["presence", "bodyObservable", "leftLegObservable", "rightLegObservable", "leftFootObservable", "rightFootObservable", "leftContact", "rightContact"],
+      "properties": {
+        "presence": { "enum": ["present", "absent", "unknown"] }, "bodyObservable": { "type": "boolean" },
+        "leftLegObservable": { "type": "boolean" }, "rightLegObservable": { "type": "boolean" },
+        "leftFootObservable": { "type": "boolean" }, "rightFootObservable": { "type": "boolean" },
+        "leftContact": { "enum": ["planted", "moving", "unknown"] }, "rightContact": { "enum": ["planted", "moving", "unknown"] }
+      }
+    },
+    "teacherGeometry": {
+      "type": "object", "additionalProperties": false,
+      "required": ["finiteTorso", "validTorsoBasis", "inFrameProjection", "finiteLeftLegChain", "finiteRightLegChain", "boneScaleSpeedTemporalGuards"],
+      "properties": {
+        "finiteTorso": { "type": "boolean" }, "validTorsoBasis": { "type": "boolean" }, "inFrameProjection": { "type": "boolean" },
+        "finiteLeftLegChain": { "type": "boolean" }, "finiteRightLegChain": { "type": "boolean" }, "boneScaleSpeedTemporalGuards": { "type": "boolean" }
+      }
+    },
+    "teacherMaskRow": {
+      "type": "object", "additionalProperties": false,
+      "required": ["artifactType", "identity", "teacherRecord", "selectedSubject", "confidenceAvailable", "jointConfidenceSource", "detectorScoreProvenance", "valid", "scope", "manual", "geometry", "exclusionReasons", "warningCodes"],
+      "properties": {
+        "artifactType": { "const": "teacher-valid-v2" }, "identity": { "$ref": "#/$defs/identity" },
+        "teacherRecord": { "enum": ["present", "missing"] }, "selectedSubject": { "enum": ["selected", "absent", "ambiguous", "unknown"] },
+        "confidenceAvailable": { "type": "boolean" }, "jointConfidenceSource": { "enum": ["native", "unavailable"] },
+        "detectorScoreProvenance": { "enum": ["detector", "unavailable"] }, "valid": { "type": "boolean" }, "scope": { "$ref": "#/$defs/teacherScope" },
+        "manual": { "$ref": "#/$defs/teacherManualFacts" }, "geometry": { "$ref": "#/$defs/teacherGeometry" },
+        "exclusionReasons": { "type": "array", "uniqueItems": true, "items": { "enum": ["decode_unavailable", "teacher_record_missing", "ambiguous_subject", "manual_absent", "manual_occluded", "insufficient_observability", "invalid_torso_basis", "incomplete_full_body_scope", "calibration_unobservable", "bone_length_anomaly", "scale_jump", "root_speed_anomaly", "joint_speed_anomaly", "temporal_gap"] } },
+        "warningCodes": { "type": "array", "uniqueItems": true, "items": { "enum": ["native_joint_confidence_unavailable"] } }
+      }
+    },
+    "evaluationLock": {
+      "type": "object", "additionalProperties": false,
+      "required": ["artifactType", "schemaVersion", "phase", "parentP0LockSha256", "teacherMaskSha256", "expectedCanonicalHash"],
+      "properties": {
+        "artifactType": { "const": "evaluation-lock-v2" }, "schemaVersion": { "const": 2 }, "phase": { "const": "p1" },
+        "parentP0LockSha256": { "$ref": "#/$defs/sha256" }, "teacherMaskSha256": { "$ref": "#/$defs/sha256" }, "expectedCanonicalHash": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "canonicalArtifactDescriptor": {
+      "type": "object", "additionalProperties": false, "required": ["path", "canonicalSha256"],
+      "properties": { "path": { "type": "string", "minLength": 1 }, "canonicalSha256": { "$ref": "#/$defs/sha256" } }
+    },
+    "byteArtifactDescriptor": {
+      "type": "object", "additionalProperties": false, "required": ["path", "byteSha256"],
+      "properties": { "path": { "type": "string", "minLength": 1 }, "byteSha256": { "$ref": "#/$defs/sha256" } }
+    },
+    "p0ArtifactDescriptors": {
+      "type": "object", "additionalProperties": false,
+      "required": ["contract", "schema", "sourceInventory", "decoderManifest", "manualWindows", "manualLabels", "manualSubjectSelection", "manualReviewPass1", "manualReviewPass2", "manualAdjudication", "manualPolicy", "manualSummary"],
+      "properties": {
+        "contract": { "$ref": "#/$defs/canonicalArtifactDescriptor" },
+        "schema": { "$ref": "#/$defs/canonicalArtifactDescriptor" },
+        "sourceInventory": { "$ref": "#/$defs/canonicalArtifactDescriptor" },
+        "decoderManifest": { "$ref": "#/$defs/byteArtifactDescriptor" },
+        "manualWindows": { "$ref": "#/$defs/canonicalArtifactDescriptor" },
+        "manualLabels": { "$ref": "#/$defs/byteArtifactDescriptor" },
+        "manualSubjectSelection": { "$ref": "#/$defs/byteArtifactDescriptor" },
+        "manualReviewPass1": { "$ref": "#/$defs/byteArtifactDescriptor" },
+        "manualReviewPass2": { "$ref": "#/$defs/byteArtifactDescriptor" },
+        "manualAdjudication": { "$ref": "#/$defs/byteArtifactDescriptor" },
+        "manualPolicy": { "$ref": "#/$defs/canonicalArtifactDescriptor" },
+        "manualSummary": { "$ref": "#/$defs/canonicalArtifactDescriptor" }
+      }
+    },
+    "p1ArtifactDescriptors": {
+      "type": "object", "additionalProperties": false,
+      "required": ["contract", "schema", "sourceInventory", "decoderManifest", "manualWindows", "manualLabels", "manualSubjectSelection", "manualReviewPass1", "manualReviewPass2", "manualAdjudication", "manualPolicy", "manualSummary", "teacherMask"],
+      "properties": {
+        "contract": { "$ref": "#/$defs/canonicalArtifactDescriptor" },
+        "schema": { "$ref": "#/$defs/canonicalArtifactDescriptor" },
+        "sourceInventory": { "$ref": "#/$defs/canonicalArtifactDescriptor" },
+        "decoderManifest": { "$ref": "#/$defs/byteArtifactDescriptor" },
+        "manualWindows": { "$ref": "#/$defs/canonicalArtifactDescriptor" },
+        "manualLabels": { "$ref": "#/$defs/byteArtifactDescriptor" },
+        "manualSubjectSelection": { "$ref": "#/$defs/byteArtifactDescriptor" },
+        "manualReviewPass1": { "$ref": "#/$defs/byteArtifactDescriptor" },
+        "manualReviewPass2": { "$ref": "#/$defs/byteArtifactDescriptor" },
+        "manualAdjudication": { "$ref": "#/$defs/byteArtifactDescriptor" },
+        "manualPolicy": { "$ref": "#/$defs/canonicalArtifactDescriptor" },
+        "manualSummary": { "$ref": "#/$defs/canonicalArtifactDescriptor" },
+        "teacherMask": { "$ref": "#/$defs/byteArtifactDescriptor" }
+      }
+    },
+    "packManifest": {
+      "oneOf": [
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["artifactType", "schemaVersion", "phase", "files", "expectedCanonicalHash"],
+          "properties": {
+            "artifactType": { "const": "evaluation-pack-v2" }, "schemaVersion": { "const": 2 }, "phase": { "const": "p0" },
+            "files": { "$ref": "#/$defs/p0ArtifactDescriptors" }, "expectedCanonicalHash": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["artifactType", "schemaVersion", "phase", "parentP0LockSha256", "files", "expectedCanonicalHash"],
+          "properties": {
+            "artifactType": { "const": "evaluation-pack-v2" }, "schemaVersion": { "const": 2 }, "phase": { "const": "p1" },
+            "parentP0LockSha256": { "$ref": "#/$defs/sha256" }, "files": { "$ref": "#/$defs/p1ArtifactDescriptors" },
+            "expectedCanonicalHash": { "$ref": "#/$defs/sha256" }
+          }
+        }
+      ]
+    }
+  }
+}

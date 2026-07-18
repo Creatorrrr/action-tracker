@@ -112,6 +112,41 @@ assert.equal(reacquireState.recoveringFromUnreliableYaw, false);
 assert.ok(Math.abs(Math.abs(reacquireState.unwrappedYawDeg) - 180) <= 0.001);
 assert.ok(Math.abs(Math.abs(reacquireState.lastReliableYawDeg) - 180) <= 0.001);
 
+const unmirroredHybridFront = estimateFacingYaw(createPoints(180), {
+  yawOffsetDeg: 180,
+});
+assert.ok(Math.abs(unmirroredHybridFront.yawDeg) <= 0.001);
+assert.equal(unmirroredHybridFront.state, "front");
+
+const mirroredHybridFront = estimateFacingYaw(createPoints(0), {
+  yawOffsetDeg: 0,
+});
+assert.ok(Math.abs(mirroredHybridFront.yawDeg) <= 0.001);
+assert.equal(mirroredHybridFront.state, "front");
+
+let lockedConventionState;
+const fullTurnInputYaw = [
+  180, 150, 120, 90, 60, 30, 0, -30, -60, -90, -120, -150, -180,
+  150, 120, 90,
+];
+
+for (const [index, inputYawDeg] of fullTurnInputYaw.entries()) {
+  lockedConventionState = estimateFacingState(
+    createPoints(inputYawDeg),
+    lockedConventionState,
+    {
+      timestamp: index * 100,
+      yawOffsetDeg: 180,
+      lockYawHypothesis: true,
+      maxYawRateDegPerSec: 540,
+    },
+  );
+}
+
+assert.equal(lockedConventionState.yawHypothesisLocked, true);
+assert.equal(lockedConventionState.yawFlipCount, 0);
+assert.ok(Math.abs(lockedConventionState.unwrappedYawDeg - 450) <= 0.001);
+
 console.log("Facing estimator check passed.");
 
 function createPoints(yawDeg, visibility = 0.95) {
