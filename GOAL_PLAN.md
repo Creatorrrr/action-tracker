@@ -877,3 +877,13 @@ Coverage/runtime: exact PTS 439·duplicate0·teacher height drift0, actual bone/
 검증/안전: 독립 review가 finite-vector overflow 성공 영벡터를 발견해 fail-closed+focused test로 수정·재검토 PASS; syntax·focused·contract·전체 check·strict dispatch PASS; `output/sam-goal-p5-hand/f18c212-p5-pose-hand-secondary-escape-r1-after-new`
 중단/복구: after 단 1회 뒤 재시도·threshold/계수·다른 clip/rig·challenge 없이 6개 제품/test/cache hunk를 pre-worker SHA로 byte-exact 복구하고 orchestrator discard
 결론/다음/블로커: hemisphere 부호만으로는 Pose fingertip↔teacher MCP 의미 불일치와 right-chain tail을 해결하지 못함; 기존 artifact에서 source-semantics/lifecycle 단일 소유권을 좁힌 다음 `src/**` checkpoint로 즉시 이동; 없음
+
+2026-07-18 16:45 KST | P5 | 진행(RTMW3D-X WebGPU causal anchor+native Hand21 r1, 미통과·폐기)
+가설/제품 변경: 명시 선택·lazy WebGPU RTMW3D-X를 8Hz capacity-1 anchor로 Full realtime에 causal fusion하고, native Hand21을 current palm carrier에 운반해 side별 RTMW→cache→prediction 소유권으로 실제 avatar 적용
+활성화/runtime: pinned 369,330,857B·WebGPU·init13.830s, anchor117/117·8.014Hz·fused399/438, 실제 RTMW Hand L/R430/438, fallback/error/circuit/ownership0, Body30.001Hz·apply P95/max21.3/43.5ms·queue0
+Before→After(new-dance/Xbot exact439): Hand mean55.138→55.117°(-0.021°, 목표 -0.5° 미달), P95119.822→120.160°(+0.281%); L/R P95139.466/102.747→138.698/102.621°
+하드 실패: Right wrist P95+0.317%H, RightArm+2.048°, LeftForeArm+1.605°, RightUpLeg+16.860°, Leg L/R+12.107/+3.612°, LeftFoot+16.862°; contact29/26/26→12/1/1
+정렬/원인: coverage100%·reference/live recording exact439·JSONL duplicate0이나 applied-state PTS0 seed duplicate1; strict Hand bone owner가 `pose-world-causal`로 고정돼 RTMW palm은 finger 입력에만 남고 근사 body anchor가 하체/contact를 교란
+검증/산출물: focused·contract·전체 `npm run check`·diff-check·독립 activation/metric/root-cause review PASS; `output/sam-goal-p5-rtmw3d/f18c212-p5-rtmw3dx-r1-after-new`; challenge·재시도·threshold 변경 없음
+중단/복구: RTMW 제품/runner/test/generated-doc 후보를 최초 커밋 `8bb4be8` 상태로 전부 복구하고 전체 check PASS; 실패 artifact 보존, 사용자 미추적 파일 불변
+결론/다음/블로커: r1 폐기; 다음 fresh 제품 checkpoint는 RTMW side에서만 strict wrist causal owner를 Hand21 world basis로 전환하고 confidence/profile을 분리하며 lower-body anchor는 검증 전 비소유로 제한; 없음
