@@ -771,6 +771,17 @@ async function checkFileVideoBackpressureLifecycle() {
     onError: (error, phase) => errors.push({ error, phase }),
   });
 
+  runtime.videoTimingMode = "realtime";
+  assert.equal(controller.handleTransition(pendingTransition("pending-queued", 100, 0, 180)), false);
+  assert.equal(controller.handleTransition(pendingTransition("pending-replaced", 101, 0, 180)), false);
+  assert.equal(controller.handleTransition(pendingTransition("pending-promoted", 101, 0, 180)), false);
+  assert.equal(controller.blockPlayAttempt(media, 0), false);
+  assert.equal(timers.size, 0, "realtime input must not arm a delayed pause");
+  assert.equal(cancelFrameCalls, 0, "realtime input must keep rVFC running under overload");
+  assert.equal(media.pauseCalls, 0);
+  assert.equal(media.playCalls, 0);
+  runtime.videoTimingMode = "adaptive-playback";
+
   assert.equal(
     controller.handleTransition(pendingTransition("pending-queued", 1, 0, 180)),
     true,

@@ -128,6 +128,9 @@ export function createVideoPlaybackBackpressureController({
     const media = context.media;
     return Boolean(
       context.active === true &&
+        // A live-time video run must expose overload as frame loss/age. It
+        // cannot make inference look realtime by pausing the input clock.
+        context.videoTimingMode !== "realtime" &&
         context.inputKind === "video" &&
         context.pumpMode === "rvfc" &&
         context.boundaryActive !== true &&

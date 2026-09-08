@@ -3,7 +3,7 @@ import {
   FilesetResolver,
   PoseLandmarker,
 } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/vision_bundle.mjs";
-import { createAvatarRenderer } from "./avatar-renderer.js?v=20260717-face-gap-release-1";
+import { createAvatarRenderer } from "./avatar-renderer.js?v=20260908-canonical-world-1";
 import {
   MOTION_RECORDING_FRAME_LIMIT,
   MOTION_RECORDING_JSONL_MAX_CHUNK_FRAMES,
@@ -19,10 +19,10 @@ import {
   serializeMotionFrame,
   serializeMotionRecordingJsonl,
   serializeMotionRecordingJsonlChunk,
-} from "./motion-frame.js?v=20260716-recording-chunks-1";
+} from "./motion-frame.js?v=20260908-raw-observations-1";
 import { createMotionForwarder } from "./motion-forwarding.js?v=20260529-face-expression-1";
 import { createLatestFramePump } from "./latest-frame-pump.js?v=20260716-pending-settlement-1";
-import { createVideoPlaybackBackpressureController } from "./video-playback-backpressure.js?v=20260716-body-tail-hysteresis-1";
+import { createVideoPlaybackBackpressureController } from "./video-playback-backpressure.js?v=20260908-realtime-evaluation-1";
 import {
   AUXILIARY_INFERENCE_LANES,
   createAuxiliaryInferenceArbiter,
@@ -47,12 +47,12 @@ import {
   transportPoseGuidedHandLandmarks,
 } from "./pose-guided-hand-fallback.js?v=20260715-pose-hand-fallback-1";
 import { computeBoundedFrameSize } from "./bounded-frame-snapshot.js?v=20260716-face512-1";
-import { adaptCanonicalSkeletonFrame } from "./canonical-skeleton-adapter.js?v=20260714-joint-center-4b";
+import { preparePoseObservation } from "./pose/observation-adapter.js";
 import {
   createPresenceState,
   updatePresenceState,
 } from "./presence-state.js?v=20260703-csi-presence-1";
-import { isWorkerRuntimeEnabled } from "./tracking-runtime-options.js?v=20260714-worker-default-1";
+import { isWorkerRuntimeEnabled, resolveSkeletonMode, resolveVideoTimingMode, resolveInputFrameMaxDimension } from "./tracking-runtime-options.js?v=20260908-realtime-evaluation-1";
 import {
   DEPTH_CALIBRATION_CLAMP_WARNING_RATIO,
   DEPTH_CALIBRATION_LENGTH_ERROR_THRESHOLD,
@@ -670,6 +670,7 @@ const videoPlaybackBackpressure =
     pendingHysteresisMs: BODY_PENDING_HYSTERESIS_MS,
     getRuntimeContext: () => ({
       active: state.active,
+      videoTimingMode: resolveVideoTimingMode(globalThis.location?.search),
       inputKind: state.inputKind,
       pumpMode: state.detectionPump.activeMode,
       generation: latestFramePump?.getGeneration() ?? 0,
@@ -854,6 +855,7 @@ function initAvatarRenderer() {
       boneCountElement: state.elements.avatarBoneCount,
       modelUrl,
       modelLabel,
+      skeletonMode: resolveSkeletonMode(globalThis.location?.search),
       depthScale: getInitialAvatarDepthScale(),
       depthCalibrationMode: getInitialAvatarDepthCalibrationMode(),
       smoothingMode: state.avatarSmoothingMode,
@@ -3161,7 +3163,7 @@ function captureDetectionFrameSnapshot(video) {
   const { width: targetWidth, height: targetHeight } = computeBoundedFrameSize(
     width,
     height,
-    MAX_INFERENCE_FRAME_DIMENSION,
+    resolveInputFrameMaxDimension(globalThis.location?.search, MAX_INFERENCE_FRAME_DIMENSION),
   );
 
   if (
@@ -5249,17 +5251,26 @@ function applyDetectionFrameResult(result) {
       };
     }
     result.handPoseLandmarks = result.motionFrame.poseLandmarks;
-    const canonicalBodyFrame = adaptCanonicalSkeletonFrame(result.motionFrame);
+    const canonicalBodyFrame = preparePoseObservation(result.motionFrame, {
+      mode: resolveSkeletonMode(globalThis.location?.search),
+    });
     const bodyFrame = mergeCachedFaceIntoBodyFrame(
       canonicalBodyFrame,
       inputGeneration ?? getFaceFramePump().getGeneration(),
       result.faceSelection,
     );
     result.motionFrame = bodyFrame;
-    const mergedFrame = mergeCachedHandsIntoBodyFrame(bodyFrame, {
-      poseLandmarks: result.handPoseLandmarks,
-      aspectRatio: getInputAspectRatio(),
-    });
+    const mergedFrame = {
+      ...mergeCachedHandsIntoBodyFrame(bodyFrame, {
+        poseLandmarks: result.handPoseLandmarks,
+        aspectRatio: getInputAspectRatio(),
+      }),
+      // Auxiliary channel merges construct a new MotionFrame. The Body
+      // observation remains owned by this detection result, before those
+      // merges; never recapture a corrected pose as a raw measurement.
+      rawPoseObservation: canonicalBodyFrame.rawPoseObservation,
+      canonicalPose: canonicalBodyFrame.canonicalPose,
+    };
     const avatarStateApplied = processMotionFrame(mergedFrame, {
       record: true,
       forward: true,
@@ -5772,9 +5783,11 @@ function processMotionFrame(motionFrame, options = {}) {
     draw = false,
     metrics = false,
   } = options;
-  const normalizedFrame = isMotionFrame(motionFrame)
+  const inputFrame = isMotionFrame(motionFrame)
     ? motionFrame
     : createMotionFrame({ sourceMeta: getCurrentMotionSourceMeta() });
+  const normalizedFrame = resolveSkeletonMode(globalThis.location?.search) === "canonical-world" && !inputFrame.canonicalPose
+    ? preparePoseObservation(inputFrame, { mode: "canonical-world" }) : inputFrame;
   const presence = updatePresenceState(state.presenceTracking, normalizedFrame);
   const processedFrame = {
     ...normalizedFrame,
@@ -6924,7 +6937,7 @@ function getAppPerformanceReport() {
       snapshotErrors: state.detectionPump.snapshotErrors,
       snapshotSupported: supportsDetectionFrameSnapshot(),
       snapshotMode: "offscreen-bounded-image-bitmap",
-      maxInferenceFrameDimension: MAX_INFERENCE_FRAME_DIMENSION,
+      maxInferenceFrameDimension: resolveInputFrameMaxDimension(globalThis.location?.search, MAX_INFERENCE_FRAME_DIMENSION),
       preInferenceStaleDrops: state.detectionPump.preInferenceStaleDrops,
       postInferenceStaleDrops:
         state.detectionPump.postInferenceStaleDrops,
@@ -7527,6 +7540,8 @@ function getCurrentMotionSourceMeta(
     inputKind: state.inputKind,
     videoFileName: state.videoFileName,
     videoTime: sourcePtsSec,
+    videoTimingMode: resolveVideoTimingMode(globalThis.location?.search),
+    inputMaxDimension: resolveInputFrameMaxDimension(globalThis.location?.search, MAX_INFERENCE_FRAME_DIMENSION),
     sourcePtsSec,
     sourcePtsSource: sourceTiming?.sourcePtsSource ?? sourcePtsFallbackSource(pumpMode),
     pumpMode,

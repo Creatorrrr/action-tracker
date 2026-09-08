@@ -2,7 +2,20 @@ import assert from "node:assert/strict";
 import {
   isWorkerRuntimeEnabled,
   resolveTrackingRuntimeOptions,
+  resolveSkeletonMode,
+  resolveVideoTimingMode,
+  resolveInputFrameMaxDimension,
 } from "../src/tracking-runtime-options.js";
+
+assert.equal(resolveSkeletonMode(""), "legacy-hybrid");
+assert.equal(resolveSkeletonMode("?skeleton-mode=canonical-world"), "canonical-world");
+assert.equal(resolveSkeletonMode("?skeleton-mode=invalid"), "legacy-hybrid");
+assert.equal(resolveVideoTimingMode(""), "adaptive-playback");
+assert.equal(resolveVideoTimingMode("?video-timing=realtime"), "realtime");
+assert.equal(resolveVideoTimingMode("?video-timing=invalid"), "adaptive-playback");
+assert.equal(resolveInputFrameMaxDimension(""), 640);
+assert.equal(resolveInputFrameMaxDimension("?input-max-dimension=1280"), 1280);
+assert.equal(resolveInputFrameMaxDimension("?input-max-dimension=99999"), 640);
 
 assert.deepEqual(resolveTrackingRuntimeOptions(""), {
   bodyWorkerEnabled: true,

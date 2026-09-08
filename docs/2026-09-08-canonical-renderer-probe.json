@@ -1,0 +1,680 @@
+{
+  "scope": "SAM oracle input only; no realtime detector or end-to-end accuracy claim",
+  "clipId": "shorts-new-dance-E9_h_ZW5z0U-16x9-padded",
+  "sourceFrames": [
+    0,
+    119
+  ],
+  "browser": "Playwright headed Chrome",
+  "models": [
+    {
+      "modelUrl": "/assets/models/Xbot.glb",
+      "scope": "SAM oracle input to actual avatar; no detector or realtime SLA measured",
+      "results": [
+        {
+          "mode": "legacy-hybrid",
+          "frames": 120,
+          "finiteStates": 120,
+          "coveredEndpoints": 600,
+          "canonicalStable": null,
+          "maxTargetDifference": null,
+          "bySegment": {
+            "torso": {
+              "bone": "Spine2",
+              "count": 120,
+              "meanDeg": 3.2957563883390177,
+              "p95Deg": 7.526811516503327
+            },
+            "hips": {
+              "bone": "Hips",
+              "count": 120,
+              "meanDeg": 4.129337189122612,
+              "p95Deg": 9.461687417611275
+            },
+            "spine": {
+              "bone": "Spine",
+              "count": 120,
+              "meanDeg": 3.061427846769287,
+              "p95Deg": 6.05727442281438
+            },
+            "spine1": {
+              "bone": "Spine1",
+              "count": 120,
+              "meanDeg": 2.7436732492292157,
+              "p95Deg": 5.262081483909957
+            },
+            "spine2": {
+              "bone": "Spine2",
+              "count": 120,
+              "meanDeg": 3.2957563883390284,
+              "p95Deg": 7.526811516503327
+            },
+            "chest": {
+              "bone": "Spine2",
+              "count": 120,
+              "meanDeg": 3.2957563883390333,
+              "p95Deg": 7.526811516503327
+            },
+            "neck": {
+              "bone": "Neck",
+              "count": 120,
+              "meanDeg": 5.798511489185834,
+              "p95Deg": 11.365454978871334
+            },
+            "head": {
+              "bone": "Head",
+              "count": 120,
+              "meanDeg": 15.74257770002316,
+              "p95Deg": 22.16015349397854
+            },
+            "leftUpperArm": {
+              "bone": "LeftArm",
+              "count": 120,
+              "meanDeg": 13.33744773087425,
+              "p95Deg": 20.81154241051708
+            },
+            "leftForeArm": {
+              "bone": "LeftForeArm",
+              "count": 120,
+              "meanDeg": 18.098073105170975,
+              "p95Deg": 29.40947873663128
+            },
+            "rightUpperArm": {
+              "bone": "RightArm",
+              "count": 120,
+              "meanDeg": 12.676295287680405,
+              "p95Deg": 20.518724017767678
+            },
+            "rightForeArm": {
+              "bone": "RightForeArm",
+              "count": 120,
+              "meanDeg": 11.108974819646797,
+              "p95Deg": 19.425203162239942
+            },
+            "leftUpperLeg": {
+              "bone": "LeftUpLeg",
+              "count": 120,
+              "meanDeg": 8.65067822484075,
+              "p95Deg": 13.274232961201788
+            },
+            "leftLowerLeg": {
+              "bone": "LeftLeg",
+              "count": 120,
+              "meanDeg": 15.337622154562395,
+              "p95Deg": 23.662010497598416
+            },
+            "rightUpperLeg": {
+              "bone": "RightUpLeg",
+              "count": 120,
+              "meanDeg": 12.096213543534883,
+              "p95Deg": 17.489867734581217
+            },
+            "rightLowerLeg": {
+              "bone": "RightLeg",
+              "count": 120,
+              "meanDeg": 11.894920882580347,
+              "p95Deg": 21.111738688938566
+            }
+          }
+        },
+        {
+          "mode": "canonical-world",
+          "frames": 120,
+          "finiteStates": 120,
+          "coveredEndpoints": 600,
+          "canonicalStable": true,
+          "maxTargetDifference": 7.505532815663326e-07,
+          "bySegment": {
+            "torso": {
+              "bone": "Spine2",
+              "count": 120,
+              "meanDeg": 2.095773271200445e-05,
+              "p95Deg": 3.550097181894293e-05
+            },
+            "hips": {
+              "bone": "Hips",
+              "count": 120,
+              "meanDeg": 2.0958700775925744e-05,
+              "p95Deg": 3.550097181894293e-05
+            },
+            "spine": {
+              "bone": "Spine",
+              "count": 120,
+              "meanDeg": 2.0957290311188717e-05,
+              "p95Deg": 3.551123666571489e-05
+            },
+            "spine1": {
+              "bone": "Spine1",
+              "count": 120,
+              "meanDeg": 2.097117696827203e-05,
+              "p95Deg": 3.551123666571489e-05
+            },
+            "spine2": {
+              "bone": "Spine2",
+              "count": 120,
+              "meanDeg": 2.095515371983722e-05,
+              "p95Deg": 3.550097181894293e-05
+            },
+            "chest": {
+              "bone": "Spine2",
+              "count": 120,
+              "meanDeg": 2.0955412535721978e-05,
+              "p95Deg": 3.550097181894293e-05
+            },
+            "neck": {
+              "bone": "Neck",
+              "count": 120,
+              "meanDeg": 6.963377065929036,
+              "p95Deg": 13.41736868729484
+            },
+            "head": {
+              "bone": "Head",
+              "count": 120,
+              "meanDeg": 6.520630331658113,
+              "p95Deg": 10.208947663139051
+            },
+            "leftUpperArm": {
+              "bone": "LeftArm",
+              "count": 120,
+              "meanDeg": 2.2784748417610276e-05,
+              "p95Deg": 3.689053079959738e-05
+            },
+            "leftForeArm": {
+              "bone": "LeftForeArm",
+              "count": 120,
+              "meanDeg": 0.0970963004256404,
+              "p95Deg": 3.7604828303364314e-05
+            },
+            "rightUpperArm": {
+              "bone": "RightArm",
+              "count": 120,
+              "meanDeg": 2.2964080538036956e-05,
+              "p95Deg": 3.37105472434613e-05
+            },
+            "rightForeArm": {
+              "bone": "RightForeArm",
+              "count": 120,
+              "meanDeg": 0.23716820163042154,
+              "p95Deg": 0.40981559311301896
+            },
+            "leftUpperLeg": {
+              "bone": "LeftUpLeg",
+              "count": 120,
+              "meanDeg": 2.16504131215672e-05,
+              "p95Deg": 3.591942520544789e-05
+            },
+            "leftLowerLeg": {
+              "bone": "LeftLeg",
+              "count": 120,
+              "meanDeg": 1.962586068668805e-05,
+              "p95Deg": 3.204780147839425e-05
+            },
+            "rightUpperLeg": {
+              "bone": "RightUpLeg",
+              "count": 120,
+              "meanDeg": 0.05060468033638232,
+              "p95Deg": 3.832483293705329e-05
+            },
+            "rightLowerLeg": {
+              "bone": "RightLeg",
+              "count": 120,
+              "meanDeg": 0.04870292160440413,
+              "p95Deg": 4.027242234892436e-05
+            }
+          }
+        }
+      ]
+    },
+    {
+      "modelUrl": "/assets/models/ratio-candidates/soldier.glb",
+      "scope": "SAM oracle input to actual avatar; no detector or realtime SLA measured",
+      "results": [
+        {
+          "mode": "legacy-hybrid",
+          "frames": 120,
+          "finiteStates": 120,
+          "coveredEndpoints": 600,
+          "canonicalStable": null,
+          "maxTargetDifference": null,
+          "bySegment": {
+            "torso": {
+              "bone": "Spine2",
+              "count": 120,
+              "meanDeg": 3.2957563861438968,
+              "p95Deg": 7.526811519307574
+            },
+            "hips": {
+              "bone": "Hips",
+              "count": 120,
+              "meanDeg": 4.129337906806489,
+              "p95Deg": 9.461694791520406
+            },
+            "spine": {
+              "bone": "Spine",
+              "count": 120,
+              "meanDeg": 3.0614278481334476,
+              "p95Deg": 6.05727441650147
+            },
+            "spine1": {
+              "bone": "Spine1",
+              "count": 120,
+              "meanDeg": 2.743673244172612,
+              "p95Deg": 5.262081491779604
+            },
+            "spine2": {
+              "bone": "Spine2",
+              "count": 120,
+              "meanDeg": 3.2957563861439194,
+              "p95Deg": 7.526811519307622
+            },
+            "chest": {
+              "bone": "Spine2",
+              "count": 120,
+              "meanDeg": 3.2957563861438826,
+              "p95Deg": 7.526811519307622
+            },
+            "neck": {
+              "bone": "Neck",
+              "count": 120,
+              "meanDeg": 4.997933064609894,
+              "p95Deg": 8.287127808801273
+            },
+            "head": {
+              "bone": "Head",
+              "count": 120,
+              "meanDeg": 27.85199541508599,
+              "p95Deg": 33.753545862458566
+            },
+            "leftUpperArm": {
+              "bone": "LeftArm",
+              "count": 120,
+              "meanDeg": 13.340876645597069,
+              "p95Deg": 20.8115428827027
+            },
+            "leftForeArm": {
+              "bone": "LeftForeArm",
+              "count": 120,
+              "meanDeg": 26.388217314454273,
+              "p95Deg": 35.66724685564891
+            },
+            "rightUpperArm": {
+              "bone": "RightArm",
+              "count": 120,
+              "meanDeg": 12.676295362528025,
+              "p95Deg": 20.518724546272438
+            },
+            "rightForeArm": {
+              "bone": "RightForeArm",
+              "count": 120,
+              "meanDeg": 22.043141299255804,
+              "p95Deg": 30.86545833498524
+            },
+            "leftUpperLeg": {
+              "bone": "LeftUpLeg",
+              "count": 120,
+              "meanDeg": 8.847707121982484,
+              "p95Deg": 14.140555176244616
+            },
+            "leftLowerLeg": {
+              "bone": "LeftLeg",
+              "count": 120,
+              "meanDeg": 19.869893545281403,
+              "p95Deg": 28.814900386340344
+            },
+            "rightUpperLeg": {
+              "bone": "RightUpLeg",
+              "count": 120,
+              "meanDeg": 12.016893615813835,
+              "p95Deg": 17.489867811792283
+            },
+            "rightLowerLeg": {
+              "bone": "RightLeg",
+              "count": 120,
+              "meanDeg": 17.22455696569975,
+              "p95Deg": 30.5349322060767
+            }
+          }
+        },
+        {
+          "mode": "canonical-world",
+          "frames": 120,
+          "finiteStates": 120,
+          "coveredEndpoints": 600,
+          "canonicalStable": true,
+          "maxTargetDifference": 7.505532815663326e-07,
+          "bySegment": {
+            "torso": {
+              "bone": "Spine2",
+              "count": 120,
+              "meanDeg": 2.0956114573620557e-05,
+              "p95Deg": 3.551123666571489e-05
+            },
+            "hips": {
+              "bone": "Hips",
+              "count": 120,
+              "meanDeg": 2.161402695409703e-05,
+              "p95Deg": 3.5387861990518845e-05
+            },
+            "spine": {
+              "bone": "Spine",
+              "count": 120,
+              "meanDeg": 2.0958181549490354e-05,
+              "p95Deg": 3.55214985461966e-05
+            },
+            "spine1": {
+              "bone": "Spine1",
+              "count": 120,
+              "meanDeg": 2.0961582858332784e-05,
+              "p95Deg": 3.551123666571489e-05
+            },
+            "spine2": {
+              "bone": "Spine2",
+              "count": 120,
+              "meanDeg": 2.0955428373487465e-05,
+              "p95Deg": 3.551123666571489e-05
+            },
+            "chest": {
+              "bone": "Spine2",
+              "count": 120,
+              "meanDeg": 2.0954074101471103e-05,
+              "p95Deg": 3.551123666571489e-05
+            },
+            "neck": {
+              "bone": "Neck",
+              "count": 120,
+              "meanDeg": 5.630907798926691,
+              "p95Deg": 10.27732531109493
+            },
+            "head": {
+              "bone": "Head",
+              "count": 120,
+              "meanDeg": 24.721446666202116,
+              "p95Deg": 29.575997357762656
+            },
+            "leftUpperArm": {
+              "bone": "LeftArm",
+              "count": 120,
+              "meanDeg": 2.3046240382007095e-05,
+              "p95Deg": 3.636314071153992e-05
+            },
+            "leftForeArm": {
+              "bone": "LeftForeArm",
+              "count": 120,
+              "meanDeg": 0.12082045076437496,
+              "p95Deg": 3.7488344301357245e-05
+            },
+            "rightUpperArm": {
+              "bone": "RightArm",
+              "count": 120,
+              "meanDeg": 2.3125244407080945e-05,
+              "p95Deg": 3.448019598355074e-05
+            },
+            "rightForeArm": {
+              "bone": "RightForeArm",
+              "count": 120,
+              "meanDeg": 0.2118550327043696,
+              "p95Deg": 0.3655749486992302
+            },
+            "leftUpperLeg": {
+              "bone": "LeftUpLeg",
+              "count": 120,
+              "meanDeg": 2.1647510729986594e-05,
+              "p95Deg": 3.585849314256753e-05
+            },
+            "leftLowerLeg": {
+              "bone": "LeftLeg",
+              "count": 120,
+              "meanDeg": 1.9626590794518265e-05,
+              "p95Deg": 3.1830989935233354e-05
+            },
+            "rightUpperLeg": {
+              "bone": "RightUpLeg",
+              "count": 120,
+              "meanDeg": 0.05078468812939086,
+              "p95Deg": 3.8248678201223815e-05
+            },
+            "rightLowerLeg": {
+              "bone": "RightLeg",
+              "count": 120,
+              "meanDeg": 0.048842134161785795,
+              "p95Deg": 4.015460022391834e-05
+            }
+          }
+        }
+      ]
+    },
+    {
+      "modelUrl": "/assets/models/anime-candidates/polydancer.vrm",
+      "scope": "SAM oracle input to actual avatar; no detector or realtime SLA measured",
+      "results": [
+        {
+          "mode": "legacy-hybrid",
+          "frames": 120,
+          "finiteStates": 120,
+          "coveredEndpoints": 600,
+          "canonicalStable": null,
+          "maxTargetDifference": null,
+          "bySegment": {
+            "torso": {
+              "bone": "Spine2",
+              "count": 120,
+              "meanDeg": 3.2957563879399014,
+              "p95Deg": 7.526811514531574
+            },
+            "hips": {
+              "bone": "Hips",
+              "count": 120,
+              "meanDeg": 4.129337189122594,
+              "p95Deg": 9.461687417611275
+            },
+            "spine": {
+              "bone": "Spine",
+              "count": 120,
+              "meanDeg": 3.0614278471416276,
+              "p95Deg": 6.057274424920392
+            },
+            "spine1": {
+              "bone": "Spine1",
+              "count": 120,
+              "meanDeg": 2.7436732491827387,
+              "p95Deg": 5.26208148048538
+            },
+            "spine2": {
+              "bone": "Spine2",
+              "count": 120,
+              "meanDeg": 3.2957563879399023,
+              "p95Deg": 7.526811514531623
+            },
+            "chest": {
+              "bone": "Spine2",
+              "count": 120,
+              "meanDeg": 3.2957563879399037,
+              "p95Deg": 7.526811514531574
+            },
+            "neck": {
+              "bone": "Neck",
+              "count": 120,
+              "meanDeg": 7.905875480964996,
+              "p95Deg": 13.203213453188395
+            },
+            "head": {
+              "bone": "Head",
+              "count": 120,
+              "meanDeg": 23.948886728635635,
+              "p95Deg": 29.047036121917802
+            },
+            "leftUpperArm": {
+              "bone": "LeftArm",
+              "count": 120,
+              "meanDeg": 13.340472039636913,
+              "p95Deg": 20.811542129752546
+            },
+            "leftForeArm": {
+              "bone": "LeftForeArm",
+              "count": 120,
+              "meanDeg": 25.968933029825354,
+              "p95Deg": 35.446028272499746
+            },
+            "rightUpperArm": {
+              "bone": "RightArm",
+              "count": 120,
+              "meanDeg": 12.676295185164555,
+              "p95Deg": 20.51872426873899
+            },
+            "rightForeArm": {
+              "bone": "RightForeArm",
+              "count": 120,
+              "meanDeg": 21.380645678371597,
+              "p95Deg": 29.414996582703626
+            },
+            "leftUpperLeg": {
+              "bone": "LeftUpLeg",
+              "count": 120,
+              "meanDeg": 8.821453207144144,
+              "p95Deg": 13.903739480257961
+            },
+            "leftLowerLeg": {
+              "bone": "LeftLeg",
+              "count": 120,
+              "meanDeg": 18.613063763946766,
+              "p95Deg": 28.417029278204712
+            },
+            "rightUpperLeg": {
+              "bone": "RightUpLeg",
+              "count": 120,
+              "meanDeg": 11.93335347796684,
+              "p95Deg": 17.489867644708728
+            },
+            "rightLowerLeg": {
+              "bone": "RightLeg",
+              "count": 120,
+              "meanDeg": 15.438315417954161,
+              "p95Deg": 27.336430715668087
+            }
+          }
+        },
+        {
+          "mode": "canonical-world",
+          "frames": 120,
+          "finiteStates": 120,
+          "coveredEndpoints": 600,
+          "canonicalStable": true,
+          "maxTargetDifference": 7.505532815663326e-07,
+          "bySegment": {
+            "torso": {
+              "bone": "Spine2",
+              "count": 120,
+              "meanDeg": 2.0969910654373136e-05,
+              "p95Deg": 3.550097181894293e-05
+            },
+            "hips": {
+              "bone": "Hips",
+              "count": 120,
+              "meanDeg": 2.095938765385853e-05,
+              "p95Deg": 3.550097181894293e-05
+            },
+            "spine": {
+              "bone": "Spine",
+              "count": 120,
+              "meanDeg": 2.095860396533404e-05,
+              "p95Deg": 3.551123666571489e-05
+            },
+            "spine1": {
+              "bone": "Spine1",
+              "count": 120,
+              "meanDeg": 2.095929028767609e-05,
+              "p95Deg": 3.550097181894293e-05
+            },
+            "spine2": {
+              "bone": "Spine2",
+              "count": 120,
+              "meanDeg": 2.0959498122945138e-05,
+              "p95Deg": 3.550097181894293e-05
+            },
+            "chest": {
+              "bone": "Spine2",
+              "count": 120,
+              "meanDeg": 2.0970981172412416e-05,
+              "p95Deg": 3.550097181894293e-05
+            },
+            "neck": {
+              "bone": "Neck",
+              "count": 120,
+              "meanDeg": 10.065389912447753,
+              "p95Deg": 16.08191014238392
+            },
+            "head": {
+              "bone": "Head",
+              "count": 120,
+              "meanDeg": 20.362292862685667,
+              "p95Deg": 25.23158838086025
+            },
+            "leftUpperArm": {
+              "bone": "LeftArm",
+              "count": 120,
+              "meanDeg": 2.2844779896569126e-05,
+              "p95Deg": 3.625272098171226e-05
+            },
+            "leftForeArm": {
+              "bone": "LeftForeArm",
+              "count": 120,
+              "meanDeg": 0.10773185476417531,
+              "p95Deg": 3.6493206013101826e-05
+            },
+            "rightUpperArm": {
+              "bone": "RightArm",
+              "count": 120,
+              "meanDeg": 2.3137016237916657e-05,
+              "p95Deg": 3.3840037658401647e-05
+            },
+            "rightForeArm": {
+              "bone": "RightForeArm",
+              "count": 120,
+              "meanDeg": 0.20255722780674537,
+              "p95Deg": 0.31790819911643636
+            },
+            "leftUpperLeg": {
+              "bone": "LeftUpLeg",
+              "count": 120,
+              "meanDeg": 2.165718386191747e-05,
+              "p95Deg": 3.5929570502982625e-05
+            },
+            "leftLowerLeg": {
+              "bone": "LeftLeg",
+              "count": 120,
+              "meanDeg": 1.962852863576257e-05,
+              "p95Deg": 3.1853881696505914e-05
+            },
+            "rightUpperLeg": {
+              "bone": "RightUpLeg",
+              "count": 120,
+              "meanDeg": 0.04772533371086218,
+              "p95Deg": 3.829629265785323e-05
+            },
+            "rightLowerLeg": {
+              "bone": "RightLeg",
+              "count": 120,
+              "meanDeg": 0.04573220846926267,
+              "p95Deg": 4.010919186355584e-05
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "generatedAt": "2026-09-08T01:18:53.020181+00:00",
+  "baseCommit": "6cfc14996b73774ef34af0883937fb3f67dce68a",
+  "sourceSha256": {
+    "src/app.js": "7935bd0130b43f94a06c294e661e72a644c3385926fc6be44c2f0e46271ea287",
+    "src/avatar-renderer.js": "987cef3891f99cafcde668525b7cc6f56a94bc617bcf4f0e777fa8e068ea2f09",
+    "src/motion-frame.js": "70c16b23c63199c74c8c8bb3c2d7cd300b6eea72e5286cba2a3a00e18bfb4184",
+    "src/solver/pose-solver.js": "78213e83f6ae24869552b59a7ca33eff9b232821eb986d8369fb1a57588525b9",
+    "src/pose/canonical-pose.js": "83302b3f9b709c084fd76a29fd60575198973bd5a487f34b929b5cd712abe57e",
+    "src/pose/observation-adapter.js": "5900c1b7467ec545166cd949ea32fb601ec9684b96110562c3f8bb102915892a",
+    "src/pose/sam-reference.js": "a3e91875b1eaacbe9f5c1080ead507ad8ee953ff8fdfa193d124d5fca81cb30c",
+    "scripts/canonical-renderer-probe.mjs": "5ff0334691cafe51dda15157c79f87195006adfd7fdb47b0a0a7a595a5c6418e"
+  },
+  "inputFixtureSha256": "d1df6cf002f9e9578dba2ae29621176f688738b7a9ad5053ef476eec3c07f50c",
+  "finalAccuracyGate": "not_evaluated_missing_source_videos",
+  "defaultPromoted": false
+}

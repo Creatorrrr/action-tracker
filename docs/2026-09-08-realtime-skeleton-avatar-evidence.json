@@ -1,0 +1,368 @@
+{
+  "artifactType": "read-only-analysis-evidence",
+  "createdAtUtc": "2026-09-07T23:52:19.099101+00:00",
+  "repository": "/Users/chasoik/Projects/action-tracker",
+  "head": "6cfc14996b73774ef34af0883937fb3f67dce68a",
+  "sourceChangedByThisAnalysis": false,
+  "originalVideoInferenceRun": false,
+  "cameraRun": false,
+  "fullCheckRun": false,
+  "manifestSha256": "d300ac13f9386293f8f1abe746bb64a3ac99f7bd942813286b550375e201cb79",
+  "manifestRows": 6711,
+  "clips": [
+    {
+      "clipId": "arms-crossed",
+      "sourceVideoPath": "output/test-videos/arms-crossed.mp4",
+      "sourceVideoExists": false,
+      "sourceVideoExpectedSha256": "36e01f9a0c50c9df159776946ab96d583d3ea7d4b06509b339ab2d4d42a5c2f3",
+      "sourceMediaFromInventory": {
+        "streamIndex": 0,
+        "codec": "h264",
+        "width": 720,
+        "height": 1280,
+        "averageFrameRate": "30/1",
+        "timeBase": {
+          "numerator": 1,
+          "denominator": 15360
+        },
+        "duration": "12.866667"
+      },
+      "teacherPath": "sam-3d-body-skeletons/arms-crossed/skeletons_mhr70.jsonl",
+      "teacherSha256": "e6335d66e6576f8ad5b216db110303fdfa1d4b1c47143d0469b1361b6933765d",
+      "teacherRows": 386,
+      "personsPerRowHistogram": {
+        "0": 37,
+        "1": 349
+      },
+      "selectedPersonPresentRows": 349,
+      "totalPersonPredictions": 349,
+      "teacherNonmonotonicTimestamps": 0,
+      "keypoint3dFiniteCount": 24430,
+      "keypoint3dNonfiniteCount": 0,
+      "keypointArrayLengths": {
+        "3": 24430
+      },
+      "cameraExportPersonCount": 349,
+      "joint127PersonCount": 349,
+      "summaryDetectionMisses": 37,
+      "teacherTimestampMinusManifestPtsMs": {
+        "min": -33.33333333333499,
+        "max": -33.333333333333215,
+        "p95Absolute": 33.3333333333341
+      }
+    },
+    {
+      "clipId": "csi-pose",
+      "sourceVideoPath": "output/test-videos/csi-pose.mp4",
+      "sourceVideoExists": false,
+      "sourceVideoExpectedSha256": "2e9b58ffb585d0da56950502c67d7874faf992087221bf3a80be27dd20fac9ca",
+      "sourceMediaFromInventory": {
+        "streamIndex": 0,
+        "codec": "h264",
+        "width": 720,
+        "height": 1280,
+        "averageFrameRate": "30/1",
+        "timeBase": {
+          "numerator": 1,
+          "denominator": 15360
+        },
+        "duration": "94.966667"
+      },
+      "teacherPath": "sam-3d-body-skeletons/csi-pose/skeletons_mhr70.jsonl",
+      "teacherSha256": "a5731a0c25326bf8d1f919c0effedbf441624328c00af5d52ad5356702fa8462",
+      "teacherRows": 2849,
+      "personsPerRowHistogram": {
+        "1": 2849
+      },
+      "selectedPersonPresentRows": 2849,
+      "totalPersonPredictions": 2849,
+      "teacherNonmonotonicTimestamps": 0,
+      "keypoint3dFiniteCount": 199430,
+      "keypoint3dNonfiniteCount": 0,
+      "keypointArrayLengths": {
+        "3": 199430
+      },
+      "cameraExportPersonCount": 2849,
+      "joint127PersonCount": 2849,
+      "summaryDetectionMisses": 163,
+      "teacherTimestampMinusManifestPtsMs": {
+        "min": 0.0,
+        "max": 0.0,
+        "p95Absolute": 0.0
+      }
+    },
+    {
+      "clipId": "dance-16x9-padded",
+      "sourceVideoPath": "output/test-videos/dance-16x9-padded.mp4",
+      "sourceVideoExists": false,
+      "sourceVideoExpectedSha256": "78a43e4ac497243291c23b87d0c57aaeb717b71461f68d313d39fc84e9df36ad",
+      "sourceMediaFromInventory": {
+        "streamIndex": 0,
+        "codec": "h264",
+        "width": 3414,
+        "height": 1920,
+        "averageFrameRate": "43080/1801",
+        "timeBase": {
+          "numerator": 1,
+          "denominator": 43080
+        },
+        "duration": "15.008333"
+      },
+      "teacherPath": "sam-3d-body-skeletons/dance-16x9-padded/skeletons_mhr70.jsonl",
+      "teacherSha256": "d2ac74f3634b0f702141586ed953362bae1ec67e777ee012264749d4fa401812",
+      "teacherRows": 359,
+      "personsPerRowHistogram": {
+        "1": 359
+      },
+      "selectedPersonPresentRows": 359,
+      "totalPersonPredictions": 359,
+      "teacherNonmonotonicTimestamps": 0,
+      "keypoint3dFiniteCount": 25130,
+      "keypoint3dNonfiniteCount": 0,
+      "keypointArrayLengths": {
+        "3": 25130
+      },
+      "cameraExportPersonCount": 359,
+      "joint127PersonCount": 359,
+      "summaryDetectionMisses": 0,
+      "teacherTimestampMinusManifestPtsMs": {
+        "min": -1.7763568394002505e-12,
+        "max": 0.0,
+        "p95Absolute": 0.0
+      }
+    },
+    {
+      "clipId": "jujae-regression-0-16_5",
+      "sourceVideoPath": "output/test-videos/jujae-regression-0-16_5.mp4",
+      "sourceVideoExists": false,
+      "sourceVideoExpectedSha256": "34f24040252482fb1bbd706b713ff8dc9abe1141a310ec8c7be699fa9ead193b",
+      "sourceMediaFromInventory": {
+        "streamIndex": 0,
+        "codec": "h264",
+        "width": 1080,
+        "height": 1920,
+        "averageFrameRate": "60000/1001",
+        "timeBase": {
+          "numerator": 1,
+          "denominator": 60000
+        },
+        "duration": "16.516500"
+      },
+      "teacherPath": "sam-3d-body-skeletons/jujae-regression-0-16_5/skeletons_mhr70.jsonl",
+      "teacherSha256": "7b4036fdc84c72e16a2916c81b2509629eaf2f079617dcdcc1cd709de9e2a43e",
+      "teacherRows": 990,
+      "personsPerRowHistogram": {
+        "1": 990
+      },
+      "selectedPersonPresentRows": 990,
+      "totalPersonPredictions": 990,
+      "teacherNonmonotonicTimestamps": 0,
+      "keypoint3dFiniteCount": 69300,
+      "keypoint3dNonfiniteCount": 0,
+      "keypointArrayLengths": {
+        "3": 69300
+      },
+      "cameraExportPersonCount": 990,
+      "joint127PersonCount": 990,
+      "summaryDetectionMisses": 0,
+      "teacherTimestampMinusManifestPtsMs": {
+        "min": 0.0,
+        "max": 3.552713678800501e-12,
+        "p95Absolute": 1.7763568394002505e-12
+      }
+    },
+    {
+      "clipId": "shorts-keGbIts0CA0-16x9-padded",
+      "sourceVideoPath": "output/test-videos/shorts-keGbIts0CA0-16x9-padded.mp4",
+      "sourceVideoExists": false,
+      "sourceVideoExpectedSha256": "f336f69d4b83dc233c43dff43cde74d5723b919527d871caab00bbd9b14cc26c",
+      "sourceMediaFromInventory": {
+        "streamIndex": 0,
+        "codec": "h264",
+        "width": 3414,
+        "height": 1920,
+        "averageFrameRate": "60/1",
+        "timeBase": {
+          "numerator": 1,
+          "denominator": 15360
+        },
+        "duration": "20.616667"
+      },
+      "teacherPath": "sam-3d-body-skeletons/shorts-keGbIts0CA0-16x9-padded/skeletons_mhr70.jsonl",
+      "teacherSha256": "469b07b188ae5fd42c448afb53b7a316a98990ec4d94cd14755c87cdf1dc5304",
+      "teacherRows": 1237,
+      "personsPerRowHistogram": {
+        "1": 1237
+      },
+      "selectedPersonPresentRows": 1237,
+      "totalPersonPredictions": 1237,
+      "teacherNonmonotonicTimestamps": 0,
+      "keypoint3dFiniteCount": 86590,
+      "keypoint3dNonfiniteCount": 0,
+      "keypointArrayLengths": {
+        "3": 86590
+      },
+      "cameraExportPersonCount": 1237,
+      "joint127PersonCount": 1237,
+      "summaryDetectionMisses": 0,
+      "teacherTimestampMinusManifestPtsMs": {
+        "min": 0.0,
+        "max": 0.0,
+        "p95Absolute": 0.0
+      }
+    },
+    {
+      "clipId": "shorts-new-dance-E9_h_ZW5z0U-16x9-padded",
+      "sourceVideoPath": "output/test-videos/shorts-new-dance-E9_h_ZW5z0U-16x9-padded.mp4",
+      "sourceVideoExists": false,
+      "sourceVideoExpectedSha256": "fff008446c81f1dd741e2f9deb0fe2ead39da56e54f1427e106904e9af7abc98",
+      "sourceMediaFromInventory": {
+        "streamIndex": 0,
+        "codec": "h264",
+        "width": 3414,
+        "height": 1920,
+        "averageFrameRate": "30/1",
+        "timeBase": {
+          "numerator": 1,
+          "denominator": 15360
+        },
+        "duration": "14.633333"
+      },
+      "teacherPath": "sam-3d-body-skeletons/shorts-new-dance-E9_h_ZW5z0U-16x9-padded/skeletons_mhr70.jsonl",
+      "teacherSha256": "4a6453080b7f7ea9f742fca4a16d130706e21db105b39f15278aa702f1c9659a",
+      "teacherRows": 439,
+      "personsPerRowHistogram": {
+        "1": 439
+      },
+      "selectedPersonPresentRows": 439,
+      "totalPersonPredictions": 439,
+      "teacherNonmonotonicTimestamps": 0,
+      "keypoint3dFiniteCount": 30730,
+      "keypoint3dNonfiniteCount": 0,
+      "keypointArrayLengths": {
+        "3": 30730
+      },
+      "cameraExportPersonCount": 439,
+      "joint127PersonCount": 439,
+      "summaryDetectionMisses": 0,
+      "teacherTimestampMinusManifestPtsMs": {
+        "min": 0.0,
+        "max": 0.0,
+        "p95Absolute": 0.0
+      }
+    },
+    {
+      "clipId": "shorts-vc0GDveRIp0-16x9-padded",
+      "sourceVideoPath": "output/test-videos/shorts-vc0GDveRIp0-16x9-padded.mp4",
+      "sourceVideoExists": false,
+      "sourceVideoExpectedSha256": "7fd548c9b46235907f78e88b40dc464b05af2867baea0cbab5b6496d1c9c00dd",
+      "sourceMediaFromInventory": {
+        "streamIndex": 0,
+        "codec": "h264",
+        "width": 1920,
+        "height": 1080,
+        "averageFrameRate": "30/1",
+        "timeBase": {
+          "numerator": 1,
+          "denominator": 15360
+        },
+        "duration": "15.033333"
+      },
+      "teacherPath": "sam-3d-body-skeletons/shorts-vc0GDveRIp0-16x9-padded/skeletons_mhr70.jsonl",
+      "teacherSha256": "a3cfbfd3c3b260f965fb833b139c58972c0e5955f8c6d566f71c444036445d5e",
+      "teacherRows": 451,
+      "personsPerRowHistogram": {
+        "1": 450,
+        "2": 1
+      },
+      "selectedPersonPresentRows": 451,
+      "totalPersonPredictions": 452,
+      "teacherNonmonotonicTimestamps": 0,
+      "keypoint3dFiniteCount": 31640,
+      "keypoint3dNonfiniteCount": 0,
+      "keypointArrayLengths": {
+        "3": 31640
+      },
+      "cameraExportPersonCount": 452,
+      "joint127PersonCount": 452,
+      "summaryDetectionMisses": 0,
+      "teacherTimestampMinusManifestPtsMs": {
+        "min": 0.0,
+        "max": 0.0,
+        "p95Absolute": 0.0
+      }
+    }
+  ],
+  "limitations": [
+    "Historical metrics cited in the plan were read from GOAL_PLAN.md, not rerun.",
+    "Source media information is from the tracked inventory; original video bytes are unavailable.",
+    "Teacher finite coordinates establish payload availability, not independent physical truth."
+  ],
+  "isolatedCodeProbes": [
+    {
+      "name": "renderer_xy_aspect",
+      "method": "Executed the current landmarkToVector function body in a Node vm; Vector3 and metadata were minimal stubs and resolveLandmarkDepth returned zero.",
+      "source": "src/avatar-renderer.js:7513",
+      "inputPixelDelta": [
+        100,
+        100
+      ],
+      "results": [
+        {
+          "imageSize": [
+            1920,
+            1080
+          ],
+          "angleDeg": 60.6422464572087
+        },
+        {
+          "imageSize": [
+            720,
+            1280
+          ],
+          "angleDeg": 29.357753542791283
+        }
+      ],
+      "scope": "XY conversion only; not a rendered or inference benchmark"
+    },
+    {
+      "name": "rig_local_rate_cap",
+      "method": "Direct imported limitCausalRigLocalRotation call",
+      "source": "src/retarget/rig-local-rotation.js:27",
+      "input": {
+        "previousRotationDeg": 0,
+        "targetRotationDeg": 90,
+        "deltaMs": 33.333333333333336,
+        "maxAngularVelocityDegPerSec": 420
+      },
+      "result": {
+        "valid": true,
+        "rawDeltaDeg": 90,
+        "appliedDeltaDeg": 14.00000000000005,
+        "rateLimited": true
+      }
+    },
+    {
+      "name": "spine_side_wave",
+      "method": "Direct imported buildPosePoints call on synthetic world landmarks",
+      "source": "src/solver/pose-solver.js:588",
+      "hipMid": [
+        0,
+        0,
+        0
+      ],
+      "shoulderMid": [
+        0.4,
+        1,
+        0
+      ],
+      "leftRightAxesParallel": true,
+      "spineWaveResult": {
+        "sideRatio": 0,
+        "sideOffset": 0,
+        "active": false
+      },
+      "scope": "Additional side-wave signal; total torso lean is still represented by the straight spine"
+    }
+  ]
+}

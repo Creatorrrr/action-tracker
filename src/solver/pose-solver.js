@@ -11,6 +11,7 @@ import {
   estimateFacingState,
   toLegacyFacing,
 } from "./facing-estimator.js";
+import { buildCanonicalPosePoints, canonicalFrameTimestampMs } from "../pose/canonical-pose.js";
 
 const SOLVER_VERSION = 1;
 const MIN_DIRECTION_LENGTH = 0.000001;
@@ -139,6 +140,7 @@ export {
   POSE,
   SOLVER_VERSION,
   buildPosePoints,
+  canonicalFacingOptions,
   estimateFacing,
   estimateTrackingMode,
   retargetConfidence,
@@ -151,9 +153,18 @@ function solvePoseFrame(motionFrame, previousState = {}, options = {}) {
   const points = buildPosePoints(motionFrame);
 
   return solvePoseTargetsFromPoints(points, previousState, {
-    timestamp: Number(motionFrame?.timestamp ?? 0),
+    timestamp: motionFrame?.canonicalPose ? canonicalFrameTimestampMs(motionFrame) : Number(motionFrame?.timestamp ?? 0),
+    ...(motionFrame?.canonicalPose ? { ...canonicalFacingOptions(motionFrame.canonicalPose), targetStabilization: false } : {}),
     ...options,
   });
+}
+
+function canonicalFacingOptions(pose) {
+  return {
+    facingYawOffsetDeg: pose?.mirrored ? 0 : 180,
+    lockFacingYawConvention: true,
+    maxFacingYawRateDegPerSec: 540,
+  };
 }
 
 function solvePoseTargetsFromPoints(points, previousState = {}, options = {}) {
@@ -524,6 +535,7 @@ function evaluateTargetPlausibility(target, directionTorsoLocal) {
 }
 
 function buildPosePoints(motionFrame) {
+  if (motionFrame?.canonicalPose) return buildCanonicalPosePoints(motionFrame);
   const landmarks = motionFrame?.poseWorldLandmarks ?? motionFrame?.poseLandmarks ?? [];
   const imageLandmarks = motionFrame?.poseLandmarks ?? [];
   const points = {

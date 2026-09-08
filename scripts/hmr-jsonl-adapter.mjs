@@ -19,6 +19,7 @@ import {
   summarizeMhr70AxisAudit,
 } from "../src/skeleton/mhr70-mapping.js";
 import { mapMhr70ToMediaPipeHand } from "../src/skeleton/mhr70-hands.js";
+import { createSamReferenceFrame } from "../src/pose/sam-reference.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const args = parseArgs(process.argv.slice(2));
@@ -47,10 +48,16 @@ if (!args.input || args.help) {
   process.exitCode = args.help ? 0 : 1;
 } else {
   const sourceText = await readFile(path.resolve(projectRoot, args.input), "utf8");
+  const decoderRows = args.decoderManifest
+    ? (await readFile(path.resolve(projectRoot, args.decoderManifest), "utf8")).trim().split(/\r?\n/).map(JSON.parse)
+    : null;
   const recording = parseInputRecording(sourceText, args.input, {
     jointFormat: args.jointFormat,
     personIndex: args.personIndex,
     hands: args.hands,
+    canonical: args.canonical,
+    clipId: args.clipId,
+    decoderRows,
   });
   const normalizedRecording = normalizeExternalMotionRecording(recording);
   const jsonl = serializeMotionRecordingJsonl(normalizedRecording);
@@ -80,12 +87,21 @@ function parseArgs(rawArgs) {
     personIndex: 0,
     stdout: false,
     help: false,
+    canonical: false,
+    clipId: "",
+    decoderManifest: "",
   };
 
   for (let index = 0; index < rawArgs.length; index += 1) {
     const arg = rawArgs[index];
 
-    if (arg === "--input") {
+    if (arg === "--canonical") {
+      parsed.canonical = true;
+    } else if (arg === "--clip") {
+      parsed.clipId = rawArgs[++index] ?? "";
+    } else if (arg === "--decoder-manifest") {
+      parsed.decoderManifest = rawArgs[++index] ?? "";
+    } else if (arg === "--input") {
       parsed.input = rawArgs[++index] ?? "";
     } else if (arg === "--output") {
       parsed.output = rawArgs[++index] ?? "";
@@ -112,6 +128,9 @@ function parseArgs(rawArgs) {
   if (!["none", "mhr70"].includes(parsed.hands)) {
     throw new Error("--hands must be none or mhr70.");
   }
+  if (parsed.canonical && (!parsed.clipId || !parsed.decoderManifest)) {
+    throw new Error("--canonical requires --clip and --decoder-manifest for exact source alignment.");
+  }
 
   return parsed;
 }
@@ -129,6 +148,7 @@ function parseInputRecording(sourceText, inputPath, options = {}) {
 
   if (inputPath.endsWith(".jsonl")) {
     if (isSamMhr70Jsonl(trimmed, options)) {
+      if (options.canonical) return convertSamCanonicalRecording(sourceText, options);
       return convertSamMhr70JsonlRecording(sourceText, {
         personIndex: options.personIndex,
         hands: options.hands,
@@ -147,6 +167,29 @@ function parseInputRecording(sourceText, inputPath, options = {}) {
   return convertJointArrayRecording(parsed, {
     jointFormat: options.jointFormat,
   });
+}
+
+function convertSamCanonicalRecording(sourceText, options) {
+  const rows = sourceText.trim().split(/\r?\n/).map(JSON.parse);
+  const decoderRows = options.decoderRows.filter((row) => row.clipId === options.clipId);
+  const decoder = new Map(decoderRows.map((row) => [row.sourceFrameIndex, row]));
+  if (decoder.size !== decoderRows.length || decoderRows.length !== rows.length ||
+      new Set(rows.map((row) => row.frame_index)).size !== rows.length) {
+    throw new Error("SAM and decoder rows must form a complete one-to-one frame mapping");
+  }
+  const frames = rows.map((row) => createSamReferenceFrame(row, {
+    decoderFrame: decoder.get(row.frame_index), clipId: options.clipId, personIndex: options.personIndex,
+  }));
+  return {
+    version: MOTION_RECORDING_VERSION, createdAt: new Date().toISOString(), droppedFrames: 0,
+    source: {
+      type: "external-hmr", extractor: "sam3d-body", jointFormat: "mhr70", clipId: options.clipId,
+      mapping: "sam-canonical-world-v1", hands: "mhr70-to-mediapipe21", sourceFrameCount: rows.length,
+      missingPersonFrames: frames.filter((frame) => frame.sourceMeta.observationStatus === "missing").length,
+      timestampPolicy: "decoder-manifest-exact", rawSamPreserved: true,
+    },
+    frames,
+  };
 }
 
 function buildSummary(recording, outputPath) {
@@ -641,6 +684,7 @@ function printUsage() {
   node scripts/hmr-jsonl-adapter.mjs --input external-recording.json --output output/external-recording.jsonl
   node scripts/hmr-jsonl-adapter.mjs --input coco17-joints.json --joint-format coco17 --output output/external-recording.jsonl
   node scripts/hmr-jsonl-adapter.mjs --input skeletons_mhr70.jsonl --joint-format mhr70 --hands mhr70 --output output/sam-recording.jsonl
+  node scripts/hmr-jsonl-adapter.mjs --input skeletons_mhr70.jsonl --joint-format mhr70 --canonical --clip arms-crossed --decoder-manifest tests/fixtures/sam-goal-v2/labels/decoder-manifest.jsonl --output output/sam-canonical.jsonl
   node scripts/hmr-jsonl-adapter.mjs external-recording.jsonl --stdout > normalized.jsonl
 
 Input may use the action-tracker recording shape with source.type "external-hmr"
@@ -649,6 +693,7 @@ optional frames[].joints2d/imageJoints. It may also be raw SAM 3D Body MHR70
 JSONL with frames[].persons[].keypoints_mhr70_2d/keypoints_mhr70_3d.
 Supported joint formats are mediapipe33, coco17, and mhr70. The adapter validates 33 pose landmarks, 33 pose world landmarks,
 optional 21-point hands, scalar metadata only, and then writes replayable motion
-recording JSONL.
+recording JSONL. --canonical preserves every source frame, raw SAM/camera data
+and all 70 joints, with presentation timestamps from the required decoder manifest.
 `);
 }

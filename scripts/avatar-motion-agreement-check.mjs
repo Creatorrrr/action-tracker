@@ -86,6 +86,7 @@ async function main() {
           referenceRecording,
           browserMode: chrome.browserMode,
           browserProduct: chrome.browserVersion.product,
+          poseModel: args.poseModel ?? "full",
         });
         const resultWithVideo = {
           videoLabel: video.label,
@@ -135,6 +136,10 @@ async function main() {
         trackingWorker: args.trackingWorker ?? null,
         smoothing: args.smoothing ?? null,
         avatarRetarget: args.avatarRetarget ?? null,
+        skeletonMode: args.skeletonMode ?? "legacy-hybrid",
+        poseModel: args.poseModel ?? "full",
+        videoTimingMode: args.videoTimingMode ?? "adaptive-playback",
+        inputMaxDimension: args.inputMaxDimension ?? 640,
         measurementOnly: Boolean(args.measurementOnly),
         minPoseFrames: args.minPoseFrames ?? defaults.minPoseFrames,
         warmupPoseFrames: args.warmupPoseFrames ?? defaults.warmupPoseFrames,
@@ -165,7 +170,9 @@ async function main() {
       }
       process.exitCode = 1;
     } else {
-      console.log("Avatar motion agreement check passed.");
+      console.log(args.measurementOnly
+        ? "Avatar measurement collection completed; quality gates were not enforced."
+        : "Avatar motion agreement check passed.");
       if (outputPath) {
         console.log(`Report: ${path.relative(projectRoot, outputPath)}`);
       }
@@ -215,6 +222,18 @@ function parseArgs(rawArgs) {
       parsed.trackingWorker = rawArgs[++index];
     } else if (arg === "--smoothing") {
       parsed.smoothing = rawArgs[++index];
+    } else if (arg === "--skeleton-mode") {
+      parsed.skeletonMode = readRequiredOptionValue(rawArgs, ++index, arg);
+      if (!["legacy-hybrid", "canonical-world"].includes(parsed.skeletonMode)) throw new Error("Unsupported skeleton mode");
+    } else if (arg === "--pose-model") {
+      parsed.poseModel = readRequiredOptionValue(rawArgs, ++index, arg);
+      if (!["lite", "full", "heavy"].includes(parsed.poseModel)) throw new Error("Unsupported pose model");
+    } else if (arg === "--video-timing") {
+      parsed.videoTimingMode = readRequiredOptionValue(rawArgs, ++index, arg);
+      if (!["adaptive-playback", "realtime"].includes(parsed.videoTimingMode)) throw new Error("Unsupported video timing mode");
+    } else if (arg === "--input-max-dimension") {
+      parsed.inputMaxDimension = Number(readRequiredOptionValue(rawArgs, ++index, arg));
+      if (![640, 960, 1280, 1920].includes(parsed.inputMaxDimension)) throw new Error("Unsupported input maximum dimension");
     } else if (arg === "--avatar-retarget" || arg === "--retarget-mode") {
       parsed.avatarRetarget = rawArgs[++index];
     } else if (arg === "--measurement-only") {
@@ -318,6 +337,10 @@ function buildAppUrl(port, args) {
     url.searchParams.set("avatar-retarget", args.avatarRetarget);
   }
 
+  if (args.skeletonMode) url.searchParams.set("skeleton-mode", args.skeletonMode);
+  if (args.videoTimingMode) url.searchParams.set("video-timing", args.videoTimingMode);
+  if (args.inputMaxDimension) url.searchParams.set("input-max-dimension", String(args.inputMaxDimension));
+
   return url.href;
 }
 
@@ -357,6 +380,10 @@ function printUsage() {
   node scripts/avatar-motion-agreement-check.mjs --model "VRoid A=assets/models/vroid/a.vrm"
 
 Options:
+  --pose-model <key>         Detector: lite, full (default), or heavy. Selected before video initialization.
+  --skeleton-mode <mode>     legacy-hybrid (default) or canonical-world.
+  --video-timing <mode>      adaptive-playback (default) or realtime (never pause input for inference backlog).
+  --input-max-dimension <n>  Bounded Body/Hand snapshot: 640 (default), 960, 1280, or 1920. Face remains separate.
   --video <path>             Sample video path. Repeat for a multi-video matrix. Default: ${defaults.video}
   --model <label=path>       Add a model on top of the local defaults.
   --only-models              Run only models passed with --model.
@@ -775,6 +802,7 @@ async function runModelCheck({
   referenceRecording = null,
   browserMode = defaults.browserMode,
   browserProduct = "",
+  poseModel = "full",
 }) {
   const page = await createPage(debugPort, appUrl);
   const client = new CdpClient(page.webSocketDebuggerUrl);
@@ -786,6 +814,14 @@ async function runModelCheck({
     await client.send("DOM.enable");
     await waitForExpression(client, "document.readyState === 'complete' || document.readyState === 'interactive'", timeoutMs);
     await waitForAvatarReady(client, timeoutMs);
+
+    await evaluate(client, `(() => {
+      const select = document.querySelector("#model-select");
+      if (!select) throw new Error("Pose model selector missing");
+      select.value = ${JSON.stringify(poseModel)};
+      if (select.value !== ${JSON.stringify(poseModel)}) throw new Error("Pose model unavailable");
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    })()`);
 
     if (model.path) {
       await setFileInput(client, "#avatar-file-input", path.resolve(projectRoot, model.path));

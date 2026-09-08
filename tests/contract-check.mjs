@@ -88,13 +88,13 @@ const files = {
 const mediaPipeVersion = "0.10.35";
 const threeVersion = "0.184.0";
 const threeVrmVersion = "3.5.4";
-const appRuntimeToken = "20260717-face-gap-release-1";
+const appRuntimeToken = "20260908-realtime-evaluation-1";
 const auxiliaryInferenceArbiterRuntimeToken = "20260716-capacity2-bounded-wait-2";
 const faceObservationMaturationRuntimeToken =
   "20260716-face-source-slot-maturation-1";
 const boundedFrameSnapshotRuntimeToken = "20260716-face512-1";
-const motionRecordingRuntimeToken = "20260716-recording-chunks-1";
-const avatarRuntimeToken = "20260717-face-gap-release-1";
+const motionRecordingRuntimeToken = "20260908-raw-observations-1";
+const avatarRuntimeToken = "20260908-canonical-world-1";
 const rigLocalRotationRuntimeToken =
   "20260715-causal-arm-local-rate-1";
 const trackingCadenceRuntimeToken = "20260716-face-slots-1";
@@ -106,7 +106,7 @@ const faceWorkerRuntimeToken = "20260716-cpu-face-1";
 const latestFramePumpRuntimeToken = "20260716-pending-settlement-1";
 const trackingInputGenerationRuntimeToken = "20260717-prewarmed-pose-pool-1";
 const videoPlaybackBackpressureRuntimeToken =
-  "20260716-body-tail-hysteresis-1";
+  "20260908-realtime-evaluation-1";
 const handWorkerRuntimeToken = "20260715-current-pose-image-roi-1";
 
 const requiredTrackerDomIds = [
@@ -554,7 +554,7 @@ function checkSyntax(relativePath) {
 
 function checkPackageContract(packageJson) {
   check(
-    packageJson?.scripts?.check === "node tests/contract-check.mjs && node tests/canonical-skeleton-adapter-check.mjs && node tests/avatar-vrm-rendering-compat-check.mjs && node tests/avatar-vrm-humanoid-check.mjs && node tests/avatar-vrm-expression-check.mjs && node tests/avatar-applied-state-check.mjs && node tests/latest-frame-pump-check.mjs && node tests/tracking-input-generation-check.mjs && node tests/tracking-cadence-check.mjs && node tests/tracking-runtime-options-check.mjs && node tests/hand-roi-check.mjs && node tests/retarget-orientation-check.mjs && node tests/face-head-pose-check.mjs && node tests/causal-finger-flex-check.mjs && node tests/strict-retarget-check.mjs && node tests/depth-calibration-check.mjs && node tests/motion-frame-check.mjs && node tests/motion-forwarding-check.mjs && node tests/presence-state-check.mjs && node tests/facing-estimator-check.mjs && node tests/solver-synthetic-check.mjs && node tests/sam-manual-labels-check.mjs && node tests/motion-recording-compare-check.mjs && node tests/retarget-mode-compare-check.mjs && node tests/mhr70-mapping-check.mjs && node tests/mhr70-hands-check.mjs && node tests/gesture-classifier-check.mjs && node tests/sam-reference-labeler-check.mjs && node tests/sam-calibration-profile-check.mjs && node tests/sam-regression-oracle-check.mjs && node tests/hmr-jsonl-adapter-check.mjs && node tests/clip-manifest-check.mjs",
+    packageJson?.scripts?.check === "node tests/contract-check.mjs && node tests/canonical-skeleton-adapter-check.mjs && node tests/canonical-pose-check.mjs && node tests/avatar-vrm-rendering-compat-check.mjs && node tests/avatar-vrm-humanoid-check.mjs && node tests/avatar-vrm-expression-check.mjs && node tests/avatar-applied-state-check.mjs && node tests/latest-frame-pump-check.mjs && node tests/tracking-input-generation-check.mjs && node tests/tracking-cadence-check.mjs && node tests/tracking-runtime-options-check.mjs && node tests/hand-roi-check.mjs && node tests/retarget-orientation-check.mjs && node tests/face-head-pose-check.mjs && node tests/causal-finger-flex-check.mjs && node tests/strict-retarget-check.mjs && node tests/depth-calibration-check.mjs && node tests/motion-frame-check.mjs && node tests/motion-forwarding-check.mjs && node tests/presence-state-check.mjs && node tests/facing-estimator-check.mjs && node tests/solver-synthetic-check.mjs && node tests/sam-manual-labels-check.mjs && node tests/motion-recording-compare-check.mjs && node tests/retarget-mode-compare-check.mjs && node tests/mhr70-mapping-check.mjs && node tests/mhr70-hands-check.mjs && node tests/gesture-classifier-check.mjs && node tests/sam-reference-labeler-check.mjs && node tests/sam-calibration-profile-check.mjs && node tests/sam-regression-oracle-check.mjs && node tests/hmr-jsonl-adapter-check.mjs && node tests/clip-manifest-check.mjs",
     "package.json: check script must run the contract, rendering, applied-state, latest-frame pump, tracker generation, tracking cadence, retarget, solver, recording, and SAM regression checks",
   );
   check(
@@ -1066,11 +1066,11 @@ function checkAvatarRendererContract(avatarRenderer) {
     ],
     [
       "drives all retarget paths from one causal frame clock while preserving capture time",
-      /function\s+update\s*\([^)]*\)[\s\S]*?const\s+frameTimestamp\s*=\s*frame\?\.timestamp\s*\?\?\s*timestamp[\s\S]*?const\s+causalFrameTimestampMs\s*=\s*resolveCausalSourceTimestampMs\([\s\S]*?updateDelta\(\s*causalFrameTimestampMs\s*\)[\s\S]*?applyPose\([\s\S]*?causalFrameTimestampMs\s*,\s*\)[\s\S]*?applyFaceHeadPose\([^;]*causalFrameTimestampMs\s*\)[\s\S]*?applyPoseOwnedHandOrientations\([\s\S]*?causalFrameTimestampMs\s*,?\s*\)[\s\S]*?captureAppliedAvatarState\(\s*\{[\s\S]*?sourceTimestampMs\s*:\s*frameTimestamp/,
+      /function\s+update\s*\([^)]*\)[\s\S]*?const\s+frameTimestamp\s*=\s*frame\?\.timestamp\s*\?\?\s*timestamp[\s\S]*?const\s+causalFrameTimestampMs\s*=\s*resolveCausalSourceTimestampMs\([\s\S]*?updateDelta\(\s*causalFrameTimestampMs\s*\)[\s\S]*?applyPose\([\s\S]*?causalFrameTimestampMs\s*,\s*canonicalPose\s*,\s*\)[\s\S]*?applyFaceHeadPose\([^;]*causalFrameTimestampMs\s*\)[\s\S]*?applyPoseOwnedHandOrientations\([\s\S]*?causalFrameTimestampMs\s*,?\s*\)[\s\S]*?captureAppliedAvatarState\(\s*\{[\s\S]*?sourceTimestampMs\s*:\s*frameTimestamp/,
     ],
     [
       "shares the causal pose cache clock across body and depth validation snapshots",
-      /function\s+getBodyValidationSnapshotInternal\s*\([^)]*\)[\s\S]*?const\s+causalFrameTimestampMs\s*=\s*resolveCausalSourceTimestampMs\(\s*frame\?\.sourceMeta\s*,\s*frameTimestamp\s*,?\s*\)[\s\S]*?getPoseFramePoints\([\s\S]*?causalFrameTimestampMs\s*,[\s\S]*?timestamp\s*:\s*frameTimestamp[\s\S]*?function\s+getDepthValidationSnapshotInternal\s*\([^)]*\)[\s\S]*?const\s+causalFrameTimestampMs\s*=\s*resolveCausalSourceTimestampMs\(\s*frame\?\.sourceMeta\s*,\s*frameTimestamp\s*,?\s*\)[\s\S]*?getPoseFramePoints\([\s\S]*?causalFrameTimestampMs\s*,[\s\S]*?timestamp\s*:\s*frameTimestamp/,
+      /function\s+getBodyValidationSnapshotInternal\s*\([^)]*\)[\s\S]*?const\s+causalFrameTimestampMs\s*=\s*resolveCausalSourceTimestampMs\(\s*frame\?\.sourceMeta\s*,\s*frameTimestamp\s*,\s*Boolean\(frame\?\.canonicalPose\)\s*\|\|\s*options\.skeletonMode\s*===\s*CANONICAL_WORLD_MODE\s*,\s*\)[\s\S]*?getPoseFramePoints\([\s\S]*?causalFrameTimestampMs\s*,[\s\S]*?timestamp\s*:\s*frameTimestamp[\s\S]*?function\s+getDepthValidationSnapshotInternal\s*\([^)]*\)[\s\S]*?const\s+causalFrameTimestampMs\s*=\s*resolveCausalSourceTimestampMs\(\s*frame\?\.sourceMeta\s*,\s*frameTimestamp\s*,\s*Boolean\(frame\?\.canonicalPose\)\s*\|\|\s*options\.skeletonMode\s*===\s*CANONICAL_WORLD_MODE\s*,\s*\)[\s\S]*?getPoseFramePoints\([\s\S]*?causalFrameTimestampMs\s*,[\s\S]*?timestamp\s*:\s*frameTimestamp/,
     ],
     ["initializes solver facing and recovery timestamps without fabricated samples", /const\s+poseSolverState\s*=\s*\{\s*facing\s*:\s*undefined[\s\S]*?const\s+strictPoseSolverState\s*=\s*\{\s*facing\s*:\s*undefined[\s\S]*?const\s+trackingRecovery\s*=\s*\{[\s\S]*?lastLostAt\s*:\s*null[\s\S]*?reacquiredAt\s*:\s*null/],
     [

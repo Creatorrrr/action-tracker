@@ -76,6 +76,9 @@ export function serializeMotionFrame(frame) {
     rightHandLandmarks: cloneLandmarkList(frame.rightHandLandmarks),
     leftHandWorldLandmarks: cloneLandmarkList(frame.leftHandWorldLandmarks),
     rightHandWorldLandmarks: cloneLandmarkList(frame.rightHandWorldLandmarks),
+    ...(frame.rawPoseObservation ? { rawPoseObservation: clonePosePayload(frame.rawPoseObservation) } : {}),
+    ...(frame.rawSamObservation ? { rawSamObservation: clonePosePayload(frame.rawSamObservation) } : {}),
+    ...(frame.canonicalPose ? { canonicalPose: clonePosePayload(frame.canonicalPose) } : {}),
     sourceMeta: clonePlainObject(frame.sourceMeta),
     face: normalizeFace(frame.face),
   };
@@ -669,6 +672,11 @@ function cloneLandmarkList(landmarks) {
   });
 }
 
+function clonePosePayload(value) {
+  assertNoEmbeddedMotionBinary(value, "posePayload");
+  return JSON.parse(JSON.stringify(value));
+}
+
 function clonePlainObject(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return {};
@@ -699,8 +707,12 @@ function normalizeSourceToken(value) {
 function assertExternalMotionFrame(frame, index) {
   const prefix = `frames[${index}]`;
 
-  assertLandmarkCount(frame.poseLandmarks, 33, `${prefix}.poseLandmarks`);
-  assertLandmarkCount(frame.poseWorldLandmarks, 33, `${prefix}.poseWorldLandmarks`);
+  const missingPose = frame.sourceMeta?.observationStatus === "missing" &&
+    frame.poseLandmarks === null && frame.poseWorldLandmarks === null;
+  if (!missingPose) {
+    assertLandmarkCount(frame.poseLandmarks, 33, `${prefix}.poseLandmarks`);
+    assertLandmarkCount(frame.poseWorldLandmarks, 33, `${prefix}.poseWorldLandmarks`);
+  }
 
   if (frame.leftHandLandmarks !== null) {
     assertLandmarkCount(frame.leftHandLandmarks, 21, `${prefix}.leftHandLandmarks`);

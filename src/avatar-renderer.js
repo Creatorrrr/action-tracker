@@ -13,8 +13,11 @@ import {
 } from './vrm-humanoid-mapping.js';
 import {
   ARM_MAX_ANGULAR_VELOCITY_DEG_PER_SEC,
+  buildPosePoints as buildSolverPosePoints,
+  canonicalFacingOptions,
   solvePoseTargetsFromPoints,
-} from './solver/pose-solver.js?v=20260715-causal-arm-local-rate-1';
+} from './solver/pose-solver.js?v=20260908-canonical-world-1';
+import { CANONICAL_WORLD_MODE, buildCanonicalPose, canonicalFrameTimestampMs } from './pose/canonical-pose.js';
 import {
   DEPTH_CALIBRATION_CLAMP_WARNING_RATIO,
   DEPTH_CALIBRATION_LENGTH_ERROR_THRESHOLD,
@@ -683,6 +686,7 @@ export function createAvatarRenderer(options = {}) {
   let failed = false;
   let lastUpdateTime = null;
   let lastVrmRenderUpdateTime = 0;
+  let lastCanonicalPose = null;
   let skeletonVisible = Boolean(options.showSkeleton);
   let landmarkDepthScale = normalizeDepthScale(options.depthScale ?? DEFAULT_LANDMARK_DEPTH_SCALE);
   let depthCalibrationMode = normalizeDepthCalibrationMode(options.depthCalibrationMode);
@@ -970,6 +974,7 @@ export function createAvatarRenderer(options = {}) {
       const causalFrameTimestampMs = resolveCausalSourceTimestampMs(
         frame?.sourceMeta,
         frameTimestamp,
+        Boolean(frame?.canonicalPose) || options.skeletonMode === CANONICAL_WORLD_MODE,
       );
       const frameMirrored = frame?.mirrored ?? mirrored;
       const delta = updateDelta(causalFrameTimestampMs);
@@ -977,6 +982,8 @@ export function createAvatarRenderer(options = {}) {
       const poseLandmarks = frame?.poseLandmarks ?? extractPoseLandmarks(poseResults);
       const worldLandmarks = frame?.poseWorldLandmarks ?? extractWorldPoseLandmarks(poseResults);
       const hands = frame ? extractMotionFrameHands(frame) : extractHands(handResults, frameMirrored);
+      const canonicalPose = resolveCanonicalInput(frame, poseLandmarks, worldLandmarks, frameMirrored);
+      lastCanonicalPose = canonicalPose;
 
       removeAppliedFaceHeadPoseDeltas();
 
@@ -987,6 +994,7 @@ export function createAvatarRenderer(options = {}) {
           delta,
           worldLandmarks,
           causalFrameTimestampMs,
+          canonicalPose,
         );
       } else {
         resetFootContactState('pose-missing');
@@ -1020,7 +1028,8 @@ export function createAvatarRenderer(options = {}) {
     }
   }
 
-  function resolveCausalSourceTimestampMs(sourceMeta, fallbackTimestampMs) {
+  function resolveCausalSourceTimestampMs(sourceMeta, fallbackTimestampMs, canonical = false) {
+    if (canonical) return canonicalFrameTimestampMs({ sourceMeta, timestamp: fallbackTimestampMs });
     const sourcePtsSec = numberOrNull(
       sourceMeta?.sourcePtsSec ?? sourceMeta?.videoTime,
     );
@@ -1064,6 +1073,7 @@ export function createAvatarRenderer(options = {}) {
     const causalFrameTimestampMs = resolveCausalSourceTimestampMs(
       frame?.sourceMeta,
       frameTimestamp,
+      Boolean(frame?.canonicalPose) || options.skeletonMode === CANONICAL_WORLD_MODE,
     );
     const frameMirrored = frame?.mirrored ?? mirrored;
 
@@ -1095,6 +1105,7 @@ export function createAvatarRenderer(options = {}) {
       worldLandmarks,
       causalFrameTimestampMs,
       FIRST_UPDATE_DELTA_MS,
+      resolveCanonicalInput(frame, poseLandmarks, worldLandmarks, frameMirrored),
     );
     const segments = BODY_VALIDATION_SEGMENTS
       .map((segment) => getValidationSegment(segment, points))
@@ -1205,6 +1216,7 @@ export function createAvatarRenderer(options = {}) {
     const causalFrameTimestampMs = resolveCausalSourceTimestampMs(
       frame?.sourceMeta,
       frameTimestamp,
+      Boolean(frame?.canonicalPose) || options.skeletonMode === CANONICAL_WORLD_MODE,
     );
     const frameMirrored = frame?.mirrored ?? mirrored;
 
@@ -1232,20 +1244,23 @@ export function createAvatarRenderer(options = {}) {
     }
 
     model?.updateWorldMatrix(true, true);
+    const canonicalPose = resolveCanonicalInput(frame, poseLandmarks, worldLandmarks, frameMirrored);
     const poseFrame = getPoseFramePoints(
       poseLandmarks,
       frameMirrored,
       worldLandmarks,
       causalFrameTimestampMs,
       FIRST_UPDATE_DELTA_MS,
+      canonicalPose,
     );
-    const referencePoints = isDynamicDepthCalibrationActive()
+    const referencePoints = canonicalPose || isDynamicDepthCalibrationActive()
       ? poseFrame.points
       : buildPosePoints(poseLandmarks, frameMirrored, {
         depthScale: DEPTH_REFERENCE_SCALE,
         worldLandmarks,
       });
-    const flatPoints = buildPosePoints(poseLandmarks, frameMirrored, {
+    const flatPoints = canonicalPose ? Object.fromEntries(Object.entries(referencePoints).map(([name, point]) =>
+      [name, point ? copyPointMetadata(point, new THREE.Vector3(point.x, point.y, 0)) : null])) : buildPosePoints(poseLandmarks, frameMirrored, {
       depthScale: 0,
       worldLandmarks,
     });
@@ -1256,15 +1271,15 @@ export function createAvatarRenderer(options = {}) {
     return {
       ready: true,
       timestamp: frameTimestamp,
-      depthScale: landmarkDepthScale,
-      referenceDepthScale: isDynamicDepthCalibrationActive() ? landmarkDepthScale : DEPTH_REFERENCE_SCALE,
-      selfReferential: isDynamicDepthCalibrationActive() || Math.abs(landmarkDepthScale - DEPTH_REFERENCE_SCALE) < 0.000001,
-      measurementMode: isDynamicDepthCalibrationActive()
+      depthScale: canonicalPose ? 1 : landmarkDepthScale,
+      referenceDepthScale: canonicalPose ? 1 : isDynamicDepthCalibrationActive() ? landmarkDepthScale : DEPTH_REFERENCE_SCALE,
+      selfReferential: Boolean(canonicalPose) || isDynamicDepthCalibrationActive() || Math.abs(landmarkDepthScale - DEPTH_REFERENCE_SCALE) < 0.000001,
+      measurementMode: canonicalPose ? 'canonical_source_to_avatar_residual' : isDynamicDepthCalibrationActive()
         ? 'retarget_residual_against_dynamically_calibrated_depth'
         : Math.abs(landmarkDepthScale - DEPTH_REFERENCE_SCALE) < 0.000001
         ? 'retarget_residual_against_same_mediapipe_depth_signal'
         : 'candidate_depth_scale_against_mediapipe_depth_reference',
-      depthSource: worldLandmarks ? 'worldLandmarks' : 'landmark.z',
+      depthSource: canonicalPose ? CANONICAL_WORLD_MODE : worldLandmarks ? 'worldLandmarks' : 'landmark.z',
       segments,
       summary: summarizeDepthValidationSegments(segments),
       depthCalibration: getDepthCalibrationSnapshot(),
@@ -1272,6 +1287,7 @@ export function createAvatarRenderer(options = {}) {
   }
 
   function resetPose(options = {}) {
+    lastCanonicalPose = null;
     const preserveCalibration = Boolean(options.preserveCalibration);
 
     if (!preserveCalibration) {
@@ -1365,6 +1381,7 @@ export function createAvatarRenderer(options = {}) {
         proportionCalibration: activeModelProfile.proportionCalibration,
       },
       retargetMode: activeRetargetMode,
+      skeletonMode: lastCanonicalPose?.mode ?? 'legacy-hybrid',
       retargetSmoothing: {
         mode: activeSmoothingMode,
         enabled: activeSmoothingMode !== AVATAR_SMOOTHING_MODE_OFF,
@@ -1550,6 +1567,7 @@ export function createAvatarRenderer(options = {}) {
         label: modelLabel,
       },
       retargetMode: activeRetargetMode,
+      canonicalPose: lastCanonicalPose ? JSON.parse(JSON.stringify(lastCanonicalPose)) : null,
       rootMotion: {
         frames: rootMotion.frames,
         frozen: rootMotion.frozen,
@@ -2727,7 +2745,17 @@ export function createAvatarRenderer(options = {}) {
     resetOrbitCamera();
   }
 
-  function getPoseFramePoints(landmarks, mirrored, worldLandmarks, timestamp = 0, delta = FIRST_UPDATE_DELTA_MS) {
+  function resolveCanonicalInput(frame, landmarks, worldLandmarks, mirrored) {
+    return frame?.canonicalPose ?? (options.skeletonMode === CANONICAL_WORLD_MODE
+      ? buildCanonicalPose({ ...frame, poseLandmarks: landmarks, poseWorldLandmarks: worldLandmarks, mirrored })
+      : null);
+  }
+
+  function getPoseFramePoints(landmarks, mirrored, worldLandmarks, timestamp = 0, delta = FIRST_UPDATE_DELTA_MS, canonicalPose = null) {
+    if (canonicalPose) {
+      const points = clonePosePoints(buildSolverPosePoints({ canonicalPose }));
+      return { points, rawPoints: points, depthCalibration: null };
+    }
     const frameKey = `${Number(timestamp).toFixed(3)}|${mirrored ? 1 : 0}|${landmarkDepthScale}|${depthCalibrationMode}`;
 
     if (depthCalibration.lastFrameKey === frameKey && depthCalibration.lastPoints) {
@@ -3001,7 +3029,7 @@ export function createAvatarRenderer(options = {}) {
     );
   }
 
-  function applyPose(landmarks, mirrored, delta, worldLandmarks = null, timestamp = 0) {
+  function applyPose(landmarks, mirrored, delta, worldLandmarks = null, timestamp = 0, canonicalPose = null) {
     const strictModeActive = activeRetargetMode === RETARGET_MODE_STRICT;
     const { points: sourcePoints } = getPoseFramePoints(
       landmarks,
@@ -3009,10 +3037,11 @@ export function createAvatarRenderer(options = {}) {
       worldLandmarks,
       timestamp,
       delta,
+      canonicalPose,
     );
-    const points = normalizePosePointsToAvatarProportions(sourcePoints);
+    const points = canonicalPose ? sourcePoints : normalizePosePointsToAvatarProportions(sourcePoints);
     const limbPlaneNormals = computeLimbPlaneNormals(points);
-    const facingOptions = {
+    const facingOptions = canonicalPose ? canonicalFacingOptions(canonicalPose) : {
       facingYawOffsetDeg: mirrored
         ? MIRRORED_HYBRID_FACING_YAW_OFFSET_DEG
         : UNMIRRORED_HYBRID_FACING_YAW_OFFSET_DEG,
