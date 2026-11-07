@@ -17,7 +17,10 @@ import {
   canonicalFacingOptions,
   solvePoseTargetsFromPoints,
 } from './solver/pose-solver.js?v=20260908-canonical-world-1';
-import { CANONICAL_WORLD_MODE, buildCanonicalPose, canonicalFrameTimestampMs } from './pose/canonical-pose.js';
+import { CANONICAL_WORLD_MODE, buildCanonicalPose, buildCanonicalPosePoints, canonicalFrameTimestampMs } from './pose/canonical-pose.js';
+import { palmFrameFromPoints, hand21PalmFrame, handObservationTiming, selectConsistentPalmBasis } from './pose/palm-frame.js';
+import { reprojectCanonicalPose } from './pose/reprojection-pose.js';
+import { createPalmObservationState, evaluatePalmReacquisition } from './retarget/palm-reacquisition.js';
 import {
   DEPTH_CALIBRATION_CLAMP_WARNING_RATIO,
   DEPTH_CALIBRATION_LENGTH_ERROR_THRESHOLD,
@@ -744,6 +747,7 @@ export function createAvatarRenderer(options = {}) {
     Left: createCausalQuaternionTargetState(),
     Right: createCausalQuaternionTargetState(),
   };
+  const palmObservationHistory = { Left: createPalmObservationState(), Right: createPalmObservationState() };
   const strictPoseHandLocalHold = {
     Left: null,
     Right: null,
@@ -982,7 +986,13 @@ export function createAvatarRenderer(options = {}) {
       const poseLandmarks = frame?.poseLandmarks ?? extractPoseLandmarks(poseResults);
       const worldLandmarks = frame?.poseWorldLandmarks ?? extractWorldPoseLandmarks(poseResults);
       const hands = frame ? extractMotionFrameHands(frame) : extractHands(handResults, frameMirrored);
-      const canonicalPose = resolveCanonicalInput(frame, poseLandmarks, worldLandmarks, frameMirrored);
+      const canonicalPose = options.reprojectInput3D && frame
+        ? reprojectCanonicalPose(frame, options.sourceImageSize ?? {
+          width: frame.sourceMeta?.sourceImageWidth, height: frame.sourceMeta?.sourceImageHeight })
+        : resolveCanonicalInput(frame, poseLandmarks, worldLandmarks, frameMirrored);
+      const refineHead = options.headDirectionMode && options.headDirectionMode !== 'off';
+      const accuracyPoints = frame && (options.regionalDirectionWeight || refineHead)
+        ? buildCanonicalPosePoints({ canonicalPose: buildCanonicalPose(frame) }) : null;
       lastCanonicalPose = canonicalPose;
 
       removeAppliedFaceHeadPoseDeltas();
@@ -995,6 +1005,7 @@ export function createAvatarRenderer(options = {}) {
           worldLandmarks,
           causalFrameTimestampMs,
           canonicalPose,
+          accuracyPoints,
         );
       } else {
         resetFootContactState('pose-missing');
@@ -1006,6 +1017,7 @@ export function createAvatarRenderer(options = {}) {
         worldLandmarks,
         frameMirrored,
         causalFrameTimestampMs,
+        frame,
       );
       applyHands(hands, frameMirrored, delta, poseOwnedHandSides, {
         frameSourcePtsSec: sourcePtsSec,
@@ -1487,6 +1499,24 @@ export function createAvatarRenderer(options = {}) {
     }
 
     const hips = getBone('Hips');
+    const palms = {};
+    for (const side of ['Left', 'Right']) {
+      const positions = ['Hand', 'HandIndex1', 'HandMiddle1', 'HandPinky1'].map(suffix =>
+        getBone(`${side}${suffix}`)?.getWorldPosition(new THREE.Vector3()) ?? null);
+      const [wrist, index, middle, pinky] = positions;
+      const world = palmFrameFromPoints({ wrist, index, middle, pinky, side });
+      const local = positions.map(point => point?.clone().applyMatrix4(modelWorldInverse) ?? null);
+      const modelLocal = palmFrameFromPoints({ wrist: local[0], index: local[1], middle: local[2], pinky: local[3], side });
+      palms[side] = { world, modelLocal };
+    }
+    const headBone = getBone('Head');
+    const headTip = headBone?.children.find(child => /HeadTop_End$/.test(child.name));
+    const headCrownAxisWorld = headTip && headBone
+      ? headTip.getWorldPosition(new THREE.Vector3()).sub(headBone.getWorldPosition(new THREE.Vector3())).normalize()
+      : null;
+    const headBindUpAxisWorld = headBone && getBoneRest(headBone)?.bindUpAxisLocal
+      ? getBoneRest(headBone).bindUpAxisLocal.clone().applyQuaternion(headBone.getWorldQuaternion(new THREE.Quaternion())).normalize()
+      : null;
     const snapshotCapturedAtMonotonicMs = nowMs();
 
     return {
@@ -1502,6 +1532,9 @@ export function createAvatarRenderer(options = {}) {
           : null,
       },
       modelHeight,
+      headCrownAxisWorld,
+      headBindUpAxisWorld,
+      palms,
       root: {
         model: captureLocalTransform(model),
         hips: hips ? captureLocalAndWorldTransform(hips) : null,
@@ -1509,6 +1542,8 @@ export function createAvatarRenderer(options = {}) {
       bones: capturedBones,
       fkEndpoints,
       coverage: {
+        palms: buildAppliedStateCoverage(2, Object.values(palms).filter(palm => palm.world && palm.modelLocal).length,
+          ['Left', 'Right'].filter(side => !palms[side]?.world || !palms[side]?.modelLocal)),
         canonicalBones: buildAppliedStateCoverage(
           KNOWN_AVATAR_BONE_NAMES.size,
           Object.keys(capturedBones).length,
@@ -2223,6 +2258,11 @@ export function createAvatarRenderer(options = {}) {
           .normalize();
         rest = {
           quaternion: restLocalRotation,
+          // Diagnostic model +Y in the bone's bind frame. This is not a proof
+          // of the visible mesh's anatomical up direction; visual gating is required.
+          bindUpAxisLocal: new THREE.Vector3(0, 1, 0)
+            .applyQuaternion(model.getWorldQuaternion(new THREE.Quaternion()))
+            .applyQuaternion(restWorldRotation.clone().invert()).normalize(),
           position: bone.position.clone(),
           axisLocal,
           secondaryAxisLocal,
@@ -3029,7 +3069,7 @@ export function createAvatarRenderer(options = {}) {
     );
   }
 
-  function applyPose(landmarks, mirrored, delta, worldLandmarks = null, timestamp = 0, canonicalPose = null) {
+  function applyPose(landmarks, mirrored, delta, worldLandmarks = null, timestamp = 0, canonicalPose = null, accuracyPoints = null) {
     const strictModeActive = activeRetargetMode === RETARGET_MODE_STRICT;
     const { points: sourcePoints } = getPoseFramePoints(
       landmarks,
@@ -3080,6 +3120,22 @@ export function createAvatarRenderer(options = {}) {
 
     const solverSnapshot = createPoseSolverSnapshot(solvedPose);
     const solvedTargetsByBone = new Map(retargetSolvedPose.targets.map((target) => [target.bone, target]));
+    if (accuracyPoints && options.regionalDirectionWeight) {
+      for (const [bone, solved] of solvedTargetsByBone) {
+        const target = BODY_RETARGET_BY_BONE.get(bone);
+        const part = ['Hips', 'Spine', 'Spine1', 'Spine2'].includes(bone) ? 'torso'
+          : ['LeftArm', 'LeftForeArm', 'RightArm', 'RightForeArm'].includes(bone) ? 'arms'
+            : STRICT_LOWER_BODY_BONES.has(bone) ? 'legs' : null;
+        const weight = clamp01(options.regionalDirectionWeight[part] ?? 0);
+        const rawDirection = target && directionBetween(accuracyPoints[target.from], accuracyPoints[target.to]);
+        if (!weight || !rawDirection) continue;
+        const previous = resolveStrictTargetDirection(solved).clone().normalize();
+        // Large disagreements are ambiguous, so retain the established source.
+        if (previous.angleTo(rawDirection) > THREE.MathUtils.degToRad(100)) continue;
+        const fused = previous.lerp(rawDirection.clone().normalize(), weight).normalize();
+        solved.regionalDirection = plainVector(fused);
+      }
+    }
     const reacquireBlend = updateTrackingRecoveryState(retargetSolvedPose.meta.mode, timestamp);
 
     if (retargetSolvedPose.meta.mode === 'lost') {
@@ -3210,6 +3266,10 @@ export function createAvatarRenderer(options = {}) {
         deadband: strictModeActive ? undefined : profile?.deadband,
         hysteresis: strictModeActive ? undefined : profile?.hysteresis,
       });
+      if (strictModeActive && accuracyPoints && options.headDirectionMode && options.headDirectionMode !== 'off' &&
+          (target.bone === 'Head' || (target.bone === 'Neck' && options.headDirectionMode === 'head-neck'))) {
+        alignObservedHeadAxis(target.bone, directionBetween(accuracyPoints[target.from], accuracyPoints[target.to]), delta);
+      }
     }
 
     applyRootMotion(landmarks, mirrored, delta);
@@ -3628,6 +3688,10 @@ export function createAvatarRenderer(options = {}) {
   }
 
   function resolveStrictTargetDirection(solvedTarget) {
+    if (solvedTarget.regionalDirection) {
+      const direction = solvedTarget.regionalDirection;
+      return tmpVectorC.set(direction.x, direction.y, direction.z);
+    }
     const direction = anatomyConstraintsEnabled
       ? solvedTarget.constrainedDirection ?? solvedTarget.direction
       : solvedTarget.rawDirection ?? solvedTarget.direction;
@@ -4245,6 +4309,12 @@ export function createAvatarRenderer(options = {}) {
     resetStrictFingerRootTrackingSide('Right');
     resetCausalQuaternionTargetState(strictPoseHandTracking.Left);
     resetCausalQuaternionTargetState(strictPoseHandTracking.Right);
+    palmObservationHistory.Left = createPalmObservationState();
+    palmObservationHistory.Right = createPalmObservationState();
+    for (const side of ['Left', 'Right']) {
+      strictPoseHandTracking[side].previousObservedRotation = null;
+      strictPoseHandTracking[side].previousObservedAt = null;
+    }
     strictPoseHandLocalHold.Left = null;
     strictPoseHandLocalHold.Right = null;
     strictPoseHandParentWorld.Left = null;
@@ -4899,6 +4969,7 @@ export function createAvatarRenderer(options = {}) {
     worldLandmarks,
     mirrored,
     timestamp,
+    motionFrame = null,
   ) {
     const appliedSides = new Set();
 
@@ -4912,7 +4983,12 @@ export function createAvatarRenderer(options = {}) {
       const boneNameKey = `${side}Hand`;
       const tracking = strictPoseHandTracking[side];
       transportPoseHandCausalStateWithParent(side, boneNameKey, tracking);
-      const basis = buildPoseWorldHandBasis(worldLandmarks, side, mirrored);
+      const handPoseWorld = options.palmObservationMode
+        ? motionFrame?.rawPoseObservation?.poseWorldLandmarks ?? worldLandmarks : worldLandmarks;
+      const poseBasis = buildPoseWorldHandBasis(handPoseWorld, side, mirrored);
+      const basis = options.palmObservationMode === 'pose-consistent-hand21'
+        ? selectConsistentPalmBasis(poseBasis, hand21PalmFrame(motionFrame, side), handObservationTiming(motionFrame, side))
+        : poseBasis;
       const solved = basis.valid
         ? solveStrictRigLocalRotation(
             boneNameKey,
@@ -4923,13 +4999,26 @@ export function createAvatarRenderer(options = {}) {
       const solvedWorldRotation = solved.valid
         ? strictLocalRotationToWorld(boneNameKey, solved.localRotation)
         : null;
-      const innovation = evaluatePoseHandInnovation({
-        previousRotation: tracking.lastRotation,
+      const innovationArguments = {
+        previousRotation: options.palmInnovationMode === 'observation-rate'
+          ? tracking.previousObservedRotation : tracking.lastRotation,
         candidateRotation: solvedWorldRotation,
-        previousTimestampMs: tracking.lastFrameAt,
+        previousTimestampMs: options.palmInnovationMode === 'observation-rate'
+          ? tracking.previousObservedAt : tracking.lastFrameAt,
         timestampMs: now,
         confidence: basis.confidence,
-      });
+      };
+      const innovation = options.palmInnovationMode === 'confirmed-reacquire'
+        ? evaluatePalmReacquisition(palmObservationHistory[side], innovationArguments,
+          { confirmationMs: POSE_HAND_TRACKING_GRACE_MS })
+        : evaluatePoseHandInnovation(innovationArguments);
+      if (options.palmInnovationMode === 'observation-rate') {
+        // Innovation is the speed of consecutive observations, not the gap to
+        // an output that the same gate has held. A stable new observation can
+        // therefore be reacquired; the independent jump/rate limiter still runs.
+        tracking.previousObservedRotation = solvedWorldRotation?.clone() ?? null;
+        tracking.previousObservedAt = now;
+      }
       const causal = updateCausalQuaternionTarget(
         tracking,
         innovation.hold ? null : solvedWorldRotation,
@@ -5012,6 +5101,8 @@ export function createAvatarRenderer(options = {}) {
           innovation.innovationRateDegPerSec,
         ),
         fingerTracked: false,
+        hand21Accepted: basis.hand21Accepted === true,
+        palmObservationAgeMs: basis.observationAgeMs ?? null,
       };
     }
 
@@ -6188,6 +6279,29 @@ export function createAvatarRenderer(options = {}) {
       );
 
     applyLocalQuaternionTarget(bone, rest, targetQuaternion, alpha, maxAngle, options);
+  }
+
+  function alignObservedHeadAxis(boneName, observedDirection, deltaMs) {
+    const bone = getBone(boneName), rest = getBoneRest(bone);
+    if (!bone || !rest || !observedDirection || observedDirection.lengthSq() < 1e-8) return;
+    const headTip = bone.children.find(child => /HeadTop_End$/.test(child.name));
+    const useCrown = boneName === 'Head' && options.headDirectionMode === 'head-physical';
+    if (useCrown && (!headTip || headTip.position.lengthSq() < 1e-8)) return;
+    // A bone's own position is in its parent's space, and describes its pivot,
+    // not the skull axis. For crown-bearing rigs use the actual cranial child.
+    const axisLocal = options.headDirectionMode === 'head-bind-up' ? rest.bindUpAxisLocal
+      : useCrown ? headTip.position.clone().normalize() : rest.axisLocal;
+    bone.updateWorldMatrix(true, false);
+    const worldRotation = bone.getWorldQuaternion(new THREE.Quaternion());
+    const currentDirection = axisLocal.clone().applyQuaternion(worldRotation).normalize();
+    const correction = new THREE.Quaternion().setFromUnitVectors(currentDirection, observedDirection.clone().normalize());
+    const targetWorld = correction.multiply(worldRotation).normalize();
+    const parentInverse = bone.parent ? bone.parent.getWorldQuaternion(new THREE.Quaternion()).invert() : new THREE.Quaternion();
+    const targetLocal = parentInverse.multiply(targetWorld).normalize();
+    const distance = bone.quaternion.angleTo(targetLocal);
+    const maxStep = THREE.MathUtils.degToRad(720) * Math.max(0, deltaMs) / 1000;
+    bone.quaternion.slerp(targetLocal, distance > 1e-8 ? Math.min(1, maxStep / distance) : 1).normalize();
+    bone.updateMatrixWorld(true);
   }
 
   function applyLocalQuaternionToBone(boneOrName, localRotation, alpha, maxAngle, options = {}) {

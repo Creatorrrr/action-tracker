@@ -1,0 +1,114 @@
+{
+  "version": 1,
+  "captureSourceSnapshot": "output/reports/r1-20260908/e1-source-hashes.json",
+  "clips": [
+    {
+      "clipId": "shorts-new-dance-E9_h_ZW5z0U-16x9-padded",
+      "label": "new-dance",
+      "corpus": "output/reports/r1-20260908/new-dance-full-v2-corpus.json",
+      "replays": [
+        {
+          "rig": "Xbot",
+          "modelUrl": "/assets/models/Xbot.glb",
+          "path": "output/reports/r2-20260912/bind-up/new-dance-xbot-replay.json"
+        },
+        {
+          "rig": "Soldier",
+          "modelUrl": "/assets/models/ratio-candidates/soldier.glb",
+          "path": "output/reports/r2-20260912/bind-up/new-dance-soldier-replay.json"
+        },
+        {
+          "rig": "Polydancer",
+          "modelUrl": "/assets/models/anime-candidates/polydancer.vrm",
+          "path": "output/reports/r2-20260912/bind-up/new-dance-polydancer-replay.json"
+        }
+      ],
+      "sourceImageSize": {
+        "width": 3414,
+        "height": 1920
+      },
+      "sourceImageSizeProvenance": "ffprobe source video header"
+    },
+    {
+      "clipId": "dance-16x9-padded",
+      "label": "dance",
+      "corpus": "output/reports/r1-20260908/dance-full-corpus.json",
+      "replays": [
+        {
+          "rig": "Xbot",
+          "modelUrl": "/assets/models/Xbot.glb",
+          "path": "output/reports/r2-20260912/bind-up/dance-xbot-replay.json"
+        },
+        {
+          "rig": "Soldier",
+          "modelUrl": "/assets/models/ratio-candidates/soldier.glb",
+          "path": "output/reports/r2-20260912/bind-up/dance-soldier-replay.json"
+        },
+        {
+          "rig": "Polydancer",
+          "modelUrl": "/assets/models/anime-candidates/polydancer.vrm",
+          "path": "output/reports/r2-20260912/bind-up/dance-polydancer-replay.json"
+        }
+      ],
+      "sourceImageSize": {
+        "width": 3414,
+        "height": 1920
+      },
+      "sourceImageSizeProvenance": "ffprobe source video header"
+    },
+    {
+      "clipId": "shorts-keGbIts0CA0-16x9-padded",
+      "label": "keGb",
+      "corpus": "output/reports/r1-20260908/ke-full-corpus.json",
+      "replays": [
+        {
+          "rig": "Xbot",
+          "modelUrl": "/assets/models/Xbot.glb",
+          "path": "output/reports/r2-20260912/bind-up/keGb-xbot-replay.json"
+        },
+        {
+          "rig": "Soldier",
+          "modelUrl": "/assets/models/ratio-candidates/soldier.glb",
+          "path": "output/reports/r2-20260912/bind-up/keGb-soldier-replay.json"
+        },
+        {
+          "rig": "Polydancer",
+          "modelUrl": "/assets/models/anime-candidates/polydancer.vrm",
+          "path": "output/reports/r2-20260912/bind-up/keGb-polydancer-replay.json"
+        }
+      ],
+      "sourceImageSize": {
+        "width": 3414,
+        "height": 1920
+      },
+      "sourceImageSizeProvenance": "ffprobe source video header"
+    },
+    {
+      "clipId": "shorts-vc0GDveRIp0-16x9-padded",
+      "label": "vc0G",
+      "corpus": "output/reports/r1-20260908/vc-full-corpus.json",
+      "replays": [
+        {
+          "rig": "Xbot",
+          "modelUrl": "/assets/models/Xbot.glb",
+          "path": "output/reports/r2-20260912/bind-up/vc0G-xbot-replay.json"
+        },
+        {
+          "rig": "Soldier",
+          "modelUrl": "/assets/models/ratio-candidates/soldier.glb",
+          "path": "output/reports/r2-20260912/bind-up/vc0G-soldier-replay.json"
+        },
+        {
+          "rig": "Polydancer",
+          "modelUrl": "/assets/models/anime-candidates/polydancer.vrm",
+          "path": "output/reports/r2-20260912/bind-up/vc0G-polydancer-replay.json"
+        }
+      ],
+      "sourceImageSize": {
+        "width": 1920,
+        "height": 1080
+      },
+      "sourceImageSizeProvenance": "ffprobe source video header"
+    }
+  ]
+}

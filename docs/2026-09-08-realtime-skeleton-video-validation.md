@@ -2,6 +2,8 @@
 
 2026-09-08. 이 문서는 [초기 분석·설계](/Users/chasoik/Projects/action-tracker/docs/2026-09-08-realtime-skeleton-avatar-analysis-plan.md)와 [R1 구현 기록](/Users/chasoik/Projects/action-tracker/docs/2026-09-08-realtime-skeleton-implementation.md)의 후속이다.
 
+2026-09-12 추가 결과: [손바닥·부위별 개선 실험](/Users/chasoik/Projects/action-tracker/docs/2026-09-12-palm-regional-improvements.md). 좌우 손 관측 837개를 원래 PTS에서 평가하고 3개 rig의 실제 손바닥을 측정했다. 부위별 보정은 다른 영상·endpoint의 회귀 또는 시각 실패로 기본 적용하지 않았다.
+
 ## 판단
 
 **실제 영상에 연결해 보니 좌표계 정리만으로 목표를 달성하지 못했다. 공통 3D 후보의 기본값 승격과 Heavy 모델 교체를 채택하지 않았다.** 일부 방향 오차가 개선되지만 실제 손·발·머리 위치의 회귀가 남는다. 원본 관측 보존과 동일 시각 SAM 비교는 구현·검증했고, 느린 추론 때문에 영상 자체를 멈추지 않는 실시간 평가 모드를 추가했다.
@@ -46,6 +48,8 @@ SAM reference는 독립 renderer에 전체 decoder cadence로 재생한다. Xbot
 12개 영상/rig 조합에서 총 23,433회 실제 renderer 적용, 후보의 15,939개 대응 frame/mode/rig 상태를 확인했다. 모든 상태에서 유한한 bone quaternion과 5개 FK endpoint를 수집했다. 이 숫자는 정확도 목표 통과를 뜻하지 않는다. 원본 기준선과 frame별 실제 적용 상태는 `output/reports/r1-20260908/*-replay.json`에 있다. [평가 소스 해시](/Users/chasoik/Projects/action-tracker/output/reports/r1-20260908/e1-source-hashes.json)와 소스 복사본도 보존했다.
 
 ## E1: 공통 3D의 효과와 회귀
+
+2026-09-12에 같은 프레임 기록을 [부위별로 재집계했다](/Users/chasoik/Projects/action-tracker/docs/2026-09-12-body-region-accuracy.md). 상체·하체, 몸통·머리·좌우 팔다리의 분포와 ‘상체 이내·하체 초과’ 프레임을 확인할 수 있다. 새 추론을 실행한 결과는 아니며 아래 후보 채택 판단은 유지한다.
 
 Xbot의 손·발·머리 위치 P95를 아래에 정리했다. 수치는 아바타 키에 대한 비율이며, 작을수록 SAM 구동 아바타에 가깝다. 예를 들어 0.20은 아바타 키의 20% 위치 차이다.
 

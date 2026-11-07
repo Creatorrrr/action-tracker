@@ -3,6 +3,7 @@ import {
   isWorkerRuntimeEnabled,
   resolveTrackingRuntimeOptions,
   resolveSkeletonMode,
+  resolveHeadDirectionMode,
   resolveVideoTimingMode,
   resolveInputFrameMaxDimension,
 } from "../src/tracking-runtime-options.js";
@@ -10,6 +11,12 @@ import {
 assert.equal(resolveSkeletonMode(""), "legacy-hybrid");
 assert.equal(resolveSkeletonMode("?skeleton-mode=canonical-world"), "canonical-world");
 assert.equal(resolveSkeletonMode("?skeleton-mode=invalid"), "legacy-hybrid");
+assert.equal(resolveHeadDirectionMode(''), 'off');
+assert.equal(resolveHeadDirectionMode('?head-direction=legacy'), 'off');
+assert.equal(resolveHeadDirectionMode('?head-direction=unknown'), 'off');
+assert.equal(resolveHeadDirectionMode('?experimental-head-direction=marker'), 'head-physical');
+assert.equal(resolveHeadDirectionMode('?experimental-head-direction=observed'), 'head-only');
+assert.equal(resolveHeadDirectionMode('?experimental-head-direction=bind-up'), 'head-bind-up');
 assert.equal(resolveVideoTimingMode(""), "adaptive-playback");
 assert.equal(resolveVideoTimingMode("?video-timing=realtime"), "realtime");
 assert.equal(resolveVideoTimingMode("?video-timing=invalid"), "adaptive-playback");

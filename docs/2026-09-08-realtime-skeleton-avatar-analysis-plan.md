@@ -2,6 +2,8 @@
 
 작성: 2026-09-08 KST · 분석 소스: `6cfc14996b73774ef34af0883937fb3f67dce68a`
 
+2026-09-12 후속: [좌우 손바닥·부위별 측정과 개선 실험](/Users/chasoik/Projects/action-tracker/docs/2026-09-12-palm-regional-improvements.md)에 실제 Hand 관측 PTS 비교, 보정 후보의 효과·회귀, 시각 검증 실패와 수정된 작업 순서를 정리했다. 측정 기능은 구현했지만 모든 부위의 동작 개선은 미완료이며 보정 후보를 기본값으로 채택하지 않았다.
+
 후속 상태: 사용자 승인 후 R1 후보를 구현하고, 사용자가 제공한 `assets/videos`의 원본 7개 해시를 확인했다. 아래는 구현 전 분석 기록이다. 최신 구현 상태는 [실행 기록](/Users/chasoik/Projects/action-tracker/docs/2026-09-08-realtime-skeleton-implementation.md), 실제 detector/아바타·모델·해상도 비교와 수정된 작업 순서는 [원본 영상 후속 검증](/Users/chasoik/Projects/action-tracker/docs/2026-09-08-realtime-skeleton-video-validation.md)에 정리했다.
 
 이 문서는 현재 코드에 대한 분석과 **제안 작업계획**이다. 구현을 실행하거나 기존 `GOAL_PLAN.md`를 활성화·변경하지 않았다. 사용자 요청대로 SAM 결과를 정답 스켈레톤으로 가정한다. SAM의 품질 재심사보다 실시간 입력과 최종 아바타 사이의 오차를 줄이는 데 초점을 둔다.
@@ -394,6 +396,8 @@ SAM 기준 아바타는 원본 canonical 목표와 endpoint 잔차를 함께 보
 avatar는 실제 local quaternion의 geodesic 거리 `2·acos(clamp(abs(dot(q1,q2)),0,1))`, model-local와 world FK endpoint, root, 접촉 slide를 측정한다. quaternion q와 -q는 같은 회전이다. 서로 다른 rig의 local quaternion을 직접 비교하지 않고, 같은 rig의 teacher/live를 비교한다.
 
 rig height는 rest 기준으로 고정한다. 프레임마다 움직이는 bounding-box 높이로 오차를 나누지 않는다. 풀링 결과 외에도 clip별·좌우별·속도·가림·회전 구간의 P50/P95와 최악 구간을 낸다. 긴 CSI 하나가 모든 결정을 지배하지 않게 기존 pooled 값과 clip별 값을 함께 본다.
+
+부위별 측정은 [2026-09-12 평가 결과와 재현 방법](/Users/chasoik/Projects/action-tracker/docs/2026-09-12-body-region-accuracy.md)에 구현했다. 상체·하체 요약과 몸통, 머리·목, 좌우 팔·다리, 골반 회전을 분리한다. 원시 추출 방향, 실제 적용 방향·local 회전, model-local/world FK를 섞지 않고 각 부위의 표본 P95, 프레임 내 최대 오차의 P95, coverage를 함께 계산한다. 상체 이내·하체 초과와 반대 경우는 동일 PTS 프레임에서 집계한다. 프레임 진단선은 아래 통합 합격 기준의 대체가 아니며, 기존 기준을 변경하지 않는다.
 
 ### 6.4 “실시간”은 세 가지를 측정한다
 

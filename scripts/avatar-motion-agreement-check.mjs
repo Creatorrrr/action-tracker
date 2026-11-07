@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const defaults = {
@@ -231,6 +231,9 @@ function parseArgs(rawArgs) {
     } else if (arg === "--video-timing") {
       parsed.videoTimingMode = readRequiredOptionValue(rawArgs, ++index, arg);
       if (!["adaptive-playback", "realtime"].includes(parsed.videoTimingMode)) throw new Error("Unsupported video timing mode");
+    } else if (arg === "--input-crop") {
+      parsed.inputCrop = readRequiredOptionValue(rawArgs, ++index, arg);
+      if (!["none", "letterbox"].includes(parsed.inputCrop)) throw new Error("Unsupported input crop mode");
     } else if (arg === "--input-max-dimension") {
       parsed.inputMaxDimension = Number(readRequiredOptionValue(rawArgs, ++index, arg));
       if (![640, 960, 1280, 1920].includes(parsed.inputMaxDimension)) throw new Error("Unsupported input maximum dimension");
@@ -340,6 +343,7 @@ function buildAppUrl(port, args) {
   if (args.skeletonMode) url.searchParams.set("skeleton-mode", args.skeletonMode);
   if (args.videoTimingMode) url.searchParams.set("video-timing", args.videoTimingMode);
   if (args.inputMaxDimension) url.searchParams.set("input-max-dimension", String(args.inputMaxDimension));
+  if (args.inputCrop) url.searchParams.set("input-crop", args.inputCrop);
 
   return url.href;
 }
@@ -385,6 +389,7 @@ Options:
   --video-timing <mode>      adaptive-playback (default) or realtime (never pause input for inference backlog).
   --input-max-dimension <n>  Bounded Body/Hand snapshot: 640 (default), 960, 1280, or 1920. Face remains separate.
   --video <path>             Sample video path. Repeat for a multi-video matrix. Default: ${defaults.video}
+  --input-crop <mode>        Experimental same-frame black-border crop: none|letterbox.
   --model <label=path>       Add a model on top of the local defaults.
   --only-models              Run only models passed with --model.
   --output <path>            JSON report path. Default: ${defaults.output}; empty disables writing.
@@ -1987,4 +1992,6 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-await main();
+export { startStaticServer, startChrome, createPage, CdpClient, evaluate, waitForExpression };
+
+if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) await main();

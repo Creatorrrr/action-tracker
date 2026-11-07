@@ -554,7 +554,7 @@ function checkSyntax(relativePath) {
 
 function checkPackageContract(packageJson) {
   check(
-    packageJson?.scripts?.check === "node tests/contract-check.mjs && node tests/canonical-skeleton-adapter-check.mjs && node tests/canonical-pose-check.mjs && node tests/avatar-vrm-rendering-compat-check.mjs && node tests/avatar-vrm-humanoid-check.mjs && node tests/avatar-vrm-expression-check.mjs && node tests/avatar-applied-state-check.mjs && node tests/latest-frame-pump-check.mjs && node tests/tracking-input-generation-check.mjs && node tests/tracking-cadence-check.mjs && node tests/tracking-runtime-options-check.mjs && node tests/hand-roi-check.mjs && node tests/retarget-orientation-check.mjs && node tests/face-head-pose-check.mjs && node tests/causal-finger-flex-check.mjs && node tests/strict-retarget-check.mjs && node tests/depth-calibration-check.mjs && node tests/motion-frame-check.mjs && node tests/motion-forwarding-check.mjs && node tests/presence-state-check.mjs && node tests/facing-estimator-check.mjs && node tests/solver-synthetic-check.mjs && node tests/sam-manual-labels-check.mjs && node tests/motion-recording-compare-check.mjs && node tests/retarget-mode-compare-check.mjs && node tests/mhr70-mapping-check.mjs && node tests/mhr70-hands-check.mjs && node tests/gesture-classifier-check.mjs && node tests/sam-reference-labeler-check.mjs && node tests/sam-calibration-profile-check.mjs && node tests/sam-regression-oracle-check.mjs && node tests/hmr-jsonl-adapter-check.mjs && node tests/clip-manifest-check.mjs",
+    packageJson?.scripts?.check === "node tests/contract-check.mjs && node tests/canonical-skeleton-adapter-check.mjs && node tests/canonical-pose-check.mjs && node tests/sam-body-regions-check.mjs && node tests/palm-frame-check.mjs && node tests/palm-reacquisition-check.mjs && node tests/letterbox-input-check.mjs && node tests/reprojection-pose-check.mjs && node tests/avatar-vrm-rendering-compat-check.mjs && node tests/avatar-vrm-humanoid-check.mjs && node tests/avatar-vrm-expression-check.mjs && node tests/avatar-applied-state-check.mjs && node tests/latest-frame-pump-check.mjs && node tests/tracking-input-generation-check.mjs && node tests/tracking-cadence-check.mjs && node tests/tracking-runtime-options-check.mjs && node tests/hand-roi-check.mjs && node tests/retarget-orientation-check.mjs && node tests/face-head-pose-check.mjs && node tests/causal-finger-flex-check.mjs && node tests/strict-retarget-check.mjs && node tests/depth-calibration-check.mjs && node tests/motion-frame-check.mjs && node tests/motion-forwarding-check.mjs && node tests/presence-state-check.mjs && node tests/facing-estimator-check.mjs && node tests/solver-synthetic-check.mjs && node tests/sam-manual-labels-check.mjs && node tests/motion-recording-compare-check.mjs && node tests/retarget-mode-compare-check.mjs && node tests/mhr70-mapping-check.mjs && node tests/mhr70-hands-check.mjs && node tests/gesture-classifier-check.mjs && node tests/sam-reference-labeler-check.mjs && node tests/sam-calibration-profile-check.mjs && node tests/sam-regression-oracle-check.mjs && node tests/hmr-jsonl-adapter-check.mjs && node tests/clip-manifest-check.mjs",
     "package.json: check script must run the contract, rendering, applied-state, latest-frame pump, tracker generation, tracking cadence, retarget, solver, recording, and SAM regression checks",
   );
   check(
@@ -1066,7 +1066,7 @@ function checkAvatarRendererContract(avatarRenderer) {
     ],
     [
       "drives all retarget paths from one causal frame clock while preserving capture time",
-      /function\s+update\s*\([^)]*\)[\s\S]*?const\s+frameTimestamp\s*=\s*frame\?\.timestamp\s*\?\?\s*timestamp[\s\S]*?const\s+causalFrameTimestampMs\s*=\s*resolveCausalSourceTimestampMs\([\s\S]*?updateDelta\(\s*causalFrameTimestampMs\s*\)[\s\S]*?applyPose\([\s\S]*?causalFrameTimestampMs\s*,\s*canonicalPose\s*,\s*\)[\s\S]*?applyFaceHeadPose\([^;]*causalFrameTimestampMs\s*\)[\s\S]*?applyPoseOwnedHandOrientations\([\s\S]*?causalFrameTimestampMs\s*,?\s*\)[\s\S]*?captureAppliedAvatarState\(\s*\{[\s\S]*?sourceTimestampMs\s*:\s*frameTimestamp/,
+      /function\s+update\s*\([^)]*\)[\s\S]*?const\s+frameTimestamp\s*=\s*frame\?\.timestamp\s*\?\?\s*timestamp[\s\S]*?const\s+causalFrameTimestampMs\s*=\s*resolveCausalSourceTimestampMs\([\s\S]*?updateDelta\(\s*causalFrameTimestampMs\s*\)[\s\S]*?applyPose\([\s\S]*?causalFrameTimestampMs\s*,\s*canonicalPose\s*,\s*accuracyPoints\s*,\s*\)[\s\S]*?applyFaceHeadPose\([^;]*causalFrameTimestampMs\s*\)[\s\S]*?applyPoseOwnedHandOrientations\([\s\S]*?causalFrameTimestampMs\s*,\s*frame\s*,\s*\)[\s\S]*?captureAppliedAvatarState\(\s*\{[\s\S]*?sourceTimestampMs\s*:\s*frameTimestamp/,
     ],
     [
       "shares the causal pose cache clock across body and depth validation snapshots",
@@ -1454,7 +1454,7 @@ function checkBoundedFrameSnapshotContract(app, boundedFrameSnapshot) {
 
   const bodyCapture = sourceBetween(
     app,
-    "function captureDetectionFrameSnapshot(video)",
+    "function captureDetectionFrameSnapshot(video,",
     "function captureFaceDetectionFrameSnapshot(video)",
   );
   const faceCapture = sourceBetween(
@@ -1884,7 +1884,7 @@ check(
   `${files.app}: one cached preparation outcome must own each generation/runtime/configuration and only generation advance may supersede it`,
 );
 check(
-  /async\s+function\s+nominateVideoGenerationBoundary\([^)]*\)[\s\S]*await\s+prepareBodyTrackerGeneration\(inputGeneration\)[\s\S]*const\s+callbackReceivedAt[\s\S]*buildDetectionSourceTiming\([\s\S]*captureDetectionFrameSnapshot\(video\)/.test(app),
+  /async\s+function\s+nominateVideoGenerationBoundary\([^)]*\)[\s\S]*await\s+prepareBodyTrackerGeneration\(inputGeneration\)[\s\S]*const\s+callbackReceivedAt[\s\S]*buildDetectionSourceTiming\([\s\S]*captureDetectionFrameSnapshot\(video,\s*\{\s*sourceTiming\s*\}\)/.test(app),
   `${files.app}: boundary preparation must finish before source timing construction and snapshot capture`,
 );
 check(

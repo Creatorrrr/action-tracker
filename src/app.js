@@ -48,11 +48,12 @@ import {
 } from "./pose-guided-hand-fallback.js?v=20260715-pose-hand-fallback-1";
 import { computeBoundedFrameSize } from "./bounded-frame-snapshot.js?v=20260716-face512-1";
 import { preparePoseObservation } from "./pose/observation-adapter.js";
+import { detectLetterboxContent, restorePoseImageCoordinates } from "./pose/letterbox-input.js";
 import {
   createPresenceState,
   updatePresenceState,
 } from "./presence-state.js?v=20260703-csi-presence-1";
-import { isWorkerRuntimeEnabled, resolveSkeletonMode, resolveVideoTimingMode, resolveInputFrameMaxDimension } from "./tracking-runtime-options.js?v=20260908-realtime-evaluation-1";
+import { isWorkerRuntimeEnabled, resolveSkeletonMode, resolveHeadDirectionMode, resolveVideoTimingMode, resolveInputFrameMaxDimension } from "./tracking-runtime-options.js?v=20260912-regions-2";
 import {
   DEPTH_CALIBRATION_CLAMP_WARNING_RATIO,
   DEPTH_CALIBRATION_LENGTH_ERROR_THRESHOLD,
@@ -856,6 +857,7 @@ function initAvatarRenderer() {
       modelUrl,
       modelLabel,
       skeletonMode: resolveSkeletonMode(globalThis.location?.search),
+      headDirectionMode: resolveHeadDirectionMode(globalThis.location?.search),
       depthScale: getInitialAvatarDepthScale(),
       depthCalibrationMode: getInitialAvatarDepthCalibrationMode(),
       smoothingMode: state.avatarSmoothingMode,
@@ -2845,13 +2847,13 @@ async function nominateVideoGenerationBoundary(boundaryReason, options = {}) {
   let frameSource = null;
   let handFrameSource = null;
   try {
-    frameSource = captureDetectionFrameSnapshot(video);
+    frameSource = captureDetectionFrameSnapshot(video, { sourceTiming });
     state.detectionPump.snapshotFrames += 1;
     if (shouldCaptureHandSnapshot(callbackReceivedAt, boundarySourcePtsSec)) {
       state.handPipeline.lastSnapshotAt = callbackReceivedAt;
       state.handPipeline.lastSnapshotSourcePtsSec = boundarySourcePtsSec;
       try {
-        handFrameSource = captureDetectionFrameSnapshot(video);
+        handFrameSource = captureDetectionFrameSnapshot(video, { hand: true });
         state.handPipeline.snapshots += 1;
       } catch (error) {
         state.handPipeline.snapshotErrors += 1;
@@ -3066,7 +3068,7 @@ function offerFrameForDetection(timestamp, metadata, pumpMode) {
   };
 
   try {
-    const frameSource = captureDetectionFrameSnapshot(state.elements.video);
+    const frameSource = captureDetectionFrameSnapshot(state.elements.video, { sourceTiming: admittedSourceTiming });
     state.detectionPump.snapshotFrames += 1;
     let handFrameSource = null;
 
@@ -3074,7 +3076,7 @@ function offerFrameForDetection(timestamp, metadata, pumpMode) {
       state.handPipeline.lastSnapshotAt = callbackReceivedAt;
       state.handPipeline.lastSnapshotSourcePtsSec = sourceTiming.sourcePtsSec;
       try {
-        handFrameSource = captureDetectionFrameSnapshot(state.elements.video);
+        handFrameSource = captureDetectionFrameSnapshot(state.elements.video, { hand: true });
         state.handPipeline.snapshots += 1;
       } catch (error) {
         state.handPipeline.snapshotErrors += 1;
@@ -3148,7 +3150,8 @@ function shouldCaptureHandSnapshot(callbackReceivedAt, sourcePtsSec) {
   return true;
 }
 
-function captureDetectionFrameSnapshot(video) {
+let letterboxSampleCanvas = null;
+function captureDetectionFrameSnapshot(video, { hand = false, sourceTiming = null } = {}) {
   if (!supportsDetectionFrameSnapshot()) {
     throw new Error("OffscreenCanvas transferToImageBitmap is unavailable for the exact-PTS rVFC pump.");
   }
@@ -3160,9 +3163,23 @@ function captureDetectionFrameSnapshot(video) {
     throw new Error("Cannot snapshot an empty video frame.");
   }
 
+  let crop = { x: 0, y: 0, width: 1, height: 1 };
+  if (!hand && sourceTiming && new URLSearchParams(location.search).get('input-crop') === 'letterbox') {
+    const sampleSize = computeBoundedFrameSize(width, height, 320);
+    letterboxSampleCanvas ??= new OffscreenCanvas(1, 1);
+    letterboxSampleCanvas.width = sampleSize.width;
+    letterboxSampleCanvas.height = sampleSize.height;
+    const context = letterboxSampleCanvas.getContext('2d', { willReadFrequently: true });
+    context.drawImage(video, 0, 0, sampleSize.width, sampleSize.height);
+    crop = detectLetterboxContent(context.getImageData(0, 0, sampleSize.width, sampleSize.height));
+    sourceTiming.bodyInputCrop = crop;
+  }
+  if (sourceTiming) sourceTiming.sourceImageSize = { width, height };
+  const cropWidth = Math.max(1, Math.round(width * crop.width));
+  const cropHeight = Math.max(1, Math.round(height * crop.height));
   const { width: targetWidth, height: targetHeight } = computeBoundedFrameSize(
-    width,
-    height,
+    cropWidth,
+    cropHeight,
     resolveInputFrameMaxDimension(globalThis.location?.search, MAX_INFERENCE_FRAME_DIMENSION),
   );
 
@@ -3182,7 +3199,8 @@ function captureDetectionFrameSnapshot(video) {
     throw new Error("Unable to create the bounded detection snapshot canvas.");
   }
 
-  detectionSnapshotContext.drawImage(video, 0, 0, targetWidth, targetHeight);
+  detectionSnapshotContext.drawImage(video, width * crop.x, height * crop.y,
+    width * crop.width, height * crop.height, 0, 0, targetWidth, targetHeight);
   return detectionSnapshotCanvas.transferToImageBitmap();
 }
 
@@ -5119,12 +5137,13 @@ async function runDetectionFrame(timestamp, options = {}) {
 
     const detectStartedAt = nowMs();
     const frameSource = options.frameSource ?? video;
-    const motionFrame = await detectMotionFrameForVideo(
+    const detectedFrame = await detectMotionFrameForVideo(
       frameSource,
       frameTimestamp,
       sourceTiming,
       inputGeneration,
     );
+    const motionFrame = restorePoseImageCoordinates(detectedFrame);
     if (inputGeneration !== getLatestFramePump().getGeneration()) {
       releaseBodyTrackerPlaybackGate(inputGeneration, "stale-result");
       return null;
@@ -7542,6 +7561,15 @@ function getCurrentMotionSourceMeta(
     videoTime: sourcePtsSec,
     videoTimingMode: resolveVideoTimingMode(globalThis.location?.search),
     inputMaxDimension: resolveInputFrameMaxDimension(globalThis.location?.search, MAX_INFERENCE_FRAME_DIMENSION),
+    inputCropMode: new URLSearchParams(location.search).get('input-crop') === 'letterbox' ? 'letterbox' : 'none',
+    headDirectionMode: resolveHeadDirectionMode(globalThis.location?.search),
+    // MotionFrame sourceMeta has a scalar-only wire contract.
+    bodyInputCropX: sourceTiming?.bodyInputCrop?.x ?? null,
+    bodyInputCropY: sourceTiming?.bodyInputCrop?.y ?? null,
+    bodyInputCropWidth: sourceTiming?.bodyInputCrop?.width ?? null,
+    bodyInputCropHeight: sourceTiming?.bodyInputCrop?.height ?? null,
+    sourceImageWidth: sourceTiming?.sourceImageSize?.width ?? null,
+    sourceImageHeight: sourceTiming?.sourceImageSize?.height ?? null,
     sourcePtsSec,
     sourcePtsSource: sourceTiming?.sourcePtsSource ?? sourcePtsFallbackSource(pumpMode),
     pumpMode,

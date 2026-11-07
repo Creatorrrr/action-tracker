@@ -5,20 +5,25 @@ import { preparePoseObservation } from "../src/pose/observation-adapter.js";
 import { compareSamePoseAppliedAvatarStates, endpointHeightNormalizedError } from "../src/avatar-applied-state.js";
 import { summarizeSamples } from "./lib/sam-pairing.mjs";
 
-export async function probePairedRenderer({ corpus, modelUrl, onProgress = () => {}, includeFrameRows = true }) {
+export async function probePairedRenderer({ corpus, modelUrl, onProgress = () => {}, includeFrameRows = true,
+  referenceRendererUrl = null, variants = null }) {
   const { liveFrames, teacherFrames, alignment } = corpus;
   const referenceStates = new Map(), oracleSegments = {};
   const teacherIndices = new Set(alignment.pairs.filter(p=>p.referenceObserved).map(p=>p.teacherIndex));
   const matched = new Map(alignment.pairs.filter(p=>p.referenceObserved).map(p=>[p.liveIndex,p]));
   const aspect = teacherFrames[0].sourceMeta.imageWidth / teacherFrames[0].sourceMeta.imageHeight;
   const results = [];
-  for (const mode of ["sam-reference", "legacy-hybrid", "aspect-diagnostic", "canonical-world"]) {
+  const referenceFactory = referenceRendererUrl ? (await import(referenceRendererUrl)).createAvatarRenderer : createAvatarRenderer;
+  const cases = variants ?? ["legacy-hybrid", "aspect-diagnostic", "canonical-world"].map(mode => ({ mode,
+    inputMode: mode === "canonical-world" ? mode : "legacy-hybrid" }));
+  for (const variant of [{ mode: "sam-reference", inputMode: "canonical-world", frozenRenderer: true }, ...cases]) {
+    const { mode } = variant;
     const canvas = document.createElement("canvas");
     canvas.style.cssText = "width:480px;height:640px;position:fixed;right:0;top:0;z-index:1000;background:#eee";
     document.body.appendChild(canvas);
-    const renderer = createAvatarRenderer({ canvas, modelUrl,
-      skeletonMode: ["sam-reference", "canonical-world"].includes(mode) ? "canonical-world" : "legacy-hybrid",
-      smoothingMode: "retarget", retargetMode: "strict" });
+    const renderer = (variant.frozenRenderer ? referenceFactory : createAvatarRenderer)({ canvas, modelUrl,
+      skeletonMode: variant.inputMode,
+      smoothingMode: "retarget", retargetMode: "strict", ...variant.rendererOptions });
     const direction = {}, quaternion = {}, endpoint = {}, worldEndpoint = {}, rows = [];
     let appliedCount = 0;
     try {
@@ -28,7 +33,7 @@ export async function probePairedRenderer({ corpus, modelUrl, onProgress = () =>
       for (let index=0; index<frames.length; index++) {
         let frame = frames[index];
         if (mode !== "sam-reference") {
-          frame = preparePoseObservation(frame, { mode: mode === "canonical-world" ? mode : "legacy-hybrid" });
+          frame = preparePoseObservation(frame, { mode: variant.inputMode });
           if (mode === "aspect-diagnostic") {
             // Offline diagnostic only: image x expressed in image-height units.
             // The product's 2D root path also sees this transform. This is not a
@@ -67,7 +72,8 @@ export async function probePairedRenderer({ corpus, modelUrl, onProgress = () =>
         }
         if (index % 60 === 0) { onProgress({ clipId:corpus.clipId, modelUrl, mode, index, total:frames.length }); await new Promise(requestAnimationFrame); }
       }
-      if (mode !== "sam-reference") results.push({ mode, appliedCount, scoredFrames:matched.size,
+      if (mode !== "sam-reference") results.push({ mode, inputMode:variant.inputMode,
+        rendererOptions:variant.rendererOptions ?? {}, frozenRenderer:Boolean(variant.frozenRenderer), appliedCount, scoredFrames:matched.size,
         directionErrorDeg:summarizeMap(direction), quaternionErrorDeg:summarizeMap(quaternion),
         modelLocalEndpointHeightRatio:summarizeMap(endpoint), worldEndpointHeightRatio:summarizeMap(worldEndpoint), frameRows:rows });
     } finally { renderer.dispose(); canvas.remove(); }
@@ -76,7 +82,7 @@ export async function probePairedRenderer({ corpus, modelUrl, onProgress = () =>
     scope:"Identical raw detector replay; conditional accuracy at exact observed rVFC/decoder PTS pairs",
     referencePolicy:"SAM canonical observations, full decoder cadence, independent strict product renderer with retarget smoothing. FK/rotation are SAM-driven-avatar agreement, not measured ground-truth bone rotations. Direct SAM direction errors independently expose reference retarget residual.",
     limitations:["No temporal alignment fitting", "No realtime speed claim from replay", "No ground-truth camera translation/root", "Sparse neck/head targets are landmark priors", "Existing reference contact/filter errors remain visible in oracle residual", "Aspect diagnostic also changes 2D root input"],
-    alignment, oracleDirectionErrorDeg:summarizeMap(oracleSegments),
+    referenceRendererUrl, alignment, oracleDirectionErrorDeg:summarizeMap(oracleSegments),
     referenceStates:includeFrameRows ? Object.fromEntries(referenceStates) : undefined, results };
 }
 

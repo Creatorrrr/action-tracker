@@ -5,6 +5,14 @@ export function resolveSkeletonMode(search) {
     ? "canonical-world" : "legacy-hybrid";
 }
 
+// Cranial refinement is explicit until physical-axis and rotation/FK gates
+// agree. Keep the previous mapping as the product default.
+export function resolveHeadDirectionMode(search) {
+  const mode = new URLSearchParams(String(search ?? '')).get('experimental-head-direction');
+  return mode === 'marker' ? 'head-physical' : mode === 'observed' ? 'head-only'
+    : mode === 'bind-up' ? 'head-bind-up' : 'off';
+}
+
 export function resolveVideoTimingMode(search) {
   return new URLSearchParams(String(search ?? "")).get("video-timing") === "realtime"
     ? "realtime" : "adaptive-playback";
